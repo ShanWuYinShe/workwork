@@ -4,14 +4,13 @@ set -e
 PARENT_IFACE="${PARENT_IFACE:-eth0}"
 
 create_network() {
-  local name=$1 subnet=$2 ip_range=$3
+  local name=$1; shift
   if docker network ls --format '{{.Name}}' | grep -q "^${name}$"; then
     echo "Network ${name} already exists, skipping."
   else
     docker network create -d ipvlan \
       --ipv6 \
-      --subnet="${subnet}" \
-      --ip-range="${ip_range}" \
+      "$@" \
       -o parent="${PARENT_IFACE}" \
       -o ipvlan_mode=l3 \
       "${name}"
@@ -21,9 +20,11 @@ create_network() {
 
 echo "Creating ipvlan networks (parent=${PARENT_IFACE})..."
 
-# 单个 ipvlan 网络，所有外部容器共用
+# Single ipvlan network shared by all external containers
+# IPv4 subnet for dev services (PostgreSQL, Redis, MinIO, dev container)
+# IPv6 subnet for Xray proxy
 create_network ipvlan_docker \
-  "2605:a141:2322:2623::/64" \
-  "2605:a141:2322:2623:1::/80"
+  --subnet="172.18.0.0/16" --ip-range="172.18.0.0/24" \
+  --subnet="2605:a141:2322:2623::/64" --ip-range="2605:a141:2322:2623:1::/80"
 
 echo "Done. Now run: docker compose up -d"
