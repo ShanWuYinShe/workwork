@@ -11,7 +11,7 @@
       "settings": {
         "clients": [
           {
-            "id": "xray-liyou",
+            "id": "{{CLIENT_ID}}",
             "flow": ""
           }
         ],
@@ -20,7 +20,28 @@
       "streamSettings": {
         "network": "xhttp",
         "xhttpSettings": {
-          "path": "/query"
+          "path": "/{{XRAY_PATH}}/query"
+        }
+      }
+    },
+    {
+      "tag": "ws-in",
+      "listen": "0.0.0.0",
+      "port": 8444,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "{{CLIENT_ID}}",
+            "flow": ""
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/{{XRAY_PATH}}/ws"
         }
       }
     },
@@ -32,7 +53,7 @@
       "settings": {
         "clients": [
           {
-            "id": "xray-liyou",
+            "id": "{{CLIENT_ID}}",
             "flow": "xtls-rprx-vision"
           }
         ],
@@ -42,10 +63,10 @@
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "dest": "www.microsoft.com:443",
-          "serverNames": ["www.microsoft.com"],
-          "privateKey": "GAskissZy2Uer14uVAeo9AiFqdnqRT6AX7JTHosYiUA",
-          "shortIds": ["abcdef"]
+          "dest": "{{REALITY_DEST}}",
+          "serverNames": {{REALITY_SERVER_NAMES}},
+          "privateKey": "{{PRIVATE_KEY}}",
+          "shortIds": {{SHORT_IDS}}
         }
       }
     }
