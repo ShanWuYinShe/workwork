@@ -2,6 +2,19 @@
 requires = ["setuptools>=64"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
+[project]
+name = "dev-env"
+version = "5.0.0"
+requires-python = ">=3.9"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

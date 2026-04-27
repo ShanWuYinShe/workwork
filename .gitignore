@@ -7,14 +7,8 @@
 .local/
 
 # Generated Xray configs and TLS certificates (contain private keys)
-# NOTE: server_cert.key and server_cert.pem are already in git history.
-# They cannot be removed without a full history rewrite.
 configs/
 cert/
-gen-xray-config.sh
-
-# Generated docs
-docs/superpowers/
 
 # OS
 .DS_Store
@@ -28,3 +22,12 @@ node_modules/
 # Build artifacts
 dist/
 build/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Claude Code
+.claude/

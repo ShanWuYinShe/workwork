@@ -1,13 +1,12 @@
 """IP Address Management for ipvlan_docker network."""
 
 import json
-import os
 import subprocess
 from typing import Optional
 
-from dev.core import (
-    IP_ALLOC_FILE, IPVLAN_NETWORK, IPVLAN_SERVICES, UI, get_env
-)
+from dev.paths import IP_ALLOC_FILE
+from dev.core import UI
+from dev.config import get_config
 
 
 # ===========================================
@@ -45,9 +44,9 @@ def save_ip_allocs(allocs: dict):
 # Discovery
 # ===========================================
 def get_reserved_ips() -> set:
-    """Parse IPVLAN_RESERVED from env: e.g. '172.18.0.1-172.18.0.50' or comma-sep IPs."""
+    """Parse reserved IP range from config (network.reserved)."""
     reserved = set()
-    raw = get_env("IPVLAN_RESERVED", "")
+    raw = str(get_config("network.reserved", ""))
     if not raw:
         return reserved
     for part in raw.split(","):
@@ -66,12 +65,20 @@ def get_reserved_ips() -> set:
     return reserved
 
 
+def _network_name() -> str:
+    return get_config("network.name", "ipvlan_docker")
+
+
+def _alloc_start() -> str:
+    return get_config("network.alloc_start", "172.18.0.51")
+
+
 def get_docker_used_ips() -> set:
-    """Get IPs currently in use on ipvlan_docker."""
+    """Get IPs currently in use on the ipvlan network."""
     used = set()
     result = subprocess.run(
         ["docker", "network", "inspect", "-f",
-         "{{range .Containers}}{{.IPv4Address}} {{end}}", IPVLAN_NETWORK],
+         "{{range .Containers}}{{.IPv4Address}} {{end}}", _network_name()],
         capture_output=True, text=True
     )
     if result.returncode == 0:
@@ -82,8 +89,9 @@ def get_docker_used_ips() -> set:
     return used
 
 
-def find_free_ip(start: str = "172.18.0.51", max_attempts: int = 1000) -> Optional[str]:
+def find_free_ip(start: str = None, max_attempts: int = 1000) -> Optional[str]:
     """Find an unused IP, avoiding reserved and docker-used addresses."""
+    start = start or _alloc_start()
     reserved = get_reserved_ips()
     used = get_docker_used_ips()
     start_int = ip_to_int(start)
@@ -98,25 +106,23 @@ def find_free_ip(start: str = "172.18.0.51", max_attempts: int = 1000) -> Option
 # Allocation orchestration
 # ===========================================
 def ensure_ips_allocated() -> dict:
-    """Ensure all services have an IP. Returns {service: ip}.
+    """Ensure all services have an IP. Returns {service: ip}."""
+    from dev.core import get_ipvlan_services
 
-    Tracks both docker-used IPs and IPs already assigned in this run
-    to prevent allocating the same address to multiple services.
-    """
     allocs = load_ip_allocs()
     used = get_docker_used_ips()
     assigned_this_run: set = set()
     updated = False
+    services = get_ipvlan_services()
 
-    for svc in IPVLAN_SERVICES:
+    for svc in services:
         ip = allocs.get(svc, "")
         if ip and ip not in used and ip not in assigned_this_run:
             assigned_this_run.add(ip)
             continue
 
-        # Scan for IP that isn't reserved, docker-used, or already assigned
         reserved = get_reserved_ips()
-        start_int = ip_to_int("172.18.0.51")
+        start_int = ip_to_int(_alloc_start())
         free: Optional[str] = None
         for offset in range(1000):
             candidate = int_to_ip(start_int + offset)
@@ -139,8 +145,9 @@ def ensure_ips_allocated() -> dict:
 
 def ip_env_for_services() -> dict:
     """Return {IPVLAN_IP_<SERVICE>: ip} for use in compose."""
+    from dev.core import get_ipvlan_services
     allocs = load_ip_allocs()
-    return {f"IPVLAN_IP_{svc.upper()}": allocs.get(svc, "") for svc in IPVLAN_SERVICES}
+    return {f"IPVLAN_IP_{svc.upper()}": allocs.get(svc, "") for svc in get_ipvlan_services()}
 
 
 def detect_ip_conflicts(allocs: dict) -> list[str]:

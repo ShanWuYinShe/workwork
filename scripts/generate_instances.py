@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 """
 Xray Instance Generator
-Generates Xray Reality and Nginx configs from templates and instances.conf.
+Generates Xray Reality and Nginx configs from templates and instances.yaml.
 Auto-generates keys if not provided.
 
 Usage:
-    python3 scripts/generate-instances.py [--instances FILE]
+    python3 scripts/generate_instances.py [--instances FILE]
 """
 
-import sys
 import json
-import argparse
+import sys
 import subprocess
 import uuid
+import argparse
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-PROJECT_DIR = SCRIPT_DIR.parent
-TEMPLATES_DIR = PROJECT_DIR / "templates"
-CONFIGS_DIR = PROJECT_DIR / "configs"
-CLIENT_INFO_FILE = PROJECT_DIR / ".local" / "instances.json"
+import yaml
 
-INSTANCES_DEFAULT = PROJECT_DIR / "instances.conf"
+# Make dev package importable when run as a standalone script
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from dev.paths import TEMPLATES_DIR, CONFIG_DIR, INSTANCES_JSON, INSTANCES_CONF
+from dev.config import get_config
+
 
 def run_xray(cmd: list[str]) -> str:
     """Run xray command in a container and return output."""
@@ -64,37 +65,35 @@ def generate_keypair() -> tuple[str, str]:
 
 
 def parse_instances(path: Path) -> list[dict]:
-    """Parse instances.conf and return list of instance dicts."""
-    instances = []
+    """Parse instances.yaml and return list of instance dicts."""
+    if not path.exists():
+        print(f"ERROR: instances file not found: {path}")
+        sys.exit(1)
+
     with open(path) as f:
-        for line_num, line in enumerate(f, 1):
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) < 3:
-                print(f"  [WARN] line {line_num}: skipping, need at least 3 fields (name, xray_name, xray_path)")
-                continue
+        data = yaml.safe_load(f)
 
-            name = parts[0]
-            xray_name = parts[1]
-            xray_path = parts[2]
-            client_id = parts[3] if len(parts) > 3 else ""
-            private_key = parts[4] if len(parts) > 4 else ""
-            short_ids = parts[5] if len(parts) > 5 and parts[5] else "abcdef"
-            reality_dest = parts[6] if len(parts) > 6 and parts[6] else "www.microsoft.com:443"
-            reality_server_names = parts[7] if len(parts) > 7 and parts[7] else '["www.microsoft.com"]'
+    if not data or "instances" not in data:
+        print("No instances found in file")
+        return []
 
-            instances.append({
-                "name": name,
-                "xray_name": xray_name,
-                "xray_path": xray_path,
-                "client_id": client_id,
-                "private_key": private_key,
-                "short_ids": short_ids,
-                "reality_dest": reality_dest,
-                "reality_server_names": reality_server_names,
-            })
+    defaults = get_config("xray", {})
+
+    instances = []
+    for inst in data["instances"]:
+        if not inst.get("name"):
+            continue
+        instances.append({
+            "name": inst["name"],
+            "xray_name": inst.get("xray_name", f"xray-reality-{inst['name']}"),
+            "xray_path": inst.get("path", inst["name"]),
+            "client_id": inst.get("client_id", ""),
+            "private_key": inst.get("private_key", ""),
+            "short_ids": inst.get("short_ids", defaults.get("default_short_ids", "abcdef")),
+            "reality_dest": inst.get("reality_dest", defaults.get("reality_dest", "www.microsoft.com:443")),
+            "reality_server_names": inst.get("reality_server_names",
+                                             defaults.get("reality_server_names", ["www.microsoft.com"])),
+        })
     return instances
 
 
@@ -103,8 +102,17 @@ def render_template(template_path: Path, vars_: dict) -> str:
     with open(template_path) as f:
         content = f.read()
     for key, val in vars_.items():
+        if isinstance(val, list):
+            val = json.dumps(val)
         content = content.replace(f"{{{{{key}}}}}", str(val))
     return content
+
+
+def _atomic_write(path: Path, content: str):
+    """Write file atomically: write to hidden temp, then rename."""
+    tmp = path.parent / f".{path.name}.tmp"
+    tmp.write_text(content)
+    tmp.rename(path)
 
 
 def generate_instance(instance: dict, xray_template: str, nginx_template: str) -> dict:
@@ -112,6 +120,7 @@ def generate_instance(instance: dict, xray_template: str, nginx_template: str) -
     name = instance["name"]
     xray_name = instance["xray_name"]
     xray_path = instance["xray_path"]
+    project_dir = INSTANCES_CONF.parent
 
     print(f"  Generating keys for {name}...")
     if not instance["client_id"]:
@@ -122,14 +131,22 @@ def generate_instance(instance: dict, xray_template: str, nginx_template: str) -
         print(f"    Private key: {instance['private_key']}")
         print(f"    Public key:  {instance['_public_key']}")
 
+    short_ids = instance["short_ids"]
+    if isinstance(short_ids, str):
+        short_ids = [short_ids]
+
+    server_names = instance["reality_server_names"]
+    if isinstance(server_names, str):
+        server_names = [s.strip() for s in server_names.split(",")]
+
     xray_vars = {
         "CLIENT_ID": instance["client_id"],
         "PRIVATE_KEY": instance["private_key"],
-        "SHORT_IDS": f'["{instance["short_ids"]}"]',
+        "SHORT_IDS": json.dumps(short_ids),
         "XRAY_NAME": xray_name,
         "XRAY_PATH": xray_path,
         "REALITY_DEST": instance["reality_dest"],
-        "REALITY_SERVER_NAMES": instance["reality_server_names"],
+        "REALITY_SERVER_NAMES": json.dumps(server_names),
     }
 
     nginx_vars = {
@@ -141,12 +158,12 @@ def generate_instance(instance: dict, xray_template: str, nginx_template: str) -
     xray_config = render_template(xray_template, xray_vars)
     nginx_config = render_template(nginx_template, nginx_vars)
 
-    xray_out = CONFIGS_DIR / f"xray-reality-{name}.json"
-    nginx_out = CONFIGS_DIR / f"nginx-xhttp-{name}.conf"
-    xray_out.write_text(xray_config)
-    nginx_out.write_text(nginx_config)
-    print(f"    xray config:   {xray_out.relative_to(PROJECT_DIR)}")
-    print(f"    nginx config: {nginx_out.relative_to(PROJECT_DIR)}")
+    xray_out = CONFIG_DIR / f"xray-reality-{name}.json"
+    nginx_out = CONFIG_DIR / f"nginx-xhttp-{name}.conf"
+    _atomic_write(xray_out, xray_config)
+    _atomic_write(nginx_out, nginx_config)
+    print(f"    xray config:   {xray_out.relative_to(project_dir)}")
+    print(f"    nginx config:  {nginx_out.relative_to(project_dir)}")
 
     return {
         "name": name,
@@ -161,13 +178,9 @@ def generate_instance(instance: dict, xray_template: str, nginx_template: str) -
 
 def generate(instances_file: Path = None):
     if instances_file is None:
-        instances_file = INSTANCES_DEFAULT
+        instances_file = INSTANCES_CONF
 
-    if not instances_file.exists():
-        print(f"ERROR: instances.conf not found at {instances_file}")
-        sys.exit(1)
-
-    CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     xray_template = TEMPLATES_DIR / "xray-reality-template.json"
     nginx_template = TEMPLATES_DIR / "nginx-xhttp-template.conf"
@@ -180,14 +193,14 @@ def generate(instances_file: Path = None):
         sys.exit(1)
 
     print(f"\n{'='*50}")
-    print(f"Xray Instance Generator v4.1.0")
+    print(f"Xray Instance Generator v5.0.0")
     print(f"{'='*50}")
     print(f"Reading instances: {instances_file}")
     print()
 
     instances = parse_instances(instances_file)
     if not instances:
-        print("No instances found in instances.conf")
+        print("No instances found")
         sys.exit(1)
 
     client_info = []
@@ -197,10 +210,11 @@ def generate(instances_file: Path = None):
         client_info.append(ci)
         print()
 
-    CLIENT_INFO_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(CLIENT_INFO_FILE, "w") as f:
-        json.dump(client_info, f, indent=2)
-    print(f"  client info:     {CLIENT_INFO_FILE.relative_to(PROJECT_DIR)} (keep private!)")
+    INSTANCES_JSON.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(INSTANCES_JSON, json.dumps(client_info, indent=2) + "\n")
+
+    project_dir = INSTANCES_CONF.parent
+    print(f"  client info:     {INSTANCES_JSON.relative_to(project_dir)} (keep private!)")
 
     print()
     print(f"{'='*50}")
@@ -211,14 +225,10 @@ def generate(instances_file: Path = None):
     print("  2. Run: docker compose up -d")
     print("  3. Client info saved to .local/instances.json")
     print()
-    print("To add a new instance:")
-    print("  1. Add entry to instances.conf")
-    print("  2. Run: python3 dev/dev.py generate")
-    print()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Xray instance configs")
-    parser.add_argument("--instances", type=Path, help="Path to instances.conf")
+    parser.add_argument("--instances", type=Path, help="Path to instances.yaml")
     args = parser.parse_args()
     generate(args.instances)
