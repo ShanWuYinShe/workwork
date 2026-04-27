@@ -1,7 +1,7 @@
 """Tests for IP address management."""
 
 import pytest
-from dev.ipam import ip_to_int, int_to_ip, find_free_ip
+from dev.ipam import ip_to_int, int_to_ip
 
 
 class TestIPConversion:
@@ -24,7 +24,6 @@ class TestIPConversion:
         assert int_to_ip(3232235521) == "192.168.0.1"
 
     def test_ip_ordering(self):
-        """Verify that later IPs have larger integer values."""
         assert ip_to_int("172.18.0.51") < ip_to_int("172.18.0.52")
         assert ip_to_int("172.18.0.255") < ip_to_int("172.18.1.0")
 

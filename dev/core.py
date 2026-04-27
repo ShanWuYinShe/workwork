@@ -1,4 +1,4 @@
-"""dev-env core infrastructure: paths, UI, environment, Docker helpers."""
+"""dev-env core infrastructure: UI, environment, Docker helpers."""
 
 import os
 import signal
@@ -6,33 +6,44 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
-# ===========================================
-# Paths & Constants
-# ===========================================
-SCRIPT_DIR = Path(__file__).parent
-PROJECT_ROOT = SCRIPT_DIR.parent
-COMPOSE_FILE = PROJECT_ROOT / "dev.docker-compose.yml"
-TEST_COMPOSE_FILE = SCRIPT_DIR / "dev-test.yml"
-LOGGING_OVERLAY = SCRIPT_DIR / "logging.yml"
-BACKUP_DIR = PROJECT_ROOT / ".local" / "backups"
-SNAPSHOT_DIR = PROJECT_ROOT / ".local" / "snapshots"
-INSTANCES_CONF = PROJECT_ROOT / "instances.conf"
-INSTANCES_JSON = PROJECT_ROOT / ".local" / "instances.json"
-CONFIG_DIR = PROJECT_ROOT / "configs"
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
-IP_ALLOC_FILE = PROJECT_ROOT / ".local" / "ip-allocations.json"
-ENV_FILE = PROJECT_ROOT / ".env"
-ENV_TEMPLATE = SCRIPT_DIR / ".env.template"
-GENERATOR_SCRIPT = PROJECT_ROOT / "scripts" / "generate_instances.py"
+from dev.paths import (
+    VERSION, COMPOSE_FILE, TEST_COMPOSE_FILE, LOGGING_OVERLAY,
+)
 
 # Shorthand color constant for use in f-strings across modules
 NC = "\033[0m"
-IPVLAN_NETWORK = "ipvlan_docker"
-IPVLAN_SUBNET = "172.18.0.0/16"
-IPVLAN_SERVICES = ["postgres", "redis", "minio", "dev"]
-VERSION = "4.2.0"
+
+# Global flags set by CLI
+QUIET = False
+JSON_OUTPUT = False
+
+
+def _ipvlan_services() -> list[str]:
+    """Get service list from config (falls back to hardcoded default)."""
+    try:
+        from dev.config import get_config
+        services = get_config("services")
+        if isinstance(services, dict):
+            return list(services.keys())
+    except Exception:
+        pass
+    return ["postgres", "redis", "minio", "dev"]
+
+
+def get_ipvlan_services() -> list[str]:
+    """Get configured service names."""
+    return _ipvlan_services()
+
+
+def get_ipvlan_network() -> str:
+    """Get configured network name."""
+    try:
+        from dev.config import get_config
+        return get_config("network.name", "ipvlan_docker")
+    except Exception:
+        return "ipvlan_docker"
+
 
 # ===========================================
 # UI Utilities
@@ -50,15 +61,18 @@ class UI:
 
     @classmethod
     def ok(cls, msg: str):
-        print(f"{cls.GREEN}[OK]{cls.NC} {msg}")
+        if not QUIET:
+            print(f"{cls.GREEN}[OK]{cls.NC} {msg}")
 
     @classmethod
     def info(cls, msg: str):
-        print(f"{cls.BLUE}[INFO]{cls.NC} {msg}")
+        if not QUIET:
+            print(f"{cls.BLUE}[INFO]{cls.NC} {msg}")
 
     @classmethod
     def warn(cls, msg: str):
-        print(f"{cls.YELLOW}[WARN]{cls.NC} {msg}")
+        if not QUIET:
+            print(f"{cls.YELLOW}[WARN]{cls.NC} {msg}")
 
     @classmethod
     def err(cls, msg: str):
@@ -71,19 +85,23 @@ class UI:
 
     @classmethod
     def step(cls, msg: str):
-        print(f"    {msg}...", end="", flush=True)
+        if not QUIET:
+            print(f"    {msg}...", end="", flush=True)
 
     @classmethod
     def step_ok(cls, msg: str):
-        print(f"\r    {cls.GREEN}✓{cls.NC} {msg}")
+        if not QUIET:
+            print(f"\r    {cls.GREEN}✓{cls.NC} {msg}")
 
     @classmethod
     def step_fail(cls, msg: str):
-        print(f"\r    {cls.RED}✗{cls.NC} {msg}")
+        if not QUIET:
+            print(f"\r    {cls.RED}✗{cls.NC} {msg}")
 
     @classmethod
     def header(cls, text: str):
-        print(f"\n{cls.BOLD}=== {text} ==={cls.NC}\n")
+        if not QUIET:
+            print(f"\n{cls.BOLD}=== {text} ==={cls.NC}\n")
 
 
 def _cleanup_sig(signum, frame):
@@ -99,30 +117,35 @@ signal.signal(signal.SIGTERM, _cleanup_sig)
 # Environment
 # ===========================================
 def load_env() -> dict:
-    """Load .env file into os.environ. Returns current environ snapshot.
+    """Load configuration and populate os.environ for Docker Compose."""
+    from dev.config import load_config, get_config
+    load_config()
 
-    Pre-sets IPVLAN_IP_* vars to suppress compose warnings when a service
-    hasn't been allocated an IP yet.
-    """
-    for var in ["IPVLAN_IP_POSTGRES", "IPVLAN_IP_REDIS", "IPVLAN_IP_MINIO", "IPVLAN_IP_DEV"]:
-        os.environ.setdefault(var, "")
-    if not ENV_FILE.exists():
-        return dict(os.environ)
-    for line in ENV_FILE.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ[key.strip()] = value.strip()
+    mappings = {
+        "COMPOSE_PROJECT": get_config("project"),
+        "POSTGRES_DB": get_config("services.postgres.db"),
+        "POSTGRES_USER": get_config("services.postgres.user"),
+        "POSTGRES_PASSWORD": get_config("services.postgres.password"),
+        "POSTGRES_PORT": str(get_config("services.postgres.port", "")),
+        "REDIS_PORT": str(get_config("services.redis.port", "")),
+        "MINIO_USER": get_config("services.minio.user"),
+        "MINIO_PASSWORD": get_config("services.minio.password"),
+        "MINIO_API_PORT": str(get_config("services.minio.api_port", "")),
+        "MINIO_CONSOLE_PORT": str(get_config("services.minio.console_port", "")),
+    }
+    for var, val in mappings.items():
+        if val:
+            os.environ[var] = str(val)
+
+    for svc in get_ipvlan_services():
+        os.environ.setdefault(f"IPVLAN_IP_{svc.upper()}", "")
+
     return dict(os.environ)
 
 
-def get_env(key: str, default: str = "") -> str:
-    return os.environ.get(key, default)
-
-
 def project_prefix() -> str:
-    return get_env("COMPOSE_PROJECT", "service")
+    from dev.config import get_config
+    return get_config("project", "service")
 
 
 # ===========================================
@@ -147,6 +170,41 @@ def is_container_running(name: str) -> bool:
         capture_output=True, text=True
     )
     return name in result.stdout.splitlines()
+
+
+def container_health(name: str) -> str:
+    """Return health status of container: healthy, unhealthy, starting, or ''."""
+    result = subprocess.run(
+        ["docker", "inspect", "--format={{.State.Health.Status}}", name],
+        capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
+def container_uptime(name: str) -> str:
+    """Return human-readable uptime for container."""
+    result = subprocess.run(
+        ["docker", "inspect", "--format={{.State.StartedAt}}", name],
+        capture_output=True, text=True
+    )
+    started = result.stdout.strip()
+    if not started:
+        return ""
+    from datetime import datetime, timezone
+    try:
+        started = started.split(".")[0]
+        dt = datetime.fromisoformat(started).replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        delta = now - dt
+        hours, remainder = divmod(int(delta.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        if hours >= 24:
+            return f"{hours // 24}d {hours % 24}h"
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        return f"{minutes}m"
+    except (ValueError, TypeError):
+        return ""
 
 
 def wait_healthy(container: str, label: str, timeout: int = 60) -> bool:
