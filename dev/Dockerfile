@@ -59,10 +59,9 @@ ENV PATH="/usr/local/bin:/usr/lib/go/bin:/root/go/bin:/root/.npm-global/bin:${PA
 ENV EDITOR=vim
 
 LABEL maintainer="dev-env" \
-      version="4.2.0" \
+      version="5.0.0" \
       description="Development Environment Container" \
-      dev.env.version="4.2.0"
+      dev.env.version="5.0.0"
 
-# Clear upstream node entrypoint — our CMD should run directly
 ENTRYPOINT []
 CMD ["fish"]

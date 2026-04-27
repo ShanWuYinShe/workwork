@@ -7,41 +7,36 @@ networks:
     internal: true
 
 services:
-  xray-reality-liyou:
+  xray-reality:
     image: teddysun/xray
     restart: unless-stopped
     networks:
       - external_net
       - internal_net
     volumes:
-      - ./configs/xray-reality-liyou.json:/etc/xray/config.json:ro
-  xray-reality-liusai:
-    image: teddysun/xray
-    restart: unless-stopped
-    networks:
-      - external_net
-      - internal_net
-    volumes:
-      - ./configs/xray-reality-liusai.json:/etc/xray/config.json:ro
-  nginx-xhttp-liyou:
-    image: nginx:alpine
+      - ./configs/xray-reality.json:/etc/xray/config.json:ro
+  nginx-xhttp:
+    image: nginx:1.30-alpine
     restart: unless-stopped
     networks:
       - external_net
       - internal_net
     volumes:
       - ./cert:/etc/nginx/certs:ro
-      - ./configs/nginx-xhttp-liyou.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./configs/nginx-xhttp.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - xray-reality-liyou
-  nginx-xhttp-liusai:
-    image: nginx:alpine
+      - xray-reality
+  cliproxyapi:
+    build:
+      context: ./dev
+      dockerfile: Dockerfile.cliproxyapi
     restart: unless-stopped
     networks:
-      - external_net
       - internal_net
     volumes:
-      - ./cert:/etc/nginx/certs:ro
-      - ./configs/nginx-xhttp-liusai.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./configs/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
+      - ./configs/cliproxyapi/auth:/root/.cli-proxy-api
+    expose:
+      - "8317"
     depends_on:
-      - xray-reality-liusai
+      - xray-reality

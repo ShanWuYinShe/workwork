@@ -124,7 +124,7 @@ services:
     restart: unless-stopped
     labels:
       dev.env.type: "dev-container"
-      dev.env.version: "4.1.0"
+      dev.env.version: "5.0.0"
 
 volumes:
   pg_data:

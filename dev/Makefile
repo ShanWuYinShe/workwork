@@ -4,24 +4,22 @@ DEV := python3 $(dir $(lastword $(MAKEFILE_LIST)))dev.py
         init backup restore list-backups snapshot-list snapshot-create snapshot-restore \
         generate list-instances xray-up xray-down \
         start-test stop-test reset-test test \
-        doctor prune version completion config-show config-edit ip-list port-usage
+        doctor prune version completion config-show config-edit ip-list port-usage \
+        up down build ps run
 
 help:
-	@echo "dev-env - Development Environment Manager v4.2.0"
+	@echo "dev-env - Development Environment Manager v5.0.0"
 	@echo ""
 	@echo "Development:"
-	@echo "  make start         $(shell $(DEV) version 2>/dev/null)"
-	@echo "  make stop          Stop environment"
-	@echo "  make stop-all      Stop all dev projects"
-	@echo "  make teardown      Destroy environment (delete data)"
-	@echo "  make restart SVC=  Restart service (or all)"
-	@echo "  make reset         Reset service data"
-	@echo "  make shell SH=fish Enter dev container"
-	@echo "  make status        Show status"
-	@echo "  make logs SVC=     View logs (follow)"
-	@echo "  make wait          Wait for services to be healthy"
-	@echo "  make exec CMD=...  Run command in dev container"
-	@echo "  make init          Initialize environment (.env, checks)"
+	@echo "  make up             Start environment (alias: start)"
+	@echo "  make down           Stop environment (alias: stop)"
+	@echo "  make build          Rebuild dev container image"
+	@echo "  make ps             Show status (alias: status)"
+	@echo "  make shell SH=fish  Enter dev container"
+	@echo "  make logs SVC=      View logs (follow)"
+	@echo "  make exec CMD=...   Run command in dev container"
+	@echo "  make run CMD=...    Run one-off command (non-interactive)"
+	@echo "  make init           Initialize environment"
 	@echo ""
 	@echo "Backup/Restore:"
 	@echo "  make backup          Backup PostgreSQL + Redis"
@@ -50,22 +48,27 @@ help:
 	@echo "  make prune           Clean orphaned Docker resources"
 	@echo "  make version         Show version"
 	@echo "  make config-show     Show configuration"
-	@echo "  make config-edit     Edit .env"
+	@echo "  make config-edit     Edit config"
 	@echo "  make ip-list         Show IP allocations"
 	@echo "  make port-usage      Show port usage"
 
-start:   ; $(DEV) start
-stop:    ; $(DEV) stop
-stop-all:; $(DEV) stop --all
-teardown:; $(DEV) teardown
-restart: ; $(DEV) restart $(SVC)
-reset:   ; $(DEV) reset
-shell:   ; $(DEV) shell $(SH)
-status:  ; $(DEV) status
-logs:    ; $(DEV) logs $(SVC)
-wait:    ; $(DEV) wait
-exec:    ; $(DEV) exec $(CMD)
-init:    ; $(DEV) init
+up:        ; $(DEV) up
+start:     ; $(DEV) start
+down:      ; $(DEV) down
+stop:      ; $(DEV) stop
+stop-all:  ; $(DEV) stop --all
+teardown:  ; $(DEV) teardown
+build:     ; $(DEV) build
+ps:        ; $(DEV) ps
+restart:   ; $(DEV) restart $(SVC)
+reset:     ; $(DEV) reset
+shell:     ; $(DEV) shell $(SH)
+status:    ; $(DEV) status
+logs:      ; $(DEV) logs $(SVC)
+wait:      ; $(DEV) wait
+exec:      ; $(DEV) exec $(CMD)
+run:       ; $(DEV) run $(CMD)
+init:      ; $(DEV) init
 
 backup:        ; $(DEV) backup
 restore:       ; $(DEV) restore $(TARGET)

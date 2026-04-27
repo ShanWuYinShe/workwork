@@ -1,0 +1,14 @@
+# Xray Proxy Instance Definitions
+# client_id and private_key left empty = auto-generated on first run
+
+instances:
+  - name: liyou
+    xray_name: xray-reality-liyou
+    path: liyou
+    # client_id: ""
+    # private_key: ""
+
+  - name: liusai
+    xray_name: xray-reality-liusai
+    path: liusai
+    short_ids: 123456

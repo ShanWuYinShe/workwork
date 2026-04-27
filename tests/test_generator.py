@@ -1,20 +1,20 @@
 """Tests for Xray config generator."""
 
 from pathlib import Path
-from scripts.generate_instances import parse_instances
+from scripts.generate_instances import parse_instances, render_template
 
 
 def test_parse_instances_empty(tmp_path):
-    """Empty or comment-only files yield no instances."""
-    f = tmp_path / "instances.conf"
-    f.write_text("# comment\n")
+    """Empty file yields no instances."""
+    f = tmp_path / "instances.yaml"
+    f.write_text("instances: []\n")
     assert parse_instances(f) == []
 
 
 def test_parse_instances_minimal(tmp_path):
-    """Minimal 3-field line should parse with defaults."""
-    f = tmp_path / "instances.conf"
-    f.write_text("alice, xray-alice, alice\n")
+    """Minimal instance with only required fields."""
+    f = tmp_path / "instances.yaml"
+    f.write_text("instances:\n  - name: alice\n    xray_name: xray-alice\n    path: alice\n")
     instances = parse_instances(f)
     assert len(instances) == 1
     inst = instances[0]
@@ -26,10 +26,20 @@ def test_parse_instances_minimal(tmp_path):
 
 
 def test_parse_instances_full(tmp_path):
-    """Full line with all fields."""
-    f = tmp_path / "instances.conf"
-    line = "bob, xray-bob, bobpath, uuid-123, privkey-456, abc123, example.com:443, [\"example.com\"]"
-    f.write_text(line + "\n")
+    """Full instance with all fields."""
+    f = tmp_path / "instances.yaml"
+    f.write_text(
+        "instances:\n"
+        "  - name: bob\n"
+        "    xray_name: xray-bob\n"
+        "    path: bobpath\n"
+        "    client_id: uuid-123\n"
+        "    private_key: privkey-456\n"
+        "    short_ids: abc123\n"
+        "    reality_dest: example.com:443\n"
+        "    reality_server_names:\n"
+        "      - example.com\n"
+    )
     instances = parse_instances(f)
     assert len(instances) == 1
     inst = instances[0]
@@ -38,28 +48,23 @@ def test_parse_instances_full(tmp_path):
     assert inst["private_key"] == "privkey-456"
     assert inst["short_ids"] == "abc123"
     assert inst["reality_dest"] == "example.com:443"
-    assert inst["reality_server_names"] == '["example.com"]'
-
-
-def test_parse_instances_short_ids_default(tmp_path):
-    """Missing short_ids gets default 'abcdef'."""
-    f = tmp_path / "instances.conf"
-    f.write_text("carol, xray-carol, carol, , , , ,\n")
-    instances = parse_instances(f)
-    assert instances[0]["short_ids"] == "abcdef"
+    assert inst["reality_server_names"] == ["example.com"]
 
 
 def test_parse_instances_multiple(tmp_path):
-    f = tmp_path / "instances.conf"
-    f.write_text("a, x-a, a\nb, x-b, b\n")
+    f = tmp_path / "instances.yaml"
+    f.write_text("instances:\n  - name: a\n    xray_name: x-a\n    path: a\n  - name: b\n    xray_name: x-b\n    path: b\n")
     instances = parse_instances(f)
     assert len(instances) == 2
     assert instances[0]["name"] == "a"
     assert instances[1]["name"] == "b"
 
 
-def test_parse_instances_skips_invalid(tmp_path):
-    f = tmp_path / "instances.conf"
-    f.write_text("# comment\na, x-a, a\n\nb\n")
+def test_parse_instances_defaults(tmp_path):
+    """Missing optional fields get defaults from dev.yml."""
+    f = tmp_path / "instances.yaml"
+    f.write_text("instances:\n  - name: carol\n    xray_name: x-carol\n    path: carol\n")
     instances = parse_instances(f)
-    assert len(instances) == 1  # 'b' has < 3 fields
+    inst = instances[0]
+    assert inst["short_ids"] == "abcdef"
+    assert "www.microsoft.com" in inst["reality_dest"]
