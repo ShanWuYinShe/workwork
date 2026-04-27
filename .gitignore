@@ -4,11 +4,14 @@
 .env.*.local
 
 # Local data (backups, snapshots, IP allocations, instance client info)
-.local/
+.wework/
 
 # Generated Xray configs and TLS certificates (contain private keys)
 configs/
 cert/
+
+# Explicitly ignore cliproxyapi config directory
+cliproxyapi/
 
 # OS
 .DS_Store
