@@ -1,0 +1,11 @@
+FROM alpine:latest
+
+RUN apk add --no-cache curl unzip
+
+RUN curl -fsSL https://raw.githubusercontent.com/brokechubb/cliproxyapi-installer/refs/heads/master/cliproxyapi-installer | bash
+
+WORKDIR /CLIProxyAPI
+
+EXPOSE 8317
+
+CMD ["cliproxyapi", "-c", "/CLIProxyAPI/config.yaml"]
