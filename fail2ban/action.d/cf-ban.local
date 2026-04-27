@@ -1,0 +1,5 @@
+[cf-ban]
+# Cloudflare API credentials
+# Set these environment variables or override here:
+# CF_API_TOKEN = your_api_token_here
+# CF_ZONE_ID = your_zone_id_here
