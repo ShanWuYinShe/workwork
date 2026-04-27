@@ -1,0 +1,96 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "xhttp-in",
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "00fce1b8-cfee-487a-88d4-f9b9208ae2e7",
+            "flow": ""
+          },
+          {
+            "id": "96eef15e-cc1a-4536-81e7-7662fb178526",
+            "flow": ""
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "/proxy/query"
+        }
+      }
+    },
+    {
+      "tag": "ws-in",
+      "listen": "0.0.0.0",
+      "port": 8444,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "00fce1b8-cfee-487a-88d4-f9b9208ae2e7",
+            "flow": ""
+          },
+          {
+            "id": "96eef15e-cc1a-4536-81e7-7662fb178526",
+            "flow": ""
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/proxy/ws"
+        }
+      }
+    },
+    {
+      "tag": "reality-in",
+      "listen": "::",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "00fce1b8-cfee-487a-88d4-f9b9208ae2e7",
+            "flow": "xtls-rprx-vision"
+          },
+          {
+            "id": "96eef15e-cc1a-4536-81e7-7662fb178526",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.microsoft.com:443",
+          "serverNames": ["www.microsoft.com"],
+          "privateKey": "0ifuQQy0v6jp1WTMsnQFixWBDv6asLBMzaniY/EWp8g=",
+          "shortIds": ["abcdef"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "blocked"
+    }
+  ]
+}
