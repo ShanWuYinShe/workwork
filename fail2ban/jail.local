@@ -1,0 +1,8 @@
+[nginx-workwork-auth]
+enabled   = true
+filter    = nginx-auth
+logpath   = /Users/liyou/Work/service/logs/nginx/workwork-access.log
+action    = cf-ban[name=nginx-workwork-auth]
+bantime   = 3600
+findtime  = 600
+maxretry  = 5
