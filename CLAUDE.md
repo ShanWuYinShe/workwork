@@ -71,4 +71,4 @@ paths.py ──→ config.py ──→ core.py ──→ ipam.py ──→ cmds/
 - Alias commands (`up`→`start`, `down`→`stop`, `ps`→`status`) are handled by `_ALIAS_MAP` in `cli.py` dispatch.
 - IP allocation is persistent in `.local/ip-allocations.json`. The IPAM system auto-allocates from `network.alloc_start` (default 172.18.0.51), skipping reserved IPs.
 - Atomic file writes use hidden temp files (`.{name}.tmp`) followed by rename.
-- Generated configs and secrets live in `configs/` and `cert/` (gitignored). Local state lives in `.local/` (gitignored).
+- Generated configs and secrets live in `configs/` and `cert/` (gitignored). Local state lives in `.wework/` (gitignored).
