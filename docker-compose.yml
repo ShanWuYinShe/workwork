@@ -1,29 +1,42 @@
 services:
-  xray:
-    image: teddysun/xray
-    restart: unless-stopped
-    network_mode: host
-    volumes:
-      - ./services/xray/config.json:/etc/xray/config.json:ro
-
   nginx:
-    image: nginx:1.30-alpine
+    build:
+      context: ./services/nginx
+      dockerfile: Dockerfile
     restart: unless-stopped
-    network_mode: host
+    networks:
+      ipvlan_docker_web:
+        ipv6_address: "${NGINX_IPV6}"
+      default: null
     volumes:
       - ./cert:/etc/nginx/certs:ro
       - ./services/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./services/nginx/.htpasswd:/etc/nginx/htpasswd/.htpasswd:ro
       - ./logs/nginx:/var/log/nginx
+      - ./services/nginx/config/fail2ban:/etc/fail2ban/custom:ro
+      - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
+    cap_add:
+      - NET_ADMIN
     depends_on:
       - cliproxyapi
+
+  xray:
+    image: teddysun/xray
+    restart: unless-stopped
+    networks:
+      ipvlan_docker_web:
+        ipv6_address: "${XRAY_IPV6}"
+      default: null
+    volumes:
+      - ./services/xray/config.json:/etc/xray/config.json:ro
 
   cliproxyapi:
     build:
       context: ./services/cliproxyapi
       dockerfile: Dockerfile
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - default
     volumes:
       - ./services/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
       - ./services/cliproxyapi:/root/.cli-proxy-api
@@ -33,7 +46,8 @@ services:
       context: ./services/admin
       dockerfile: Dockerfile
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - default
     environment:
       - CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN}
       - CF_POLICY_AUD=${CF_POLICY_AUD}
@@ -45,16 +59,6 @@ services:
     depends_on:
       - nginx
 
-  fail2ban:
-    build:
-      context: ./services/fail2ban
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    network_mode: host
-    privileged: true
-    volumes:
-      - ./logs/nginx:/var/log/nginx:ro
-      - ./services/fail2ban/data:/var/lib/fail2ban/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - nginx
+networks:
+  ipvlan_docker_web:
+    external: true
