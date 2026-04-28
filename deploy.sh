@@ -12,7 +12,7 @@ fi
 
 source .env
 
-REQUIRED_VARS=(IPV6_PREFIX NGINX_IPV6_SUFFIX XRAY_IPV6_SUFFIX XRAY_CLIENT_IDS XRAY_PRIVATE_KEY XRAY_SHORT_IDS XRAY_REALITY_DEST XRAY_REALITY_SERVER_NAME CLIPROXY_API_KEYS AUTH_USER AUTH_PASS)
+REQUIRED_VARS=(IPV6_PREFIX NGINX_IPV6_SUFFIX XRAY_IPV6_SUFFIX XRAY_CLIENT_IDS XRAY_PRIVATE_KEY XRAY_SHORT_IDS XRAY_REALITY_DEST XRAY_REALITY_SERVER_NAME CLIPROXY_API_KEYS AUTH_USER AUTH_PASS ADMIN_PORT)
 for var in "${REQUIRED_VARS[@]}"; do
     if [ -z "${!var:-}" ]; then
         echo "Error: $var is not set in .env"
@@ -53,6 +53,7 @@ sed \
 echo "  services/nginx/nginx.conf"
 sed \
     -e "s|__IPV6_PREFIX____NGINX_IPV6_SUFFIX__|${IPV6_PREFIX}${NGINX_IPV6_SUFFIX}|g" \
+    -e "s|__ADMIN_PORT__|${ADMIN_PORT}|g" \
     services/nginx/nginx.conf.tmpl > services/nginx/nginx.conf
 
 echo "  services/nginx/.htpasswd"

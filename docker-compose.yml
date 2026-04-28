@@ -28,6 +28,23 @@ services:
       - ./services/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
       - ./services/cliproxyapi:/root/.cli-proxy-api
 
+  admin:
+    build:
+      context: ./services/admin
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN}
+      - CF_POLICY_AUD=${CF_POLICY_AUD}
+      - ADMIN_PORT=${ADMIN_PORT}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/.env:ro
+      - ./logs:/app/logs
+    depends_on:
+      - nginx
+
   fail2ban:
     build:
       context: ./services/fail2ban
