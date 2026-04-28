@@ -3,15 +3,27 @@
 .env.local
 .env.*.local
 
-# Local data (backups, snapshots, IP allocations, instance client info)
+# Local data
 .wework/
+.local/
 
-# Generated Xray configs and TLS certificates (contain private keys)
-configs/
+# Generated configs (use deploy.sh to generate from .tmpl files)
+services/xray/config.json
+services/nginx/nginx.conf
+services/nginx/.htpasswd
+services/cliproxyapi/config.yaml
+
+# TLS certificates
 cert/
 
-# Explicitly ignore cliproxyapi config directory
-cliproxyapi/
+# Logs
+logs/
+
+# CliproxyAPI generated config (template is tracked)
+services/cliproxyapi/config.yaml
+
+# Browser data
+browser-data/
 
 # OS
 .DS_Store
