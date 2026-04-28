@@ -1,0 +1,69 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "tag": "xhttp-in",
+      "listen": "127.0.0.1",
+      "port": 8447,
+      "protocol": "vless",
+      "settings": {
+        "clients": __XRAY_CLIENTS_JSON__,
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "xhttpSettings": {
+          "path": "/proxy/query"
+        }
+      }
+    },
+    {
+      "tag": "ws-in",
+      "listen": "127.0.0.1",
+      "port": 8444,
+      "protocol": "vless",
+      "settings": {
+        "clients": __XRAY_CLIENTS_JSON__,
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": {
+          "path": "/proxy/ws"
+        }
+      }
+    },
+    {
+      "tag": "reality-in",
+      "listen": "__IPV6_PREFIX____XRAY_IPV6_SUFFIX__",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": __XRAY_REALITY_CLIENTS_JSON__,
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "__XRAY_REALITY_DEST__",
+          "serverNames": ["__XRAY_REALITY_SERVER_NAME__"],
+          "privateKey": "__XRAY_PRIVATE_KEY__",
+          "shortIds": ["__XRAY_SHORT_IDS__"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "blocked"
+    }
+  ]
+}
