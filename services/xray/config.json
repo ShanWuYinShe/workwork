@@ -5,7 +5,7 @@
   "inbounds": [
     {
       "tag": "xhttp-in",
-      "listen": "0.0.0.0",
+      "listen": "127.0.0.1",
       "port": 8447,
       "protocol": "vless",
       "settings": {
@@ -30,7 +30,7 @@
     },
     {
       "tag": "ws-in",
-      "listen": "0.0.0.0",
+      "listen": "127.0.0.1",
       "port": 8444,
       "protocol": "vless",
       "settings": {
