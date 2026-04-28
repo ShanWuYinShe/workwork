@@ -6,7 +6,7 @@
     {
       "tag": "xhttp-in",
       "listen": "0.0.0.0",
-      "port": 8443,
+      "port": 8447,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -55,7 +55,7 @@
     },
     {
       "tag": "reality-in",
-      "listen": "::",
+      "listen": "2605:a141:2322:2623::12",
       "port": 443,
       "protocol": "vless",
       "settings": {
@@ -77,7 +77,7 @@
         "realitySettings": {
           "dest": "www.microsoft.com:443",
           "serverNames": ["www.microsoft.com"],
-          "privateKey": "0ifuQQy0v6jp1WTMsnQFixWBDv6asLBMzaniY/EWp8g=",
+          "privateKey": "WFUlVlc2Ny7e__KmTGYC26FZHR36GSyCddIQ0W9WlVY",
           "shortIds": ["abcdef"]
         }
       }

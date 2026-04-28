@@ -1,11 +1,15 @@
 FROM alpine:latest
 
-RUN apk add --no-cache curl unzip
+RUN apk add --no-cache curl unzip bash
 
-RUN curl -fsSL https://raw.githubusercontent.com/brokechubb/cliproxyapi-installer/refs/heads/master/cliproxyapi-installer | bash
+ARG VERSION=6.9.40
+RUN curl -fsSL https://github.com/router-for-me/CLIProxyAPI/releases/download/v${VERSION}/CLIProxyAPI_${VERSION}_linux_amd64.tar.gz -o /tmp/cliproxyapi.tar.gz && \
+    tar -xzf /tmp/cliproxyapi.tar.gz -C /usr/local/bin && \
+    rm /tmp/cliproxyapi.tar.gz && \
+    chmod +x /usr/local/bin/CLIProxyAPI_*cli-proxy-api* 2>/dev/null || chmod +x /usr/local/bin/cli-proxy-api 2>/dev/null || true
 
 WORKDIR /CLIProxyAPI
 
 EXPOSE 8317
 
-CMD ["cliproxyapi", "-c", "/CLIProxyAPI/config.yaml"]
+CMD ["cli-proxy-api", "run", "--config", "/CLIProxyAPI/config.yaml"]
