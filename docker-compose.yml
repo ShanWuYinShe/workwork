@@ -1,43 +1,43 @@
 services:
-  xray-reality:
+  xray:
     image: teddysun/xray
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./configs/xray-reality.json:/etc/xray/config.json:ro
+      - ./services/xray/config.json:/etc/xray/config.json:ro
 
-  nginx-xhttp:
+  nginx:
     image: nginx:1.30-alpine
     restart: unless-stopped
     network_mode: host
     volumes:
       - ./cert:/etc/nginx/certs:ro
-      - ./configs/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./configs/nginx/.htpasswd:/etc/nginx/htpasswd/.htpasswd:ro
+      - ./services/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./services/nginx/.htpasswd:/etc/nginx/htpasswd/.htpasswd:ro
       - ./logs/nginx:/var/log/nginx
     depends_on:
       - cliproxyapi
 
   cliproxyapi:
     build:
-      context: ./dev
-      dockerfile: Dockerfile.cliproxyapi
+      context: ./services/cliproxyapi
+      dockerfile: Dockerfile
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ./configs/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
-      - ./configs/cliproxyapi:/root/.cli-proxy-api
+      - ./services/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
+      - ./services/cliproxyapi:/root/.cli-proxy-api
 
   fail2ban:
     build:
-      context: ./fail2ban
+      context: ./services/fail2ban
       dockerfile: Dockerfile
     restart: unless-stopped
     network_mode: host
     privileged: true
     volumes:
-      - ./logs/nginx:/var/log/nginx
-      - ./fail2ban/data:/var/lib/fail2ban/data
+      - ./logs/nginx:/var/log/nginx:ro
+      - ./services/fail2ban/data:/var/lib/fail2ban/data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - nginx-xhttp
+      - nginx

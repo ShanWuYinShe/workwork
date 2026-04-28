@@ -1,7 +1,0 @@
-host: ""
-port: 8317
-auth-dir: "/root/.cli-proxy-api"
-remote-management:
-  disable-control-panel: false
-api-keys:
-  - "test-key-123"

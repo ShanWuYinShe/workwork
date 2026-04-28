@@ -1,0 +1,21 @@
+[DEFAULT]
+ignoreself = true
+ignoreip = 127.0.0.1/8 ::1
+
+[nginx-auth]
+enabled = false
+
+[nginx-secure-auth]
+enabled = true
+filter = nginx-auth
+logpath = /var/log/nginx/api-access.log
+action = iptables-allports
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = false
+
+[sshd-ddos]
+enabled = false
