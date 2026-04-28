@@ -27,8 +27,10 @@ set_real_ip_from 2a06:98c0::/29;
 set_real_ip_from 2c0f:f248::/32;
 real_ip_header CF-Connecting-IP;
 
+resolver 127.0.0.11 valid=10s;
+
 server {
-    listen [__IPV6_PREFIX____NGINX_IPV6_SUFFIX__]:80;
+    listen [__NGINX_IPV6__]:80;
     server_name _;
 
     location / {
@@ -36,7 +38,8 @@ server {
     }
 
     location /admin/ {
-        proxy_pass http://127.0.0.1:__ADMIN_PORT__/admin/;
+        set $admin_upstream http://admin:__ADMIN_PORT__/admin/;
+        proxy_pass $admin_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -52,7 +55,8 @@ server {
 
         location /secure/proxy/query/ {
             access_log /var/log/nginx/proxy-query-access.log auth_log;
-            proxy_pass http://127.0.0.1:8447;
+            set $xray_upstream http://xray:8447;
+            proxy_pass $xray_upstream;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_buffering off;
@@ -65,7 +69,8 @@ server {
 
         location /secure/proxy/ws/ {
             access_log /var/log/nginx/proxy-ws-access.log auth_log;
-            proxy_pass http://127.0.0.1:8444;
+            set $xray_ws_upstream http://xray:8444;
+            proxy_pass $xray_ws_upstream;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -79,7 +84,8 @@ server {
             auth_basic off;
             access_log /var/log/nginx/api-access.log auth_log;
             error_log /var/log/nginx/api-error.log warn;
-            proxy_pass http://127.0.0.1:8317/;
+            set $api_upstream http://cliproxyapi:8317/;
+            proxy_pass $api_upstream;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
@@ -91,14 +97,15 @@ server {
 }
 
 server {
-    listen [__IPV6_PREFIX____NGINX_IPV6_SUFFIX__]:443 ssl;
+    listen [__NGINX_IPV6__]:443 ssl;
     server_name _;
 
     ssl_certificate /etc/nginx/certs/server_cert.pem;
     ssl_certificate_key /etc/nginx/certs/server_cert.key;
 
     location /admin/ {
-        proxy_pass http://127.0.0.1:__ADMIN_PORT__/admin/;
+        set $admin_upstream http://admin:__ADMIN_PORT__/admin/;
+        proxy_pass $admin_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -114,7 +121,8 @@ server {
 
         location /secure/proxy/query/ {
             access_log /var/log/nginx/proxy-query-access.log auth_log;
-            proxy_pass http://127.0.0.1:8447;
+            set $xray_upstream http://xray:8447;
+            proxy_pass $xray_upstream;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_buffering off;
@@ -127,7 +135,8 @@ server {
 
         location /secure/proxy/ws/ {
             access_log /var/log/nginx/proxy-ws-access.log auth_log;
-            proxy_pass http://127.0.0.1:8444;
+            set $xray_ws_upstream http://xray:8444;
+            proxy_pass $xray_ws_upstream;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -141,7 +150,8 @@ server {
             auth_basic off;
             access_log /var/log/nginx/api-access.log auth_log;
             error_log /var/log/nginx/api-error.log warn;
-            proxy_pass http://127.0.0.1:8317/;
+            set $api_upstream http://cliproxyapi:8317/;
+            proxy_pass $api_upstream;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
