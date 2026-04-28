@@ -1,44 +1,29 @@
-networks:
-  external_net:
-    external: true
-    name: ipvlan_docker
-  internal_net:
-    driver: bridge
-    internal: true
-
 services:
   xray-reality:
     image: teddysun/xray
     restart: unless-stopped
-    networks:
-      - external_net
-      - internal_net
+    network_mode: host
     volumes:
       - ./configs/xray-reality.json:/etc/xray/config.json:ro
+
   nginx-xhttp:
     image: nginx:1.30-alpine
     restart: unless-stopped
-    networks:
-      - external_net
-      - internal_net
+    network_mode: host
     volumes:
       - ./cert:/etc/nginx/certs:ro
-      - ./configs/nginx-xhttp.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./configs/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./configs/nginx/.htpasswd:/etc/nginx/htpasswd/.htpasswd:ro
       - ./logs/nginx:/var/log/nginx
     depends_on:
-      - xray-reality
+      - cliproxyapi
+
   cliproxyapi:
     build:
       context: ./dev
       dockerfile: Dockerfile.cliproxyapi
     restart: unless-stopped
-    networks:
-      - internal_net
+    network_mode: host
     volumes:
       - ./configs/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
-      - ./configs/cliproxyapi/auth:/root/.cli-proxy-api
-    expose:
-      - "8317"
-    depends_on:
-      - xray-reality
+      - ./configs/cliproxyapi:/root/.cli-proxy-api
