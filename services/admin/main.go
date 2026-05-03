@@ -38,9 +38,11 @@ func main() {
 	mux.HandleFunc("/admin/", serveSPA)
 	mux.HandleFunc("GET /admin", serveSPA)
 
-	// Svelte static assets
-	spa := http.FileServer(http.Dir("/app/ui"))
-	mux.Handle("/ui/", http.StripPrefix("/ui/", spa))
+	// Svelte static assets - serve at absolute paths
+	static := http.FileServer(http.Dir("/app/ui"))
+	mux.Handle("/assets/", static)
+	mux.Handle("/favicon.svg", static)
+	mux.Handle("/icons.svg", static)
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Admin panel listening on %s", addr)
