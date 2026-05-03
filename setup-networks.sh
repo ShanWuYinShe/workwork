@@ -20,11 +20,9 @@ create_network() {
 
 echo "Creating ipvlan networks (parent=${PARENT_IFACE})..."
 
-# Single ipvlan network shared by all external containers
-# IPv4 subnet for dev services (PostgreSQL, Redis, MinIO, dev container)
+# Single ipvlan network shared by all external containers (IPv6 only)
 # IPv6 subnet for Xray proxy
 create_network ipvlan_docker \
-  --subnet="172.18.0.0/16" --ip-range="172.18.0.0/24" \
   --subnet="2605:a141:2322:2623::/64" --ip-range="2605:a141:2322:2623:1::/80"
 
 echo "Done. Now run: docker compose up -d"
