@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-HTPASSWD_FILE="/Users/liyou/Work/service/configs/nginx/.htpasswd"
+HTPASSWD_FILE="/Users/liyou/Work/service/services/nginx/.htpasswd"
 
 case "$1" in
   add-user)

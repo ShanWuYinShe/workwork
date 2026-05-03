@@ -1,4 +1,0 @@
-[DEFAULT]
-maxretry = 5
-findtime = 600
-bantime = 3600

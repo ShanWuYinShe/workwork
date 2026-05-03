@@ -9,7 +9,7 @@ services:
     networks:
       ipvlan_docker:
         ipv6_address: "${NGINX_IPV6}"
-      internal_docker: null
+      internal_docker:
     volumes:
       - ./cert:/etc/nginx/certs:ro
       - ./services/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -20,28 +20,25 @@ services:
     cap_add:
       - NET_ADMIN
     depends_on:
-      - cliproxyapi
+      - xray
 
   xray:
-    image: teddysun/xray
+    build:
+      context: ./services/xray
+      dockerfile: Dockerfile
     restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    entrypoint: ["/entrypoint.sh"]
     networks:
       ipvlan_docker:
         ipv6_address: "${XRAY_IPV6}"
-      internal_docker: null
+      internal_docker:
+        aliases:
+          - xray-internal
     volumes:
+      - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./services/xray/config.json:/etc/xray/config.json:ro
-
-  cliproxyapi:
-    build:
-      context: ./services/cliproxyapi
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    networks:
-      - internal_docker
-    volumes:
-      - ./services/cliproxyapi/config.yaml:/CLIProxyAPI/config.yaml:ro
-      - ./services/cliproxyapi:/root/.cli-proxy-api
 
   admin:
     build:
@@ -51,13 +48,20 @@ services:
     networks:
       - internal_docker
     environment:
-      - CF_TEAM_DOMAIN=${CF_TEAM_DOMAIN}
-      - CF_POLICY_AUD=${CF_POLICY_AUD}
       - ADMIN_PORT=${ADMIN_PORT}
+      - ADMIN_USERS=${ADMIN_USERS}
+      - HTPASSWD_FILE=/app/htpasswd
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./.env:/app/.env:ro
+      - ./.env:/app/.env:rw
       - ./logs:/app/logs
+      - ./services/nginx/.htpasswd:/app/htpasswd:rw
+      - ./.wework:/app/data
+      - ./services/xray/config.json:/app/configs/xray.json:rw
+      - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
+      - ./deploy.sh:/app/deploy.sh:ro
+      - ./services:/app/services:ro
+      - ./ui/dist:/app/ui:ro
     depends_on:
       - nginx
 
