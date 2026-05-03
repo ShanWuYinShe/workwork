@@ -11,16 +11,15 @@
 services/xray/config.json
 services/nginx/nginx.conf
 services/nginx/.htpasswd
-services/cliproxyapi/config.yaml
+
+# Xray binary (build artifact)
+services/xray/xray
 
 # TLS certificates
 cert/
 
 # Logs
 logs/
-
-# CliproxyAPI generated config (template is tracked)
-services/cliproxyapi/config.yaml
 
 # Browser data
 browser-data/
@@ -37,6 +36,12 @@ node_modules/
 # Build artifacts
 dist/
 build/
+
+# Go build
+services/admin/admin
+
+# SPA build output
+ui/dist/
 
 # Python
 __pycache__/
