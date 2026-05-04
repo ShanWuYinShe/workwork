@@ -48,18 +48,18 @@ services:
     networks:
       - internal_docker
     environment:
-      - ADMIN_PORT=${ADMIN_PORT}
-      - ADMIN_USERS=${ADMIN_USERS}
       - HTPASSWD_FILE=/app/htpasswd
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:rw
       - ./logs:/app/logs
       - ./services/nginx/.htpasswd:/app/htpasswd:rw
+      - ./services/nginx/nginx.conf:/app/configs/nginx.conf:rw
+      - ./services/nginx/nginx.conf.tmpl:/app/configs/nginx.conf.tmpl:ro
       - ./.wework:/app/data
       - ./services/xray/config.json:/app/configs/xray.json:rw
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
-      - ./deploy.sh:/app/deploy.sh:ro
       - ./services:/app/services:ro
       - ./ui/dist:/app/ui:ro
     depends_on:

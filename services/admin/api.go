@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type jsonResp struct {
@@ -192,7 +198,13 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 func apiUsers(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		xrayClients, _ := handlers.ReadXrayClients()
-		genJSON := handlers.GenerateClientConfig(xrayClients)
+		genJSON := handlers.GenerateClientConfig(xrayClients, handlers.ClientConfig{
+			XrayIPV6:          getEnv("XRAY_IPV6"),
+			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+		})
 		adminUsers := readHtpasswdUsers()
 		writeJSON(w, map[string]any{
 			"xrayClients": xrayClients, "generatedJSON": genJSON, "adminUsers": adminUsers,
@@ -213,7 +225,10 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		var full map[string]any
-		json.Unmarshal(data, &full)
+		if err := json.Unmarshal(data, &full); err != nil {
+			writeError(w, "Invalid xray config: "+err.Error(), 500)
+			return
+		}
 		inbounds, _ := full["inbounds"].([]any)
 		for i := range inbounds {
 			ib, _ := inbounds[i].(map[string]any)
@@ -233,7 +248,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		}
 		out, _ := json.MarshalIndent(full, "", "  ")
 		os.WriteFile("/app/configs/xray.json", out, 0644)
-		go func() { exec.Command("/bin/sh", "/app/deploy.sh").Run() }()
+		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -245,9 +260,16 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
-		data, _ := os.ReadFile("/app/configs/xray.json")
+		data, err := os.ReadFile("/app/configs/xray.json")
+		if err != nil {
+			writeError(w, "Failed to read xray config: "+err.Error(), 500)
+			return
+		}
 		var full map[string]any
-		json.Unmarshal(data, &full)
+		if err := json.Unmarshal(data, &full); err != nil {
+			writeError(w, "Invalid xray config: "+err.Error(), 500)
+			return
+		}
 		inbounds, _ := full["inbounds"].([]any)
 		for i := range inbounds {
 			ib, _ := inbounds[i].(map[string]any)
@@ -267,9 +289,38 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		}
 		out, _ := json.MarshalIndent(full, "", "  ")
 		os.WriteFile("/app/configs/xray.json", out, 0644)
-		go func() { exec.Command("/bin/sh", "/app/deploy.sh").Run() }()
+		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
+}
+
+var htpasswdFile = "/app/htpasswd"
+
+func htpasswdAddUser(username, password string) error {
+	out, err := exec.Command("htpasswd", "-nbB", username, password).Output()
+	if err != nil {
+		return err
+	}
+	newLine := strings.TrimSpace(string(out))
+	data, _ := os.ReadFile(htpasswdFile)
+	var lines []string
+	replaced := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, username+":") {
+			lines = append(lines, newLine)
+			replaced = true
+		} else {
+			lines = append(lines, line)
+		}
+	}
+	if !replaced {
+		lines = append(lines, newLine)
+	}
+	return os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }
 
 func apiChangePassword(cli *client.Client) http.HandlerFunc {
@@ -279,12 +330,10 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username and password required", 400)
 			return
 		}
-		out, err := exec.Command("htpasswd", "-nbB", body.Username, body.Password).Output()
-		if err != nil {
+		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
 			writeError(w, err.Error(), 500)
 			return
 		}
-		os.WriteFile("/app/htpasswd", out, 0644)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -296,12 +345,10 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username and password required", 400)
 			return
 		}
-		out, err := exec.Command("htpasswd", "-nbB", body.Username, body.Password).Output()
-		if err != nil {
+		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
 			writeError(w, err.Error(), 500)
 			return
 		}
-		os.WriteFile("/app/htpasswd", out, 0644)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -313,20 +360,24 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username required", 400)
 			return
 		}
-		data, _ := os.ReadFile("/app/htpasswd")
+		data, _ := os.ReadFile(htpasswdFile)
 		var lines []string
 		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
 			if !strings.HasPrefix(line, body.Username+":") {
 				lines = append(lines, line)
 			}
 		}
-		os.WriteFile("/app/htpasswd", []byte(strings.Join(lines, "\n")), 0644)
+		os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
 func readHtpasswdUsers() []string {
-	data, err := os.ReadFile("/app/htpasswd")
+	data, err := os.ReadFile(htpasswdFile)
 	if err != nil {
 		return nil
 	}
@@ -337,4 +388,307 @@ func readHtpasswdUsers() []string {
 		}
 	}
 	return users
+}
+
+// -- Network / IPv6 rotation APIs --
+
+type rotatingIPState struct {
+	CurrentIP string `json:"current_ip"`
+}
+
+func loadRotatingState() rotatingIPState {
+	var s rotatingIPState
+	data, err := os.ReadFile("/app/data/rotating-ip.json")
+	if err != nil {
+		return s
+	}
+	json.Unmarshal(data, &s)
+	return s
+}
+
+func saveRotatingState(s rotatingIPState) {
+	b, _ := json.Marshal(s)
+	os.WriteFile("/app/data/rotating-ip.json", b, 0644)
+}
+
+func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfOK := getEnv("CF_API_TOKEN") != ""
+		subnet := getEnv("IPV6_SUBNET")
+		nginxIP := getEnv("NGINX_IPV6")
+		xrayPrimary := getEnv("XRAY_IPV6")
+		xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
+		state := loadRotatingState()
+		xrayActive := state.CurrentIP
+		if xrayActive == "" {
+			xrayActive = xrayPrimary
+		}
+
+		// Collect all IPv6 addresses actually on xray container
+		xrayAddrs := []string{}
+		containers, _ := cli.ContainerList(r.Context(), container.ListOptions{
+			Filters: filters.NewArgs(filters.KeyValuePair{
+				Key: "label", Value: "com.docker.compose.service=xray",
+			}),
+		})
+		if len(containers) > 0 {
+			for _, net := range containers[0].NetworkSettings.Networks {
+				xrayAddrs = append(xrayAddrs, net.GlobalIPv6Address)
+			}
+		}
+
+		// CF DNS records
+		type dnsInfo struct {
+			Domain  string        `json:"domain"`
+			Record  *cfDNSRecord  `json:"record"`
+			Error   string        `json:"error,omitempty"`
+			Synced  bool          `json:"synced"`
+		}
+		var dnsReality, dnsNginx *dnsInfo
+		if cfOK {
+			if xrayDomain != "" {
+				dnsReality = &dnsInfo{Domain: xrayDomain}
+				rec, err := cfFindAAAARecord(xrayDomain)
+				if err != nil {
+					dnsReality.Error = err.Error()
+				} else {
+					dnsReality.Record = rec
+					if rec != nil {
+						dnsReality.Synced = rec.Content == xrayActive
+					}
+				}
+			}
+			// Also check main domain for nginx
+			nginxDomain := getEnv("XHTTP_DOMAIN")
+			if nginxDomain != "" {
+				dnsNginx = &dnsInfo{Domain: nginxDomain}
+				rec, err := cfFindAAAARecord(nginxDomain)
+				if err != nil {
+					dnsNginx.Error = err.Error()
+				} else {
+					dnsNginx.Record = rec
+					if rec != nil {
+						dnsNginx.Synced = rec.Content == nginxIP
+					}
+				}
+			}
+		}
+
+		// Derive allocation ranges from subnet
+	prefix := ""
+	if _, ipNet, err := net.ParseCIDR(subnet); err == nil {
+		ip := ipNet.IP.To16()
+		if ip != nil && len(ip) == 16 {
+			parts := make([]string, 4)
+			for i := 0; i < 4; i++ {
+				parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
+			}
+			prefix = strings.Join(parts, ":")
+		}
+	}
+
+	writeJSON(w, map[string]any{
+		"subnet":         subnet,
+		"static_range":   prefix + ":1::/80",
+		"rotating_range": prefix + ":f::/80",
+		"nginx_ip":       nginxIP,
+		"xray_primary":   xrayPrimary,
+		"xray_rotating":  state.CurrentIP,
+		"xray_active":    xrayActive,
+		"xray_addrs":     xrayAddrs,
+		"cf_configured":  cfOK,
+		"dns_reality":    dnsReality,
+		"dns_nginx":      dnsNginx,
+	})
+	}
+}
+
+func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		subnet := getEnv("IPV6_SUBNET")
+		primaryIP := getEnv("XRAY_IPV6")
+		nginxIP := getEnv("NGINX_IPV6")
+		domain := getEnv("XRAY_REALITY_DOMAIN")
+
+		prefix, err := parseSubnetPrefix(subnet)
+		if err != nil {
+			writeError(w, "Invalid IPV6_SUBNET: "+err.Error(), 500)
+			return
+		}
+		newIP, err := genRandomIPv6(prefix, primaryIP, nginxIP)
+		if err != nil {
+			writeError(w, "Failed to generate IPv6: "+err.Error(), 500)
+			return
+		}
+
+		// Find xray container
+		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+			Filters: filters.NewArgs(filters.KeyValuePair{
+				Key: "label", Value: "com.docker.compose.service=xray",
+			}),
+		})
+		if err != nil || len(containers) == 0 {
+			writeError(w, "Xray container not found", 500)
+			return
+		}
+		xrayID := containers[0].ID
+
+		// Add new IPv6 to xray container
+		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", newIP+"/64", "dev", "eth0"); err != nil {
+			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
+			return
+		}
+
+		// Update Cloudflare DNS
+		if domain != "" && getEnv("CF_API_TOKEN") != "" {
+			if _, err := cfUpsertAAAARecord(domain, newIP); err != nil {
+				// Rollback: remove the IP we just added
+				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", newIP+"/64", "dev", "eth0")
+				writeError(w, "DNS update failed: "+err.Error(), 500)
+				return
+			}
+		}
+
+		// Remove old rotating IP
+		oldState := loadRotatingState()
+		if oldState.CurrentIP != "" && oldState.CurrentIP != primaryIP {
+			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", "eth0")
+		}
+
+		saveRotatingState(rotatingIPState{CurrentIP: newIP})
+
+		writeJSON(w, map[string]any{
+			"new_ip":  newIP,
+			"domain":  domain,
+		})
+	}
+}
+
+func parseSubnetPrefix(subnet string) (string, error) {
+	_, ipNet, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return "", fmt.Errorf("parse subnet: %w", err)
+	}
+	// Return the first 64 bits as hex string with trailing ::
+	ip := ipNet.IP.To16()
+	if ip == nil {
+		return "", fmt.Errorf("not an IPv6 subnet")
+	}
+	// Build prefix like "2605:a141:2322:2623:1::"
+	parts := make([]string, 4)
+	for i := 0; i < 4; i++ {
+		parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
+	}
+	return strings.Join(parts, ":") + ":", nil
+}
+
+func genRandomIPv6(prefix string, exclude ...string) (string, error) {
+	for attempts := 0; attempts < 100; attempts++ {
+		var ifid [8]byte
+		if _, err := io.ReadFull(rand.Reader, ifid[:]); err != nil {
+			return "", err
+		}
+		// Force first nibble to 'f' → rotating IPs live in :fxxx:.../80 range,
+		// never colliding with static IPs in ::1::/80 range.
+		g0 := binary.BigEndian.Uint16(ifid[0:2])
+		g0 = 0xf000 | (g0 & 0x0fff)
+		ip := fmt.Sprintf("%s%x:%x:%x:%x",
+			prefix,
+			g0,
+			binary.BigEndian.Uint16(ifid[2:4]),
+			binary.BigEndian.Uint16(ifid[4:6]),
+			binary.BigEndian.Uint16(ifid[6:8]),
+		)
+		excluded := false
+		for _, e := range exclude {
+			if e != "" && ip == e {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			return ip, nil
+		}
+	}
+	return "", fmt.Errorf("failed to generate unique IPv6 after 100 attempts")
+}
+
+func apiSyncDNS(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if getEnv("CF_API_TOKEN") == "" {
+			writeError(w, "CF_API_TOKEN not configured", 400)
+			return
+		}
+		var results []string
+		// Sync reality domain
+		realityDomain := getEnv("XRAY_REALITY_DOMAIN")
+		if realityDomain != "" {
+			state := loadRotatingState()
+			activeIP := state.CurrentIP
+			if activeIP == "" {
+				activeIP = getEnv("XRAY_IPV6")
+			}
+			if _, err := cfUpsertAAAARecord(realityDomain, activeIP); err != nil {
+				results = append(results, fmt.Sprintf("reality: %s", err.Error()))
+			} else {
+				results = append(results, fmt.Sprintf("reality: %s → %s synced", realityDomain, activeIP))
+			}
+		}
+		// Sync nginx domain
+		nginxDomain := getEnv("XHTTP_DOMAIN")
+		nginxIP := getEnv("NGINX_IPV6")
+		if nginxDomain != "" && nginxIP != "" {
+			if _, err := cfUpsertAAAARecord(nginxDomain, nginxIP); err != nil {
+				results = append(results, fmt.Sprintf("nginx: %s", err.Error()))
+			} else {
+				results = append(results, fmt.Sprintf("nginx: %s → %s synced", nginxDomain, nginxIP))
+			}
+		}
+		writeJSON(w, map[string]any{"results": results})
+	}
+}
+
+func restartXray(cli *client.Client) {
+	ctx := context.Background()
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.KeyValuePair{
+			Key: "label", Value: "com.docker.compose.service=xray",
+		}),
+	})
+	if err != nil || len(containers) == 0 {
+		return
+	}
+	t := 10
+	cli.ContainerRestart(ctx, containers[0].ID, container.StopOptions{Timeout: &t})
+}
+
+func containerExec(ctx context.Context, cli *client.Client, containerID string, cmd ...string) error {
+	execConfig := container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return fmt.Errorf("exec create: %w", err)
+	}
+	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return fmt.Errorf("exec attach: %w", err)
+	}
+	defer attachResp.Close()
+	var stderrBuf bytes.Buffer
+	stdcopy.StdCopy(io.Discard, &stderrBuf, attachResp.Reader)
+	inspect, err := cli.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return fmt.Errorf("exec inspect: %w", err)
+	}
+	if inspect.ExitCode != 0 {
+		errMsg := strings.TrimSpace(stderrBuf.String())
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("exit code %d", inspect.ExitCode)
+		}
+		return fmt.Errorf("exec %v: %s", cmd, errMsg)
+	}
+	return nil
 }

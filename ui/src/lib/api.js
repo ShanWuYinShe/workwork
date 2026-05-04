@@ -2,12 +2,14 @@ const BASE = '/api/admin';
 
 async function req(path, opts = {}) {
   const r = await fetch(BASE + path, {
-    credentials: 'include',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
+  const json = await r.json();
+  if (!json.success) throw new Error(json.error || 'API error');
+  return json.data;
 }
 
 export async function getDashboard() {
@@ -21,14 +23,12 @@ export async function getServices() {
 export async function serviceAction(name, action) {
   const r = await fetch(`${BASE}/services/${name}/${action}`, {
     method: 'POST',
-    credentials: 'include',
+    credentials: 'same-origin',
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
-}
-
-export async function getLogs(name, tail = 100) {
-  return req(`/services/${name}/logs?tail=${tail}`);
+  const json = await r.json();
+  if (!json.success) throw new Error(json.error || 'API error');
+  return json.data;
 }
 
 export async function getConfig() {
@@ -57,4 +57,16 @@ export async function addAdminUser(username, password) {
 
 export async function deleteAdminUser(username) {
   return req('/users/admin/delete', { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function getNetworkStatus() {
+  return req('/network/status');
+}
+
+export async function rotateIPv6() {
+  return req('/network/rotate-ipv6', { method: 'POST' });
+}
+
+export async function syncDNS() {
+  return req('/network/sync-dns', { method: 'POST' });
 }

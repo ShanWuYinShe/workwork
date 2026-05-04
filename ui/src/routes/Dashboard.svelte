@@ -1,5 +1,7 @@
 <script>
 import { onMount } from 'svelte';
+import { getDashboard } from '../lib/api.js';
+
 let stats = { services: '-', running: '-', dockerVersion: '-', cpu: '-', memory: '-', os: '-', arch: '-' };
 let services = [];
 let error = '';
@@ -7,9 +9,7 @@ let loading = true;
 
 onMount(async () => {
   try {
-    const r = await fetch('/api/admin/dashboard', { credentials: 'same-origin' });
-    if (!r.ok) throw new Error('Auth required');
-    const d = await r.json();
+    const d = await getDashboard();
     stats = d.stats || stats;
     services = d.services || [];
   } catch (e) { error = e.message; }
