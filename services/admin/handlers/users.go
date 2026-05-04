@@ -38,13 +38,42 @@ func ReadXrayClients() ([]map[string]string, error) {
 	return clients, nil
 }
 
-func GenerateClientConfig(clients []map[string]string) string {
+type ClientConfig struct {
+	XrayIPV6           string
+	RealityServerName  string
+	RealityPublicKey   string
+	RealityShortID     string
+	XHTTPDomain        string
+}
+
+func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string {
 	uuid := "YOUR_UUID"
 	if len(clients) > 0 {
 		uuid = clients[0]["id"]
 	}
 
-	cfg := map[string]any{
+	ip := cfg.XrayIPV6
+	if ip == "" {
+		ip = "2605:a141:2322:2623:1::12"
+	}
+	sni := cfg.RealityServerName
+	if sni == "" {
+		sni = "www.microsoft.com"
+	}
+	pubKey := cfg.RealityPublicKey
+	if pubKey == "" {
+		pubKey = "FCgB02VAjngf517UBQ-LWUWh6ZrvdHMWVUmHHkyirhM"
+	}
+	shortID := cfg.RealityShortID
+	if shortID == "" {
+		shortID = "abcdef"
+	}
+	domain := cfg.XHTTPDomain
+	if domain == "" {
+		domain = "yinghuoren.com"
+	}
+
+	out := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
 		"inbounds": []map[string]any{
 			{
@@ -69,13 +98,13 @@ func GenerateClientConfig(clients []map[string]string) string {
 				"tag":      "reality",
 				"protocol": "vless",
 				"settings": map[string]any{
-					"vnext": []map[string]any{{"address": "2605:a141:2322:2623:1::12", "port": 443, "users": []map[string]any{{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}},
+					"vnext": []map[string]any{{"address": ip, "port": 443, "users": []map[string]any{{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}},
 				},
 				"streamSettings": map[string]any{
 					"network": "tcp", "security": "reality",
 					"realitySettings": map[string]any{
-						"serverName": "www.microsoft.com", "fingerprint": "chrome",
-						"publicKey": "FCgB02VAjngf517UBQ-LWUWh6ZrvdHMWVUmHHkyirhM", "shortId": "abcdef",
+						"serverName": sni, "fingerprint": "chrome",
+						"publicKey": pubKey, "shortId": shortID,
 					},
 					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
@@ -84,11 +113,11 @@ func GenerateClientConfig(clients []map[string]string) string {
 				"tag":      "xhttp",
 				"protocol": "vless",
 				"settings": map[string]any{
-					"vnext": []map[string]any{{"address": "yinghuoren.com", "port": 443, "users": []map[string]any{{"id": uuid, "encryption": "none"}}}},
+					"vnext": []map[string]any{{"address": domain, "port": 443, "users": []map[string]any{{"id": uuid, "encryption": "none"}}}},
 				},
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
-					"tlsSettings": map[string]any{"serverName": "yinghuoren.com", "fingerprint": "chrome"},
+					"tlsSettings": map[string]any{"serverName": domain, "fingerprint": "chrome"},
 					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "auto"},
 					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
@@ -107,9 +136,9 @@ func GenerateClientConfig(clients []map[string]string) string {
 		},
 	}
 
-	out, err := json.MarshalIndent(cfg, "", "  ")
+	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return `{"error": "failed to generate config"}`
 	}
-	return string(out)
+	return string(b)
 }

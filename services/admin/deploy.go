@@ -1,0 +1,111 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+// generateConfigs creates xray config, nginx config, and htpasswd from templates.
+// Called on admin startup to ensure configs exist before services come up.
+func generateConfigs() error {
+	if err := genXrayConfig(); err != nil {
+		return fmt.Errorf("xray config: %w", err)
+	}
+	if err := genNginxConfig(); err != nil {
+		return fmt.Errorf("nginx config: %w", err)
+	}
+	if err := genHtpasswd(); err != nil {
+		return fmt.Errorf("htpasswd: %w", err)
+	}
+	return nil
+}
+
+func genXrayConfig() error {
+	// Skip if already exists and has valid JSON
+	if data, err := os.ReadFile("/app/configs/xray.json"); err == nil {
+		if len(data) > 10 && data[0] == '{' {
+			return nil
+		}
+	}
+	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
+	if err != nil {
+		return err
+	}
+	ids := getEnv("XRAY_CLIENT_IDS")
+	uuids := strings.Split(ids, ",")
+	var clientsJSON, realityClientsJSON bytes.Buffer
+	clientsJSON.WriteByte('[')
+	realityClientsJSON.WriteByte('[')
+	for i, u := range uuids {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		if i > 0 {
+			clientsJSON.WriteByte(',')
+			realityClientsJSON.WriteByte(',')
+		}
+		fmt.Fprintf(&clientsJSON, `{"id":"%s","flow":""}`, u)
+		fmt.Fprintf(&realityClientsJSON, `{"id":"%s","flow":"xtls-rprx-vision"}`, u)
+	}
+	clientsJSON.WriteByte(']')
+	realityClientsJSON.WriteByte(']')
+
+	out := string(tmpl)
+	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", clientsJSON.String())
+	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityClientsJSON.String())
+	out = replaceEnv(out, map[string]string{
+		"__XRAY_REALITY_DEST__":        "XRAY_REALITY_DEST",
+		"__XRAY_REALITY_SERVER_NAME__": "XRAY_REALITY_SERVER_NAME",
+		"__XRAY_PRIVATE_KEY__":         "XRAY_PRIVATE_KEY",
+		"__XRAY_SHORT_IDS__":           "XRAY_SHORT_IDS",
+	})
+	return os.WriteFile("/app/configs/xray.json", []byte(out), 0644)
+}
+
+func genNginxConfig() error {
+	if data, err := os.ReadFile("/app/configs/nginx.conf"); err == nil {
+		if len(data) > 100 {
+			return nil
+		}
+	}
+	tmpl, err := os.ReadFile("/app/configs/nginx.conf.tmpl")
+	if err != nil {
+		return err
+	}
+	out := string(tmpl)
+	out = replaceEnv(out, map[string]string{
+		"__NGINX_IPV6__": "NGINX_IPV6",
+		"__ADMIN_PORT__": "ADMIN_PORT",
+	})
+	return os.WriteFile("/app/configs/nginx.conf", []byte(out), 0644)
+}
+
+func genHtpasswd() error {
+	if data, err := os.ReadFile("/app/htpasswd"); err == nil {
+		if len(data) > 10 {
+			return nil
+		}
+	}
+	user := getEnv("AUTH_USER")
+	pass := getEnv("AUTH_PASS")
+	if user == "" || pass == "" {
+		return nil
+	}
+	out, err := exec.Command("htpasswd", "-nbB", user, pass).Output()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile("/app/htpasswd", bytes.TrimSpace(out), 0644)
+}
+
+func replaceEnv(s string, vars map[string]string) string {
+	for placeholder, key := range vars {
+		v := getEnv(key)
+		s = strings.ReplaceAll(s, placeholder, v)
+	}
+	return s
+}

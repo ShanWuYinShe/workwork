@@ -8,7 +8,7 @@ enabled = false
 [nginx-secure-auth]
 enabled = true
 filter = nginx-auth
-logpath = /var/log/nginx/api-access.log
+logpath = /var/log/nginx/admin-access.log
 action = iptables-allports
 bantime = 3600
 findtime = 600

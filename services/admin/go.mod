@@ -2,10 +2,7 @@ module admin
 
 go 1.25.0
 
-require (
-	github.com/coreos/go-oidc/v3 v3.12.0
-	github.com/docker/docker v27.5.1+incompatible
-)
+require github.com/docker/docker v27.5.1+incompatible
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -15,7 +12,6 @@ require (
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -32,8 +28,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/oauth2 v0.25.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
