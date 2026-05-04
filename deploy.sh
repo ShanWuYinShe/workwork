@@ -12,7 +12,7 @@ fi
 
 source .env
 
-REQUIRED_VARS=(NGINX_IPV6 XRAY_IPV6 XRAY_CLIENT_IDS XRAY_PRIVATE_KEY XRAY_SHORT_IDS XRAY_REALITY_DEST XRAY_REALITY_SERVER_NAME CLIPROXY_API_KEYS AUTH_USER AUTH_PASS ADMIN_PORT)
+REQUIRED_VARS=(NGINX_IPV6 XRAY_CLIENT_IDS XRAY_PRIVATE_KEY XRAY_SHORT_IDS XRAY_REALITY_DEST XRAY_REALITY_SERVER_NAME AUTH_USER AUTH_PASS ADMIN_PORT)
 for var in "${REQUIRED_VARS[@]}"; do
     if [ -z "${!var:-}" ]; then
         echo "Error: $var is not set in .env"
@@ -42,7 +42,6 @@ REALITY_CLIENTS_JSON+="]"
 sed \
     -e "s|__XRAY_CLIENTS_JSON__|$CLIENTS_JSON|g" \
     -e "s|__XRAY_REALITY_CLIENTS_JSON__|$REALITY_CLIENTS_JSON|g" \
-    -e "s|__XRAY_IPV6__|$XRAY_IPV6|g" \
     -e "s|__XRAY_REALITY_DEST__|$XRAY_REALITY_DEST|g" \
     -e "s|__XRAY_REALITY_SERVER_NAME__|$XRAY_REALITY_SERVER_NAME|g" \
     -e "s|__XRAY_PRIVATE_KEY__|$XRAY_PRIVATE_KEY|g" \
@@ -58,19 +57,6 @@ sed \
 
 echo "  services/nginx/.htpasswd"
 docker run --rm alpine sh -c "apk add --no-cache apache2-utils >/dev/null 2>&1 && htpasswd -nbB '$AUTH_USER' '$AUTH_PASS'" > services/nginx/.htpasswd
-
-# --- CliproxyAPI ---
-echo "  services/cliproxyapi/config.yaml"
-IFS=',' read -ra API_KEYS <<< "$CLIPROXY_API_KEYS"
-API_KEYS_YAML=""
-for key in "${API_KEYS[@]}"; do
-    API_KEYS_YAML+="  - \"$key\""$'\n'
-done
-API_KEYS_YAML="${API_KEYS_YAML%$'\n'}"
-
-sed \
-    -e "s|__CLIPROXY_API_KEYS_YAML__|$API_KEYS_YAML|g" \
-    services/cliproxyapi/config.yaml.tmpl > services/cliproxyapi/config.yaml
 
 echo ""
 echo "Config generation complete. Run 'docker compose up -d' to start services."

@@ -4,15 +4,19 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/docker/docker/client"
 )
 
 func main() {
-	port := os.Getenv("ADMIN_PORT")
+	port := getEnv("ADMIN_PORT")
 	if port == "" {
 		port = "8318"
+	}
+
+	// Auto-generate configs from templates on first start
+	if err := generateConfigs(); err != nil {
+		log.Printf("WARNING: config generation: %v", err)
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -33,6 +37,9 @@ func main() {
 	mux.HandleFunc("POST /api/admin/users/password", apiChangePassword(cli))
 	mux.HandleFunc("POST /api/admin/users/admin/add", apiAddAdmin(cli))
 	mux.HandleFunc("POST /api/admin/users/admin/delete", apiDeleteAdmin(cli))
+	mux.HandleFunc("GET /api/admin/network/status", apiNetworkStatus(cli))
+	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", apiRotateIPv6(cli))
+	mux.HandleFunc("POST /api/admin/network/sync-dns", apiSyncDNS(cli))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)

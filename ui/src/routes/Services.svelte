@@ -1,25 +1,23 @@
 <script>
 import { onMount } from 'svelte';
+import { getServices, serviceAction } from '../lib/api.js';
+
 let services = [];
 let loading = true;
 let error = '';
 
 onMount(async () => {
   try {
-    const r = await fetch('/api/admin/services', { credentials: 'same-origin' });
-    if (!r.ok) throw new Error('Auth required');
-    services = await r.json();
+    const d = await getServices();
+    services = d.services || [];
   } catch(e) { error = e.message; }
   finally { loading = false; }
 });
 
 async function act(name, action) {
   try {
-    const r = await fetch(`/api/admin/services/${name}/${action}`, { method: 'POST', credentials: 'same-origin' });
-    if (r.ok) {
-      const d = await r.json();
-      services = d.services || services;
-    }
+    const d = await serviceAction(name, action);
+    services = d.services || services;
   } catch(e) { error = e.message; }
 }
 </script>
