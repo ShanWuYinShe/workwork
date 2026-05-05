@@ -90,3 +90,23 @@ export async function banIP(ip) {
 export async function unbanIP(ip) {
   return req('/security/blacklist/unban', { method: 'POST', body: JSON.stringify({ ip }) });
 }
+
+export async function getCliproxyInstances() {
+  return req('/cliproxy/instances');
+}
+
+export async function cliproxyStart(username) {
+  return req('/cliproxy/start', { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function cliproxyStop(username) {
+  return req('/cliproxy/stop', { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function cliproxyGetConfig(username) {
+  return req('/cliproxy/get-config', { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function cliproxySetConfig(username, api_keys) {
+  return req('/cliproxy/set-config', { method: 'POST', body: JSON.stringify({ username, api_keys }) });
+}
