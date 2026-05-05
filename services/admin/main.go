@@ -48,9 +48,10 @@ func main() {
 	mux.HandleFunc("GET /api/admin/network/status", requireRole("admin")(apiNetworkStatus(cli)))
 	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", requireRole("admin")(apiRotateIPv6(cli)))
 	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
-	mux.HandleFunc("GET /api/admin/security/jails", requireRole("admin")(apiJails(cli)))
-	mux.HandleFunc("POST /api/admin/security/blacklist/ban", requireRole("admin")(apiBanIP(cli)))
-	mux.HandleFunc("POST /api/admin/security/blacklist/unban", requireRole("admin")(apiUnbanIP(cli)))
+	// IP block management (Go-level, works behind Cloudflare)
+	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs(nil)))
+	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP(nil)))
+	mux.HandleFunc("POST /api/admin/security/unblock", requireRole("admin")(apiUnblockIP(nil)))
 	mux.HandleFunc("GET /api/admin/cliproxy/instances", requireRole("admin")(apiCliproxyInstances(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/start", requireRole("admin")(apiCliproxyStart(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/stop", requireRole("admin")(apiCliproxyStop(cli)))
@@ -58,6 +59,8 @@ func main() {
 	mux.HandleFunc("POST /api/admin/cliproxy/set-config", requireRole("admin")(apiCliproxySetConfig(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/codex-login", requireRole("admin")(apiCliproxyCodexLogin(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/upload-oauth", requireRole("admin")(apiCliproxyUploadOAuth(cli)))
+	mux.HandleFunc("GET /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)
@@ -69,9 +72,16 @@ func main() {
 	mux.Handle("/favicon.svg", static)
 	mux.Handle("/icons.svg", static)
 
+	// Wrap all routes with IP block middleware
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+			mux.ServeHTTP(w2, r2)
+		})(w, r)
+	})
+
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Admin panel listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
