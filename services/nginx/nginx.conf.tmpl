@@ -113,6 +113,17 @@ server {
         proxy_send_timeout 300s;
     }
 
+    location ~ ^/api/cliproxy/user/([^/]+)/(.*)$ {
+        set $cp_user $1;
+        set $cp_path $2;
+        proxy_pass http://cliproxy-$cp_user:8317/$cp_path$is_args$args;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-User $remote_user;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
 }
 
 server {
@@ -191,6 +202,17 @@ server {
 
     location /api/cliproxy/ {
         proxy_pass http://cliproxy-public:8317/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-User $remote_user;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    location ~ ^/api/cliproxy/user/([^/]+)/(.*)$ {
+        set $cp_user $1;
+        set $cp_path $2;
+        proxy_pass http://cliproxy-$cp_user:8317/$cp_path$is_args$args;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-User $remote_user;
