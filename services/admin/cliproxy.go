@@ -116,7 +116,11 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 		cfgPath := cliproxyConfigPath(body.Username)
 		data, err := os.ReadFile(cfgPath)
 		if err != nil {
-			writeError(w, "Config not found: "+err.Error(), 404)
+			// Return empty config for new users
+			writeJSON(w, map[string]any{
+				"config":   "",
+				"api_keys": []string{},
+			})
 			return
 		}
 		var cfg map[string]any
