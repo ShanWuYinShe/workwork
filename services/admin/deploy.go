@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // generateConfigs creates xray config, nginx config, and htpasswd from templates.
@@ -19,6 +20,9 @@ func generateConfigs() error {
 	}
 	if err := genHtpasswd(); err != nil {
 		return fmt.Errorf("htpasswd: %w", err)
+	}
+	if err := seedAdminUser(); err != nil {
+		return fmt.Errorf("seed admin: %w", err)
 	}
 	return nil
 }
@@ -48,8 +52,9 @@ func genXrayConfig() error {
 			clientsJSON.WriteByte(',')
 			realityClientsJSON.WriteByte(',')
 		}
-		fmt.Fprintf(&clientsJSON, `{"id":"%s","flow":""}`, u)
-		fmt.Fprintf(&realityClientsJSON, `{"id":"%s","flow":"xtls-rprx-vision"}`, u)
+		owner := getEnv("AUTH_USER")
+		fmt.Fprintf(&clientsJSON, `{"id":"%s","flow":"","owner":"%s"}`, u, owner)
+		fmt.Fprintf(&realityClientsJSON, `{"id":"%s","flow":"xtls-rprx-vision","owner":"%s"}`, u, owner)
 	}
 	clientsJSON.WriteByte(']')
 	realityClientsJSON.WriteByte(']')
@@ -100,6 +105,22 @@ func genHtpasswd() error {
 		return err
 	}
 	return os.WriteFile("/app/htpasswd", bytes.TrimSpace(out), 0644)
+}
+
+func seedAdminUser() error {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return err
+	}
+	adminUser := getEnv("AUTH_USER")
+	if adminUser == "" {
+		return nil
+	}
+	if _, exists := doc.Users[adminUser]; !exists {
+		doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+		return saveUsersMeta(doc)
+	}
+	return nil
 }
 
 func replaceEnv(s string, vars map[string]string) string {

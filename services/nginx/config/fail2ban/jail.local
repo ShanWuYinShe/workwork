@@ -14,6 +14,15 @@ bantime = 3600
 findtime = 600
 maxretry = 5
 
+[admin-manual]
+enabled = true
+filter = nginx-auth
+logpath = /var/log/nginx/admin-access.log
+action = iptables-allports
+bantime = 86400
+findtime = 60
+maxretry = 100
+
 [sshd]
 enabled = false
 
