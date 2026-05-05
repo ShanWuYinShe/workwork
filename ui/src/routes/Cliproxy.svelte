@@ -64,6 +64,18 @@ async function saveConfig() {
     selectedUser = null;
   } catch(e) { error = e.message; }
 }
+
+function baseUrl(username) {
+  return username === 'public'
+    ? 'https://yinghuoren.com/api/cliproxy'
+    : `https://yinghuoren.com/api/cliproxy/user/${username}`;
+}
+
+async function copyUrl(url) {
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {}
+}
 </script>
 
 <h1>Cliproxy</h1>
@@ -79,7 +91,7 @@ async function saveConfig() {
   {:else}
     <div style="margin-bottom:0.75rem;">
       <label>API Keys (one per line)</label>
-      <textarea rows="6" bind:value={apiKeysInput} placeholder="sk-xxxx&#10;sk-yyyy"></textarea>
+      <textarea rows="6" bind:value={apiKeysInput} placeholder="sk-xxxx"></textarea>
     </div>
     <div style="display:flex;gap:0.5rem;">
       <button class="btn btn-green" on:click={saveConfig}>Save</button>
@@ -99,13 +111,17 @@ async function saveConfig() {
   <h2>Instances ({instances.length})</h2>
   {#if instances.length}
   <table>
-    <thead><tr><th>User</th><th>Status</th><th>Actions</th></tr></thead>
+    <thead><tr><th>User</th><th>Base URL</th><th>Status</th><th>Actions</th></tr></thead>
     <tbody>
       {#each instances as ci}
       <tr>
         <td style="font-weight:500;">
           {ci.username}
           {#if ci.username === 'public'}<span class="badge" style="background:#1e3a5f;color:#93c5fd;">shared</span>{/if}
+        </td>
+        <td style="font-family:monospace;font-size:0.75rem;color:#93c5fd;">
+          {baseUrl(ci.username)}
+          <button class="btn btn-sm btn-blue" style="margin-left:0.25rem;padding:0.1rem 0.3rem;font-size:0.65rem;" on:click={() => copyUrl(baseUrl(ci.username))} title="Copy URL">Copy</button>
         </td>
         <td>
           <span class="badge" class:badge-green={ci.running} class:badge-red={!ci.running}>
