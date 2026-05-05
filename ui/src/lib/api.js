@@ -110,3 +110,7 @@ export async function cliproxyGetConfig(username) {
 export async function cliproxySetConfig(username, api_keys) {
   return req('/cliproxy/set-config', { method: 'POST', body: JSON.stringify({ username, api_keys }) });
 }
+
+export async function cliproxyCodexLogin(username) {
+  return req('/cliproxy/codex-login', { method: 'POST', body: JSON.stringify({ username }) });
+}

@@ -56,6 +56,7 @@ func main() {
 	mux.HandleFunc("POST /api/admin/cliproxy/stop", requireRole("admin")(apiCliproxyStop(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/get-config", requireRole("admin")(apiCliproxyGetConfig(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/set-config", requireRole("admin")(apiCliproxySetConfig(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/codex-login", requireRole("admin")(apiCliproxyCodexLogin(cli)))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)

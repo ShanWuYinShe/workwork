@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -15,8 +17,9 @@ const userInfoCtxKey ctxKey = "userInfo"
 const usernameCtxKey ctxKey = "username"
 
 type UserInfo struct {
-	Role      string `json:"role"`
-	CreatedAt string `json:"created_at"`
+	Role          string `json:"role"`
+	CreatedAt     string `json:"created_at"`
+	CliproxyToken string `json:"cliproxy_token"`
 }
 
 type usersMetaDoc struct {
@@ -102,6 +105,31 @@ func getUserFromContext(r *http.Request) (*UserInfo, string) {
 	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
 	username, _ := r.Context().Value(usernameCtxKey).(string)
 	return info, username
+}
+
+func getOrCreateCliproxyToken(username string) (string, error) {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return "", err
+	}
+	info := doc.Users[username]
+	if info.CliproxyToken != "" {
+		return info.CliproxyToken, nil
+	}
+	b := make([]byte, 10)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	info.CliproxyToken = hex.EncodeToString(b)
+	info.Role = doc.Users[username].Role
+	if info.CreatedAt == "" {
+		info.CreatedAt = doc.Users[username].CreatedAt
+	}
+	doc.Users[username] = info
+	if err := saveUsersMeta(doc); err != nil {
+		return "", err
+	}
+	return info.CliproxyToken, nil
 }
 
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
