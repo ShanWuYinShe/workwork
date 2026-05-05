@@ -26,20 +26,31 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// JSON API
-	mux.HandleFunc("GET /api/admin/dashboard", apiDashboard(cli))
-	mux.HandleFunc("GET /api/admin/services", apiServices(cli))
-	mux.HandleFunc("POST /api/admin/services/{name}/{action}", apiServiceAction(cli))
-	mux.HandleFunc("GET /api/admin/config", apiConfig(cli))
-	mux.HandleFunc("GET /api/admin/users", apiUsers(cli))
-	mux.HandleFunc("POST /api/admin/users/xray/add", apiAddXray(cli))
-	mux.HandleFunc("POST /api/admin/users/xray/delete", apiDeleteXray(cli))
-	mux.HandleFunc("POST /api/admin/users/password", apiChangePassword(cli))
-	mux.HandleFunc("POST /api/admin/users/admin/add", apiAddAdmin(cli))
-	mux.HandleFunc("POST /api/admin/users/admin/delete", apiDeleteAdmin(cli))
-	mux.HandleFunc("GET /api/admin/network/status", apiNetworkStatus(cli))
-	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", apiRotateIPv6(cli))
-	mux.HandleFunc("POST /api/admin/network/sync-dns", apiSyncDNS(cli))
+	// Auth — available to all authenticated users
+	mux.HandleFunc("GET /api/admin/auth/me", requireRole("viewer")(apiWhoAmI(cli)))
+
+	// Dashboard — viewer+
+	mux.HandleFunc("GET /api/admin/dashboard", requireRole("viewer")(apiDashboard(cli)))
+	mux.HandleFunc("GET /api/admin/services", requireRole("viewer")(apiServices(cli)))
+	mux.HandleFunc("GET /api/admin/config", requireRole("viewer")(apiConfig(cli)))
+
+	// User operations — viewer+ (read own), admin (manage all)
+	mux.HandleFunc("GET /api/admin/users", requireRole("viewer")(apiUsers(cli)))
+	mux.HandleFunc("POST /api/admin/users/password", requireRole("viewer")(apiChangePassword(cli)))
+
+	// Admin-only operations
+	mux.HandleFunc("POST /api/admin/services/{name}/{action}", requireRole("admin")(apiServiceAction(cli)))
+	mux.HandleFunc("POST /api/admin/users/xray/add", requireRole("admin")(apiAddXray(cli)))
+	mux.HandleFunc("POST /api/admin/users/xray/delete", requireRole("admin")(apiDeleteXray(cli)))
+	mux.HandleFunc("POST /api/admin/users/admin/add", requireRole("admin")(apiAddAdmin(cli)))
+	mux.HandleFunc("POST /api/admin/users/admin/delete", requireRole("admin")(apiDeleteAdmin(cli)))
+	mux.HandleFunc("POST /api/admin/users/roles/set", requireRole("admin")(apiSetRole(cli)))
+	mux.HandleFunc("GET /api/admin/network/status", requireRole("admin")(apiNetworkStatus(cli)))
+	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", requireRole("admin")(apiRotateIPv6(cli)))
+	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
+	mux.HandleFunc("GET /api/admin/security/jails", requireRole("admin")(apiJails(cli)))
+	mux.HandleFunc("POST /api/admin/security/blacklist/ban", requireRole("admin")(apiBanIP(cli)))
+	mux.HandleFunc("POST /api/admin/security/blacklist/unban", requireRole("admin")(apiUnbanIP(cli)))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)

@@ -1,11 +1,19 @@
 <script>
+import { onMount } from 'svelte';
 import Dashboard from './routes/Dashboard.svelte';
 import Services from './routes/Services.svelte';
 import Clients from './routes/Clients.svelte';
 import Users from './routes/Users.svelte';
 import Settings from './routes/Settings.svelte';
+import Security from './routes/Security.svelte';
+import { getCurrentUser } from './lib/api.js';
 
 let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
+let userInfo = $state(null);
+
+onMount(async () => {
+  try { userInfo = await getCurrentUser(); } catch(e) { /* ignore */ }
+});
 
 function navigate(path) {
   currentPath = path;
@@ -16,11 +24,14 @@ window.addEventListener('popstate', () => {
   currentPath = window.location.pathname.replace('/admin', '') || '/';
 });
 
-const nav = [
+let isAdmin = $derived(userInfo?.role === 'admin');
+
+const navItems = [
   { path: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
   { path: '/services', label: 'Services', icon: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z' },
   { path: '/clients', label: 'Clients', icon: 'M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 5h6m-6 4h.01M9 13h.01M13 9h.01M13 13h.01' },
-  { path: '/users', label: 'Users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
+  { path: '/users', label: 'Users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z', adminOnly: true },
+  { path: '/security', label: 'Security', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', adminOnly: true },
   { path: '/settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
 ];
 </script>
@@ -29,13 +40,22 @@ const nav = [
   <nav class="nav">
     <div class="brand">Admin</div>
     <div class="links">
-      {#each nav as item}
-        <button class="nav-link" class:active={currentPath === item.path} onclick={() => navigate(item.path)}>
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d={item.icon} stroke-linecap="round" stroke-linejoin="round"/></svg>
-          {item.label}
-        </button>
+      {#each navItems as item}
+        {#if !item.adminOnly || isAdmin}
+          <button class="nav-link" class:active={currentPath === item.path} onclick={() => navigate(item.path)}>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d={item.icon} stroke-linecap="round" stroke-linejoin="round"/></svg>
+            {item.label}
+          </button>
+        {/if}
       {/each}
     </div>
+    {#if userInfo}
+      <div style="margin-top:auto;padding:1rem 1.5rem;border-top:1px solid #334155;">
+        <div style="font-size:0.75rem;color:#64748b;">Signed in as</div>
+        <div style="font-size:0.875rem;color:#f8fafc;font-weight:500;">{userInfo.username}</div>
+        <span class="badge" class:badge-green={userInfo.role === 'admin'} class:badge-red={userInfo.role !== 'admin'} style="margin-top:0.25rem;">{userInfo.role}</span>
+      </div>
+    {/if}
   </nav>
   <main class="main">
     {#if currentPath === '/'}
@@ -45,7 +65,17 @@ const nav = [
     {:else if currentPath === '/clients'}
       <Clients />
     {:else if currentPath === '/users'}
-      <Users />
+      {#if isAdmin}
+        <Users />
+      {:else}
+        <h1>Forbidden</h1>
+      {/if}
+    {:else if currentPath === '/security'}
+      {#if isAdmin}
+        <Security />
+      {:else}
+        <h1>Forbidden</h1>
+      {/if}
     {:else if currentPath === '/settings'}
       <Settings />
     {:else}

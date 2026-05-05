@@ -1,13 +1,13 @@
 <script>
 import { onMount } from 'svelte';
-import { getUsers, addAdminUser, deleteAdminUser, changePassword } from '../lib/api.js';
+import { getUsers, addAdminUser, deleteAdminUser, changePassword, setUserRole } from '../lib/api.js';
 
-let adminUsers = [];
-let loading = true;
-let error = '';
-let message = '';
-let newUser = '', newPass = '';
-let pwUser = '', pwPass = '';
+let adminUsers = $state([]);
+let loading = $state(true);
+let error = $state('');
+let message = $state('');
+let newUser = $state(''), newPass = $state(''), newRole = $state('viewer');
+let pwUser = $state(''), pwPass = $state('');
 
 onMount(async () => {
   try {
@@ -21,16 +21,17 @@ async function addUser() {
   if (!newUser || !newPass) return;
   error = ''; message = '';
   try {
-    await addAdminUser(newUser, newPass);
+    await addAdminUser(newUser, newPass, newRole);
     message = `User ${newUser} added.`;
-    newUser = ''; newPass = '';
-    location.reload();
+    newUser = ''; newPass = ''; newRole = 'viewer';
+    const d = await getUsers();
+    adminUsers = d.adminUsers || [];
   } catch(e) { error = e.message; }
 }
 async function deleteUser(username) {
   if (!confirm(`Delete user "${username}"?`)) return;
   error = '';
-  try { await deleteAdminUser(username); location.reload(); }
+  try { await deleteAdminUser(username); const d = await getUsers(); adminUsers = d.adminUsers || []; }
   catch(e) { error = e.message; }
 }
 async function changePw() {
@@ -40,6 +41,15 @@ async function changePw() {
     await changePassword(pwUser, pwPass);
     message = `Password changed for ${pwUser}.`;
     pwPass = '';
+  } catch(e) { error = e.message; }
+}
+async function changeRole(username, role) {
+  error = ''; message = '';
+  try {
+    await setUserRole(username, role);
+    message = `Role for ${username} set to ${role}.`;
+    const d = await getUsers();
+    adminUsers = d.adminUsers || [];
   } catch(e) { error = e.message; }
 }
 </script>
@@ -53,12 +63,25 @@ async function changePw() {
   <h2>Admin Users ({adminUsers.length})</h2>
   {#if adminUsers.length}
   <table>
-    <thead><tr><th>Username</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
     <tbody>
       {#each adminUsers as u}
       <tr>
-        <td style="font-weight:500;">{u}</td>
-        <td><button class="btn btn-red btn-sm" on:click={() => deleteUser(u)}>Delete</button></td>
+        <td style="font-weight:500;">{u.username}</td>
+        <td>
+          <span class="badge" class:badge-green={u.role === 'admin'} class:badge-red={u.role !== 'admin'}>
+            {u.role}
+          </span>
+        </td>
+        <td style="color:#94a3b8;font-size:0.8rem;">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+        <td style="display:flex;gap:0.25rem;flex-wrap:wrap;">
+          {#if u.role === 'admin'}
+            <button class="btn btn-gray btn-sm" on:click={() => changeRole(u.username, 'viewer')}>Set viewer</button>
+          {:else}
+            <button class="btn btn-blue btn-sm" on:click={() => changeRole(u.username, 'admin')}>Set admin</button>
+          {/if}
+          <button class="btn btn-red btn-sm" on:click={() => deleteUser(u.username)}>Delete</button>
+        </td>
       </tr>
       {/each}
     </tbody>
@@ -69,8 +92,15 @@ async function changePw() {
 <div class="card">
   <h2>Add User</h2>
   <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
-    <div><label>Username</label><input type="text" bind:value={newUser} style="width:180px;"></div>
-    <div><label>Password</label><input type="password" bind:value={newPass} style="width:180px;"></div>
+    <div><label>Username</label><input type="text" bind:value={newUser} style="width:150px;"></div>
+    <div><label>Password</label><input type="password" bind:value={newPass} style="width:150px;"></div>
+    <div>
+      <label>Role</label>
+      <select bind:value={newRole} style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:0.5rem 0.75rem;border-radius:0.375rem;font-size:0.875rem;">
+        <option value="viewer">Viewer</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
     <button class="btn btn-green" on:click={addUser}>Add</button>
   </div>
 </div>

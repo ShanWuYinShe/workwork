@@ -1,20 +1,22 @@
 <script>
 import { onMount } from 'svelte';
-import { getUsers, addXrayClient, deleteXrayClient } from '../lib/api.js';
+import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient } from '../lib/api.js';
 
-let clients = [];
-let generatedJSON = '';
-let newUUID = '';
-let loading = true;
-let error = '';
-let copied = false;
-let copyError = '';
+let clients = $state([]);
+let generatedJSON = $state('');
+let newUUID = $state('');
+let loading = $state(true);
+let error = $state('');
+let copied = $state(false);
+let copyError = $state('');
+let isAdmin = $state(false);
 
 onMount(async () => {
   try {
-    const d = await getUsers();
+    const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
     clients = d.xrayClients || [];
     generatedJSON = d.generatedJSON || '';
+    isAdmin = user.role === 'admin';
   } catch(e) { error = e.message; }
   finally { loading = false; }
 });
@@ -40,7 +42,6 @@ async function copyConfig() {
     copied = true;
     setTimeout(() => copied = false, 2000);
   } catch {
-    // Fallback for insecure contexts
     const ta = document.createElement('textarea');
     ta.value = generatedJSON;
     ta.style.position = 'fixed'; ta.style.opacity = '0';
@@ -72,6 +73,7 @@ function downloadConfig() {
 {#if loading}<p style="color:#64748b;">Loading...</p>{/if}
 {#if error}<div class="toast toast-error">{error}</div>{/if}
 
+{#if isAdmin}
 <div class="card">
   <h2>Add Client</h2>
   <div style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;">
@@ -83,16 +85,20 @@ function downloadConfig() {
     <button class="btn btn-gray btn-sm" on:click={genUUID}>Generate</button>
   </div>
 </div>
+{/if}
 
 <div class="card">
   <h2>Clients ({clients.length})</h2>
   {#if clients.length}
   <table>
-    <thead><tr><th>UUID</th><th>Protocols</th><th>Actions</th></tr></thead>
+    <thead><tr><th>UUID</th>{#if isAdmin}<th>Owner</th>{/if}<th>Protocols</th><th>Actions</th></tr></thead>
     <tbody>
       {#each clients as c}
       <tr>
         <td style="font-family:monospace;font-size:0.8rem" title={c.id}>{c.id.slice(0, 16)}...</td>
+        {#if isAdmin}
+        <td style="font-size:0.8rem;color:#94a3b8;">{c.owner || '—'}</td>
+        {/if}
         <td><span class="badge badge-green">reality</span> <span class="badge" style="background:#1e3a5f;color:#93c5fd;">xhttp</span></td>
         <td><button class="btn btn-red btn-sm" on:click={() => deleteClient(c.id)}>Delete</button></td>
       </tr>
