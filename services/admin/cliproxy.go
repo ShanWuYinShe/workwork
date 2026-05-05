@@ -360,17 +360,22 @@ func startCliproxy(ctx context.Context, cli *client.Client, username string) err
 		return fmt.Errorf("config not found, configure API keys first")
 	}
 
-	containerName := fmt.Sprintf("workwork-cliproxy-%s", tok)
+	projectDir := getEnv("PROJECT_DIR")
+	if projectDir == "" {
+		projectDir = "/home/workuser/service"
+	}
+
+	containerName := fmt.Sprintf("cliproxy-%s", tok)
 	hostConfig := &container.HostConfig{
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeBind,
-				Source: cfgPath,
+				Source: fmt.Sprintf("%s/cliproxy-data/%s/config.yaml", projectDir, tok),
 				Target: "/CLIProxyAPI/config.yaml",
 			},
 			{
 				Type:   mount.TypeBind,
-				Source: fmt.Sprintf("/app/cliproxy-data/%s", tok),
+				Source: fmt.Sprintf("%s/cliproxy-data/%s", projectDir, tok),
 				Target: "/root/.cli-proxy-api",
 			},
 		},
