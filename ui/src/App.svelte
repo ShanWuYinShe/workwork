@@ -128,4 +128,5 @@ const navItems = [
   :global(.stat) { background:#1e293b; border:1px solid #334155; border-radius:0.5rem; padding:1rem; }
   :global(.stat .label) { font-size:0.75rem; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; }
   :global(.stat .value) { font-size:1.5rem; font-weight:700; color:#f8fafc; margin-top:0.25rem; }
+  :global(.eye-btn) { position:absolute; right:4px; bottom:4px; background:none; border:none; cursor:pointer; font-size:0.9rem; padding:2px 4px; line-height:1; }
 </style>
