@@ -8,6 +8,8 @@ let error = $state('');
 let message = $state('');
 let newUser = $state(''), newPass = $state(''), newRole = $state('viewer');
 let pwUser = $state(''), pwPass = $state('');
+let showNewPass = $state(false);
+let showPwPass = $state(false);
 
 onMount(async () => {
   try {
@@ -93,7 +95,7 @@ async function changeRole(username, role) {
   <h2>Add User</h2>
   <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
     <div><label>Username</label><input type="text" bind:value={newUser} style="width:150px;"></div>
-    <div><label>Password</label><input type="password" bind:value={newPass} style="width:150px;"></div>
+    <div style="position:relative;"><label>Password</label><input type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:150px;padding-right:32px;"><button class="eye-btn" on:click={() => showNewPass = !showNewPass} title={showNewPass ? 'Hide' : 'Show'}>{showNewPass ? '🙈' : '👁'}</button></div>
     <div>
       <label>Role</label>
       <select bind:value={newRole} style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:0.5rem 0.75rem;border-radius:0.375rem;font-size:0.875rem;">
@@ -109,7 +111,7 @@ async function changeRole(username, role) {
   <h2>Change Password</h2>
   <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
     <div><label>Username</label><input type="text" bind:value={pwUser} style="width:180px;"></div>
-    <div><label>New Password</label><input type="password" bind:value={pwPass} style="width:180px;"></div>
+    <div style="position:relative;"><label>New Password</label><input type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;"><button class="eye-btn" on:click={() => showPwPass = !showPwPass} title={showPwPass ? 'Hide' : 'Show'}>{showPwPass ? '🙈' : '👁'}</button></div>
     <button class="btn btn-blue" on:click={changePw}>Change</button>
   </div>
 </div>
