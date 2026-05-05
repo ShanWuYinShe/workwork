@@ -40,6 +40,20 @@ services:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./services/xray/config.json:/etc/xray/config.json:ro
 
+  cliproxy-public:
+    build:
+      context: ./services/cliproxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - internal_docker
+    labels:
+      - "app=cliproxy"
+      - "cliproxy.user=public"
+    volumes:
+      - ./services/cliproxy/config.yaml:/CLIProxyAPI/config.yaml:ro
+      - ./cliproxy-data/public:/root/.cli-proxy-api
+
   admin:
     build:
       context: ./services/admin
@@ -61,6 +75,9 @@ services:
       - ./services/xray/config.json:/app/configs/xray.json:rw
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
       - ./services:/app/services:ro
+      - ./services/cliproxy/config.yaml:/app/configs/cliproxy.yaml:rw
+      - ./services/cliproxy/config.yaml.tmpl:/app/configs/cliproxy.yaml.tmpl:ro
+      - ./cliproxy-data:/app/cliproxy-data
       - ./ui/dist:/app/ui:ro
     depends_on:
       - nginx

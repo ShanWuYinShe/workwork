@@ -51,6 +51,11 @@ func main() {
 	mux.HandleFunc("GET /api/admin/security/jails", requireRole("admin")(apiJails(cli)))
 	mux.HandleFunc("POST /api/admin/security/blacklist/ban", requireRole("admin")(apiBanIP(cli)))
 	mux.HandleFunc("POST /api/admin/security/blacklist/unban", requireRole("admin")(apiUnbanIP(cli)))
+	mux.HandleFunc("GET /api/admin/cliproxy/instances", requireRole("admin")(apiCliproxyInstances(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/start", requireRole("admin")(apiCliproxyStart(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/stop", requireRole("admin")(apiCliproxyStop(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/get-config", requireRole("admin")(apiCliproxyGetConfig(cli)))
+	mux.HandleFunc("POST /api/admin/cliproxy/set-config", requireRole("admin")(apiCliproxySetConfig(cli)))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)
