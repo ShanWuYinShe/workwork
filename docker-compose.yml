@@ -64,6 +64,7 @@ services:
     environment:
       - HTPASSWD_FILE=/app/htpasswd
       - CF_API_TOKEN=${CF_API_TOKEN:-}
+      - PROJECT_DIR=${PWD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:rw
