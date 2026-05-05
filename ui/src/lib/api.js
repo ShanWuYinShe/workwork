@@ -12,6 +12,10 @@ async function req(path, opts = {}) {
   return json.data;
 }
 
+export async function getCurrentUser() {
+  return req('/auth/me');
+}
+
 export async function getDashboard() {
   return req('/dashboard');
 }
@@ -51,12 +55,16 @@ export async function changePassword(username, password) {
   return req('/users/password', { method: 'POST', body: JSON.stringify({ username, password }) });
 }
 
-export async function addAdminUser(username, password) {
-  return req('/users/admin/add', { method: 'POST', body: JSON.stringify({ username, password }) });
+export async function addAdminUser(username, password, role = 'viewer') {
+  return req('/users/admin/add', { method: 'POST', body: JSON.stringify({ username, password, role }) });
 }
 
 export async function deleteAdminUser(username) {
   return req('/users/admin/delete', { method: 'POST', body: JSON.stringify({ username }) });
+}
+
+export async function setUserRole(username, role) {
+  return req('/users/roles/set', { method: 'POST', body: JSON.stringify({ username, role }) });
 }
 
 export async function getNetworkStatus() {
@@ -69,4 +77,16 @@ export async function rotateIPv6() {
 
 export async function syncDNS() {
   return req('/network/sync-dns', { method: 'POST' });
+}
+
+export async function getSecurityJails() {
+  return req('/security/jails');
+}
+
+export async function banIP(ip) {
+  return req('/security/blacklist/ban', { method: 'POST', body: JSON.stringify({ ip }) });
+}
+
+export async function unbanIP(ip) {
+  return req('/security/blacklist/unban', { method: 'POST', body: JSON.stringify({ ip }) });
 }

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"admin/handlers"
 
@@ -197,23 +198,56 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 
 func apiUsers(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		xrayClients, _ := handlers.ReadXrayClients()
-		genJSON := handlers.GenerateClientConfig(xrayClients, handlers.ClientConfig{
+		userInfo, username := getUserFromContext(r)
+		allClients, _ := handlers.ReadXrayClients()
+
+		// Filter by owner: admin sees all, viewer sees only own
+		var filtered []map[string]string
+		if userInfo != nil && userInfo.Role == "admin" {
+			filtered = allClients
+		} else {
+			for _, c := range allClients {
+				if c["owner"] == username {
+					filtered = append(filtered, c)
+				}
+			}
+		}
+
+		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
 			XrayIPV6:          getEnv("XRAY_IPV6"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
 		})
-		adminUsers := readHtpasswdUsers()
+
+		// Build adminUsers with role info
+		doc, _ := readUsersMeta()
+		type adminUserJSON struct {
+			Username  string `json:"username"`
+			Role      string `json:"role"`
+			CreatedAt string `json:"created_at"`
+		}
+		var adminUsers []adminUserJSON
+		for _, u := range readHtpasswdUsers() {
+			au := adminUserJSON{Username: u, Role: "viewer"}
+			if info, ok := doc.Users[u]; ok {
+				au.Role = info.Role
+				au.CreatedAt = info.CreatedAt
+			}
+			adminUsers = append(adminUsers, au)
+		}
+
 		writeJSON(w, map[string]any{
-			"xrayClients": xrayClients, "generatedJSON": genJSON, "adminUsers": adminUsers,
+			"xrayClients": filtered, "generatedJSON": genJSON, "adminUsers": adminUsers,
 		})
 	}
 }
 
 func apiAddXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		_, username := getUserFromContext(r)
+
 		var body struct{ UUID string `json:"uuid"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
 			writeError(w, "UUID required", 400)
@@ -238,7 +272,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 				continue
 			}
 			clientsRaw, _ := settings["clients"].([]any)
-			nc := map[string]any{"id": body.UUID}
+			nc := map[string]any{"id": body.UUID, "owner": username}
 			if tag == "reality-in" {
 				nc["flow"] = "xtls-rprx-vision"
 			}
@@ -255,6 +289,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 
 func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		userInfo, username := getUserFromContext(r)
+
 		var body struct{ UUID string `json:"uuid"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
 			writeError(w, "UUID required", 400)
@@ -281,9 +317,17 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			var kept []any
 			for _, c := range clientsRaw {
 				cm, _ := c.(map[string]any)
-				if id, _ := cm["id"].(string); id != body.UUID {
-					kept = append(kept, c)
+				id, _ := cm["id"].(string)
+				if id == body.UUID {
+					// Check ownership
+					owner, _ := cm["owner"].(string)
+					if owner != "" && userInfo != nil && userInfo.Role != "admin" && owner != username {
+						writeError(w, "Forbidden: not your client", 403)
+						return
+					}
+					continue
 				}
+				kept = append(kept, c)
 			}
 			settings["clients"] = kept
 		}
@@ -325,9 +369,15 @@ func htpasswdAddUser(username, password string) error {
 
 func apiChangePassword(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		userInfo, username := getUserFromContext(r)
 		var body struct{ Username, Password string }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
+			return
+		}
+		// Non-admin can only change their own password
+		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
+			writeError(w, "Forbidden: can only change your own password", 403)
 			return
 		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
@@ -340,12 +390,33 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 
 func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username, Password string }
+		var body struct{ Username, Password, Role string }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
 			return
 		}
+		if body.Role == "" {
+			body.Role = "viewer"
+		}
+		if body.Role != "admin" && body.Role != "viewer" {
+			writeError(w, "Role must be admin or viewer", 400)
+			return
+		}
+		// Only admin can create admin users
+		userInfo, _ := getUserFromContext(r)
+		if body.Role == "admin" && userInfo != nil && userInfo.Role != "admin" {
+			writeError(w, "Forbidden", 403)
+			return
+		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		// Create users.json entry
+		if err := updateUserMeta(body.Username, UserInfo{
+			Role:      body.Role,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
 			writeError(w, err.Error(), 500)
 			return
 		}
@@ -360,6 +431,25 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username required", 400)
 			return
 		}
+		_, currentUser := getUserFromContext(r)
+		if body.Username == currentUser {
+			writeError(w, "Cannot delete yourself", 400)
+			return
+		}
+
+		// Prevent deleting the last admin
+		doc, _ := readUsersMeta()
+		adminCount := 0
+		for _, info := range doc.Users {
+			if info.Role == "admin" {
+				adminCount++
+			}
+		}
+		if targetInfo, ok := doc.Users[body.Username]; ok && targetInfo.Role == "admin" && adminCount <= 1 {
+			writeError(w, "Cannot delete the last admin user", 400)
+			return
+		}
+
 		data, _ := os.ReadFile(htpasswdFile)
 		var lines []string
 		for _, line := range strings.Split(string(data), "\n") {
@@ -372,7 +462,56 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+		deleteUserMeta(body.Username)
 		writeJSON(w, map[string]string{"status": "ok"})
+	}
+}
+
+func apiSetRole(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Username, Role string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
+			writeError(w, "Username and role required", 400)
+			return
+		}
+		if body.Role != "admin" && body.Role != "viewer" {
+			writeError(w, "Role must be admin or viewer", 400)
+			return
+		}
+
+		// Prevent demoting the last admin
+		if body.Role != "admin" {
+			doc, _ := readUsersMeta()
+			adminCount := 0
+			for username, info := range doc.Users {
+				if info.Role == "admin" && username != body.Username {
+					adminCount++
+				}
+			}
+			if adminCount == 0 {
+				writeError(w, "Cannot demote the last admin user", 400)
+				return
+			}
+		}
+
+		existing, _ := ensureUserMeta(body.Username)
+		existing.Role = body.Role
+		if err := updateUserMeta(body.Username, *existing); err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		writeJSON(w, map[string]string{"status": "ok"})
+	}
+}
+
+func apiWhoAmI(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		info, username := getUserFromContext(r)
+		writeJSON(w, map[string]any{
+			"username":   username,
+			"role":       info.Role,
+			"created_at": info.CreatedAt,
+		})
 	}
 }
 
