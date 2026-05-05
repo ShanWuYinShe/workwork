@@ -54,9 +54,18 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to read users: "+err.Error(), 500)
 			return
 		}
+		// Only show users that exist in htpasswd
+		htUsers := readHtpasswdUsers()
+		htSet := map[string]bool{}
+		for _, u := range htUsers {
+			htSet[u] = true
+		}
 		var instances []cliproxyInstance
-		// Per-user (public instance not exposed)
+		// Per-user (only actual htpasswd users)
 		for username, info := range doc.Users {
+			if !htSet[username] {
+				continue
+			}
 			tok := info.CliproxyToken
 			if tok == "" {
 				tok, _ = getOrCreateCliproxyToken(username)
@@ -329,6 +338,40 @@ func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok", "file": name})
+	}
+}
+
+func apiCliproxyPublicConfig(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := os.ReadFile("/app/configs/cliproxy.yaml")
+			if err != nil {
+				writeJSON(w, map[string]any{"config": "", "api_keys": []string{}})
+				return
+			}
+			writeJSON(w, map[string]any{"config": string(data)})
+		case http.MethodPost:
+			var body struct {
+				APIKeys []string `json:"api_keys"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeError(w, "Invalid body", 400)
+				return
+			}
+			tmpl, _ := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
+			var keysYAML strings.Builder
+			for _, k := range body.APIKeys {
+				k = strings.TrimSpace(k)
+				if k != "" {
+					fmt.Fprintf(&keysYAML, "  - key: \"%s\"\n", k)
+				}
+			}
+			out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
+			out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
+			os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0644)
+			writeJSON(w, map[string]string{"status": "ok"})
+		}
 	}
 }
 

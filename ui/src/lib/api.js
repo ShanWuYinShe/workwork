@@ -79,16 +79,16 @@ export async function syncDNS() {
   return req('/network/sync-dns', { method: 'POST' });
 }
 
-export async function getSecurityJails() {
-  return req('/security/jails');
+export async function getBlockedIPs() {
+  return req('/security/blocked');
 }
 
-export async function banIP(ip) {
-  return req('/security/blacklist/ban', { method: 'POST', body: JSON.stringify({ ip }) });
+export async function blockIP(ip, reason, duration) {
+  return req('/security/block', { method: 'POST', body: JSON.stringify({ ip, reason, duration }) });
 }
 
-export async function unbanIP(ip) {
-  return req('/security/blacklist/unban', { method: 'POST', body: JSON.stringify({ ip }) });
+export async function unblockIP(ip) {
+  return req('/security/unblock', { method: 'POST', body: JSON.stringify({ ip }) });
 }
 
 export async function getCliproxyInstances() {

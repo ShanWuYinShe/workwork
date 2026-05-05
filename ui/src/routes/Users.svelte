@@ -95,7 +95,7 @@ async function changeRole(username, role) {
   <h2>Add User</h2>
   <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
     <div><label>Username</label><input type="text" bind:value={newUser} style="width:150px;"></div>
-    <div style="position:relative;"><label>Password</label><input type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:150px;padding-right:32px;"><button class="eye-btn" on:click={() => showNewPass = !showNewPass} title={showNewPass ? 'Hide' : 'Show'}>{showNewPass ? '🙈' : '👁'}</button></div>
+    <div style="position:relative;"><label>Password</label><input type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:150px;padding-right:32px;"><button class="eye-btn" on:click={() => showNewPass = !showNewPass} title={showNewPass ? 'Hide' : 'Show'}><svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>{#if showNewPass}<line x1="1" y1="1" x2="23" y2="23"/>{/if}</svg></button></div>
     <div>
       <label>Role</label>
       <select bind:value={newRole} style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:0.5rem 0.75rem;border-radius:0.375rem;font-size:0.875rem;">
@@ -111,7 +111,7 @@ async function changeRole(username, role) {
   <h2>Change Password</h2>
   <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
     <div><label>Username</label><input type="text" bind:value={pwUser} style="width:180px;"></div>
-    <div style="position:relative;"><label>New Password</label><input type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;"><button class="eye-btn" on:click={() => showPwPass = !showPwPass} title={showPwPass ? 'Hide' : 'Show'}>{showPwPass ? '🙈' : '👁'}</button></div>
+    <div style="position:relative;"><label>New Password</label><input type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;"><button class="eye-btn" on:click={() => showPwPass = !showPwPass} title={showPwPass ? 'Hide' : 'Show'}><svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>{#if showPwPass}<line x1="1" y1="1" x2="23" y2="23"/>{/if}</svg></button></div>
     <button class="btn btn-blue" on:click={changePw}>Change</button>
   </div>
 </div>
