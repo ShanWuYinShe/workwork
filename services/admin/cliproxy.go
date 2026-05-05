@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -136,33 +137,39 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 			})
 			return
 		}
-		var cfg map[string]any
-		json.Unmarshal(data, &cfg)
-		keys := []string{}
-		if apiKeys, ok := cfg["api-keys"].([]any); ok {
-			for _, k := range apiKeys {
-				if km, ok := k.(map[string]any); ok {
-					if key, ok := km["key"].(string); ok {
-						keys = append(keys, maskKey(key))
-					}
+		// Read providers from companion JSON file
+		providers := []cliproxyProvider{}
+		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json" // config.yaml → .providers.json
+		if metaData, err := os.ReadFile(metaPath); err == nil {
+			var meta struct{ Providers []cliproxyProvider `json:"providers"` }
+			if json.Unmarshal(metaData, &meta) == nil {
+				for i := range meta.Providers {
+					meta.Providers[i].APIKey = maskKey(meta.Providers[i].APIKey)
 				}
+				providers = meta.Providers
 			}
 		}
 		writeJSON(w, map[string]any{
-			"config":   string(data),
-			"api_keys": keys,
+			"config":    string(data),
+			"providers": providers,
 		})
 	}
+}
+
+type cliproxyProvider struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
 }
 
 func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Username string   `json:"username"`
-			APIKeys  []string `json:"api_keys"`
+			Username  string             `json:"username"`
+			Providers []cliproxyProvider `json:"providers"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
-			writeError(w, "Username and api_keys required", 400)
+			writeError(w, "Username and providers required", 400)
 			return
 		}
 
@@ -176,22 +183,37 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Template not found: "+err.Error(), 500)
 			return
 		}
-		var keysYAML strings.Builder
+
 		// Public keys (injected automatically, not visible to user)
+		var pubYAML strings.Builder
 		pubKeys := getEnv("CLIPROXY_PUBLIC_API_KEYS")
 		if pubKeys != "" {
 			for _, k := range strings.Split(pubKeys, ",") {
 				k = strings.TrimSpace(k)
 				if k != "" {
-					fmt.Fprintf(&keysYAML, "  - key: \"%s\"\n", k)
+					fmt.Fprintf(&pubYAML, "  - key: \"%s\"\n", k)
 				}
 			}
 		}
-		// User's private keys
-		for _, k := range body.APIKeys {
-			fmt.Fprintf(&keysYAML, "  - key: \"%s\"\n", k)
+
+		// User's custom providers → openai-compatibility
+		var compatYAML strings.Builder
+		for _, p := range body.Providers {
+			if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
+				continue
+			}
+			fmt.Fprintf(&compatYAML, "  - name: \"%s\"\n", p.Name)
+			fmt.Fprintf(&compatYAML, "    base-url: \"%s\"\n", p.BaseURL)
+			fmt.Fprintf(&compatYAML, "    api-key-entries:\n")
+			fmt.Fprintf(&compatYAML, "      - api-key: \"%s\"\n", p.APIKey)
+			fmt.Fprintf(&compatYAML, "    models:\n")
+			fmt.Fprintf(&compatYAML, "      - name: \"*\"\n")
+			fmt.Fprintf(&compatYAML, "        alias: \"%s/*\"\n", p.Name)
 		}
-		out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_API_KEYS_YAML__", keysYAML.String())
+
+		out := string(tmpl)
+		out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", pubYAML.String())
+		out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", compatYAML.String())
 
 		cfgPath := cliproxyConfigPath(tok)
 		dir := cfgPath[:strings.LastIndex(cfgPath, "/")]
@@ -203,6 +225,11 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, err.Error(), 500)
 			return
 		}
+		// Save providers metadata alongside config
+		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
+		metaData, _ := json.Marshal(map[string]any{"providers": body.Providers})
+		os.WriteFile(metaPath, metaData, 0644)
+
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -258,6 +285,50 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 			"status": "started",
 			"output": outBuf.String(),
 		})
+	}
+}
+
+func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		username := r.FormValue("username")
+		if username == "" {
+			writeError(w, "Username required", 400)
+			return
+		}
+		tok, err := cliproxyTokenForUser(username)
+		if err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, "File required: "+err.Error(), 400)
+			return
+		}
+		defer file.Close()
+
+		name := header.Filename
+		if !strings.HasSuffix(name, ".json") {
+			writeError(w, "Only .json OAuth files supported", 400)
+			return
+		}
+
+		authDir := fmt.Sprintf("/app/cliproxy-data/%s", tok)
+		if err := os.MkdirAll(authDir, 0755); err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		out, err := os.Create(fmt.Sprintf("%s/%s", authDir, name))
+		if err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		defer out.Close()
+		if _, err := io.Copy(out, file); err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		writeJSON(w, map[string]string{"status": "ok", "file": name})
 	}
 }
 
@@ -353,6 +424,11 @@ func cliproxyConfigPath(token string) string {
 
 func cliproxyTokenForUser(username string) (string, error) {
 	return getOrCreateCliproxyToken(username)
+}
+
+func str(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func maskKey(key string) string {
