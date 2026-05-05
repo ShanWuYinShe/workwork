@@ -56,8 +56,8 @@ services:
 
   admin:
     build:
-      context: .
-      dockerfile: services/admin/Dockerfile
+      context: ./services/admin
+      dockerfile: Dockerfile
     restart: unless-stopped
     networks:
       - internal_docker
