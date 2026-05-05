@@ -26,12 +26,16 @@ type cliproxyInstance struct {
 
 func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conts, _ := cli.ContainerList(r.Context(), container.ListOptions{
+		conts, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
 			Filters: filters.NewArgs(filters.KeyValuePair{
 				Key: "label", Value: "app=cliproxy",
 			}),
 		})
+		if err != nil {
+			writeError(w, "Docker API error: "+err.Error(), 500)
+			return
+		}
 		// index containers by user label
 		byUser := map[string]string{} // username -> state
 		for _, c := range conts {
@@ -42,7 +46,11 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			byUser[user] = c.State
 		}
 
-		doc, _ := readUsersMeta()
+		doc, err := readUsersMeta()
+		if err != nil {
+			writeError(w, "Failed to read users: "+err.Error(), 500)
+			return
+		}
 		var instances []cliproxyInstance
 		// Public
 		state := byUser["public"]

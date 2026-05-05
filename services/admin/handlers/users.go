@@ -127,12 +127,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		},
 		"routing": map[string]any{
 			"domainStrategy": "IPIfNonMatch",
-			"observatory": map[string]any{
-				"subjectSelector": []string{"reality", "xhttp"},
-				"probeURL":        "https://www.google.com/generate_204",
-				"probeInterval":   "5m",
-			},
-			"balancers": []map[string]any{{"tag": "proxy", "selector": []string{"reality", "xhttp"}, "strategy": map[string]any{"type": "leastPing"}}},
+			"balancers": []map[string]any{{"tag": "proxy", "selector": []string{"reality", "xhttp"}}},
 			"rules": []map[string]any{
 				{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
 				{"type": "field", "balancerTag": "proxy", "domain": []string{"geosite:google", "geosite:github", "geosite:openai", "geosite:docker", "geosite:netflix", "geosite:instagram", "geosite:youtube", "geosite:facebook", "geosite:twitter"}},
