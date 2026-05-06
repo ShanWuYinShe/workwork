@@ -74,11 +74,11 @@ onMount(async () => {
     <div class="card-header">
       <div class="card-title">
         Services
-        {#if services.length}<span class="card-title-count">{services.length}</span>{/if}
+        {#if !loading && services.length}<span class="card-title-count">{services.length}</span>{/if}
       </div>
     </div>
     {#if loading}
-      <div class="loading-skeleton" style="height:120px;"></div>
+      <div class="loading-skeleton" style="height:80px;"></div>
     {:else if services.length}
       <table>
         <thead><tr><th>Service</th><th>State</th><th>Image</th></tr></thead>

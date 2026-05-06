@@ -56,6 +56,8 @@ let rotatingIP = $derived(net.xray_rotating);
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:150px;"></div></div>
+    <div class="card"><div class="loading-skeleton" style="height:100px;"></div></div>
+    <div class="card"><div class="loading-skeleton" style="height:80px;"></div></div>
   {:else}
     <div class="card">
       <div class="card-header">
