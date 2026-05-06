@@ -39,26 +39,41 @@ const navItems = [
 </script>
 
 <div class="layout">
-  <nav class="nav">
-    <div class="brand">Admin</div>
-    <div class="links">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">WorkWork</span>
+        <span class="brand-sub">Admin Panel</span>
+      </div>
+    </div>
+
+    <nav class="nav-links">
       {#each navItems as item}
         {#if !item.adminOnly || isAdmin}
-          <button class="nav-link" class:active={currentPath === item.path} onclick={() => navigate(item.path)}>
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d={item.icon} stroke-linecap="round" stroke-linejoin="round"/></svg>
-            {item.label}
+          <button class="nav-item" class:active={currentPath === item.path} onclick={() => navigate(item.path)}>
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d={item.icon} stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="nav-label">{item.label}</span>
           </button>
         {/if}
       {/each}
+    </nav>
+
+    <div class="sidebar-footer">
+      {#if userInfo}
+        <div class="user-card">
+          <div class="user-avatar" class:admin-avatar={userInfo.role === 'admin'}>{userInfo.username[0].toUpperCase()}</div>
+          <div class="user-info">
+            <div class="user-name">{userInfo.username}</div>
+            <span class="user-role" class:role-admin={userInfo.role === 'admin'}>{userInfo.role}</span>
+          </div>
+        </div>
+      {/if}
     </div>
-    {#if userInfo}
-      <div style="margin-top:auto;padding:1rem 1.5rem;border-top:1px solid #334155;">
-        <div style="font-size:0.75rem;color:#64748b;">Signed in as</div>
-        <div style="font-size:0.875rem;color:#f8fafc;font-weight:500;">{userInfo.username}</div>
-        <span class="badge" class:badge-green={userInfo.role === 'admin'} class:badge-red={userInfo.role !== 'admin'} style="margin-top:0.25rem;">{userInfo.role}</span>
-      </div>
-    {/if}
-  </nav>
+  </aside>
+
   <main class="main">
     {#if currentPath === '/'}
       <Dashboard />
@@ -67,29 +82,13 @@ const navItems = [
     {:else if currentPath === '/clients'}
       <Clients />
     {:else if currentPath === '/users'}
-      {#if isAdmin}
-        <Users />
-      {:else}
-        <h1>Forbidden</h1>
-      {/if}
+      {#if isAdmin}<Users />{:else}<h1>Forbidden</h1>{/if}
     {:else if currentPath === '/security'}
-      {#if isAdmin}
-        <Security />
-      {:else}
-        <h1>Forbidden</h1>
-      {/if}
+      {#if isAdmin}<Security />{:else}<h1>Forbidden</h1>{/if}
     {:else if currentPath === '/cliproxy'}
-      {#if isAdmin}
-        <Cliproxy />
-      {:else}
-        <h1>Forbidden</h1>
-      {/if}
+      {#if isAdmin}<Cliproxy />{:else}<h1>Forbidden</h1>{/if}
     {:else if currentPath === '/settings'}
-      {#if isAdmin}
-        <Settings />
-      {:else}
-        <h1>Forbidden</h1>
-      {/if}
+      {#if isAdmin}<Settings />{:else}<h1>Forbidden</h1>{/if}
     {:else}
       <h1>Not Found</h1>
     {/if}
@@ -98,41 +97,168 @@ const navItems = [
 
 <style>
   :global(*) { margin:0; padding:0; box-sizing:border-box; }
-  :global(body) { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#0f172a; color:#e2e8f0; min-height:100vh; }
-  .layout { display:flex; min-height:100vh; }
-  .nav { position:fixed; left:0; top:0; bottom:0; width:220px; background:#1e293b; border-right:1px solid #334155; display:flex; flex-direction:column; padding:1.5rem 0; z-index:10; }
-  .brand { font-size:1.25rem; font-weight:700; color:#f8fafc; padding:0 1.5rem 2rem; letter-spacing:-0.02em; }
-  .links { display:flex; flex-direction:column; gap:0.25rem; }
-  .nav-link { display:flex; align-items:center; gap:0.75rem; padding:0.625rem 1.5rem; color:#94a3b8; text-decoration:none; font-size:0.875rem; transition:all 0.15s; border-left:3px solid transparent; background:none; border-right:none; border-top:none; border-bottom:none; width:100%; text-align:left; cursor:pointer; }
-  .nav-link:hover { color:#f1f5f9; background:#334155; }
-  .nav-link.active { color:#60a5fa !important; background:#1e3a5f; border-left-color:#60a5fa; }
-  .icon { width:1.25rem; height:1.25rem; flex-shrink:0; }
-  .main { flex:1; padding:2rem; margin-left:220px; max-width:1200px; }
-  :global(.card) { background:#1e293b; border:1px solid #334155; border-radius:0.5rem; padding:1.25rem; margin-bottom:1rem; }
-  :global(.card h2) { font-size:1rem; font-weight:600; margin-bottom:1rem; color:#f8fafc; }
-  :global(table) { width:100%; border-collapse:collapse; }
-  :global(th) { text-align:left; padding:0.5rem 0.75rem; font-size:0.75rem; text-transform:uppercase; color:#64748b; border-bottom:1px solid #334155; letter-spacing:0.05em; }
-  :global(td) { padding:0.625rem 0.75rem; border-bottom:1px solid #1e293b; font-size:0.875rem; }
-  :global(.badge) { display:inline-block; padding:0.125rem 0.5rem; border-radius:9999px; font-size:0.75rem; font-weight:500; }
-  :global(.badge-green) { background:#064e3b; color:#6ee7b7; }
-  :global(.badge-red) { background:#7f1d1d; color:#fca5a5; }
-  :global(.btn) { display:inline-block; padding:0.375rem 0.75rem; border:none; border-radius:0.375rem; font-size:0.8rem; cursor:pointer; font-weight:500; transition:opacity 0.15s; }
-  :global(.btn:hover) { opacity:0.85; }
-  :global(.btn-blue) { background:#1d4ed8; color:#fff; }
-  :global(.btn-red) { background:#b91c1c; color:#fff; }
-  :global(.btn-green) { background:#15803d; color:#fff; }
-  :global(.btn-gray) { background:#374151; color:#d1d5db; }
-  :global(.btn-sm) { padding:0.25rem 0.5rem; font-size:0.75rem; }
-  :global(input) { background:#0f172a; border:1px solid #334155; color:#e2e8f0; padding:0.5rem 0.75rem; border-radius:0.375rem; font-size:0.875rem; outline:none; }
-  :global(input:focus) { border-color:#60a5fa; }
-  :global(textarea) { background:#0f172a; border:1px solid #334155; color:#e2e8f0; padding:0.75rem; border-radius:0.375rem; font-family:monospace; font-size:0.75rem; width:100%; }
-  :global(label) { display:block; font-size:0.75rem; color:#64748b; margin-bottom:0.25rem; }
-  :global(h1) { font-size:1.5rem; font-weight:600; margin-bottom:1.5rem; color:#f8fafc; }
-  :global(.stats) { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem; margin-bottom:1.5rem; }
-  :global(.stat) { background:#1e293b; border:1px solid #334155; border-radius:0.5rem; padding:1rem; }
-  :global(.stat .label) { font-size:0.75rem; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; }
-  :global(.stat .value) { font-size:1.5rem; font-weight:700; color:#f8fafc; margin-top:0.25rem; }
-  :global(.eye-btn) { position:absolute; right:2px; top:50%; transform:translateY(-4px); background:none; border:none; cursor:pointer; padding:4px; line-height:0; color:#64748b; }
-  :global(.eye-btn:hover) { color:#e2e8f0; }
-  :global(.eye-icon) { width:18px; height:18px; }
+  :global(body) { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0b1121; color: #e2e8f0; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+  .layout { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    width: 240px;
+    background: #0f1729;
+    border-right: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column;
+    z-index: 20;
+  }
+
+  .sidebar-header {
+    padding: 1.5rem 1.25rem 1.25rem;
+    display: flex; align-items: center; gap: 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .brand-icon {
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #1d4ed8, #7c3aed);
+    border-radius: 10px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .brand-icon svg { width: 20px; height: 20px; }
+
+  .brand-title { display: block; font-size: 0.95rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; line-height: 1.3; }
+  .brand-sub { display: block; font-size: 0.65rem; color: #475569; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Navigation */
+  .nav-links {
+    flex: 1;
+    padding: 0.75rem 0.75rem;
+    display: flex; flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+  }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    position: relative;
+  }
+  .nav-item:hover { color: #e2e8f0; background: rgba(255,255,255,0.04); }
+  .nav-item.active {
+    color: #93c5fd;
+    background: rgba(59,130,246,0.12);
+  }
+  .nav-item.active::before {
+    content: '';
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 18px;
+    background: #3b82f6;
+    border-radius: 0 2px 2px 0;
+  }
+
+  .nav-icon { width: 1.15rem; height: 1.15rem; flex-shrink: 0; opacity: 0.85; }
+  .nav-item.active .nav-icon { opacity: 1; }
+  .nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* User footer */
+  .sidebar-footer {
+    padding: 0.75rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .user-card {
+    display: flex; align-items: center; gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .user-avatar {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700;
+    background: #334155;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+  .admin-avatar { background: linear-gradient(135deg, #1d4ed8, #7c3aed); color: #fff; }
+
+  .user-info { min-width: 0; }
+  .user-name { font-size: 0.8rem; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-role { display: inline-block; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.1rem 0.4rem; border-radius: 4px; margin-top: 2px; background: #334155; color: #94a3b8; }
+  .role-admin { background: rgba(59,130,246,0.15); color: #93c5fd; }
+
+  /* ── Main ── */
+  .main {
+    flex: 1; padding: 2rem 2.5rem;
+    margin-left: 240px;
+    max-width: 1280px; width: 100%;
+  }
+
+  /* ── Global Components ── */
+  :global(.card) {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  :global(.card h2) {
+    font-size: 0.9rem; font-weight: 600; margin-bottom: 1rem;
+    color: #f1f5f9;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+
+  :global(table) { width: 100%; border-collapse: collapse; }
+  :global(th) { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.7rem; text-transform: uppercase; color: #475569; border-bottom: 1px solid rgba(255,255,255,0.06); letter-spacing: 0.06em; font-weight: 600; }
+  :global(td) { padding: 0.625rem 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.8125rem; }
+  :global(tr:hover td) { background: rgba(255,255,255,0.015); }
+  :global(tr:last-child td) { border-bottom: none; }
+
+  :global(.badge) { display: inline-flex; align-items: center; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em; }
+  :global(.badge-green) { background: rgba(34,197,94,0.12); color: #4ade80; }
+  :global(.badge-red) { background: rgba(239,68,68,0.12); color: #f87171; }
+
+  :global(.btn) { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.4rem 0.75rem; border: none; border-radius: 8px; font-size: 0.78rem; cursor: pointer; font-weight: 500; transition: all 0.12s ease; white-space: nowrap; }
+  :global(.btn:hover) { filter: brightness(1.15); transform: translateY(-1px); }
+  :global(.btn:active) { transform: translateY(0); }
+  :global(.btn-blue) { background: #2563eb; color: #fff; }
+  :global(.btn-red) { background: #dc2626; color: #fff; }
+  :global(.btn-green) { background: #16a34a; color: #fff; }
+  :global(.btn-gray) { background: rgba(255,255,255,0.08); color: #94a3b8; }
+  :global(.btn-gray:hover) { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+  :global(.btn-sm) { padding: 0.28rem 0.5rem; font-size: 0.72rem; border-radius: 6px; }
+
+  :global(input) { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 0.45rem 0.65rem; border-radius: 8px; font-size: 0.8125rem; outline: none; transition: border-color 0.15s; width: 100%; }
+  :global(input:focus) { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+  :global(textarea) { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 0.65rem; border-radius: 8px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; width: 100%; resize: vertical; outline: none; }
+  :global(textarea:focus) { border-color: #3b82f6; }
+  :global(select) { background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.08); color: #e2e8f0; padding: 0.45rem 0.65rem; border-radius: 8px; font-size: 0.8125rem; outline: none; }
+  :global(select:focus) { border-color: #3b82f6; }
+
+  :global(label) { display: block; font-size: 0.7rem; color: #475569; margin-bottom: 0.3rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  :global(h1) { font-size: 1.35rem; font-weight: 700; margin-bottom: 1.5rem; color: #f1f5f9; letter-spacing: -0.02em; }
+
+  :global(.stats) { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+  :global(.stat) { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.125rem 1.25rem; transition: border-color 0.15s; }
+  :global(.stat:hover) { border-color: rgba(255,255,255,0.12); }
+  :global(.stat .label) { font-size: 0.68rem; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 0.35rem; }
+  :global(.stat .value) { font-size: 1.35rem; font-weight: 700; color: #f1f5f9; letter-spacing: -0.02em; }
+
+  :global(.eye-btn) { position: absolute; right: 2px; top: 50%; transform: translateY(-8px); background: none; border: none; cursor: pointer; padding: 4px; line-height: 0; color: #475569; border-radius: 4px; }
+  :global(.eye-btn:hover) { color: #e2e8f0; }
+  :global(.eye-icon) { width: 17px; height: 17px; }
 </style>
