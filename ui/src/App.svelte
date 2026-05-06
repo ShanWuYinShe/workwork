@@ -78,7 +78,7 @@ function getIcon(name) {
         <span class="brand-title">WorkWork</span>
         <span class="brand-sub">Admin Panel</span>
       </div>
-      <button class="sidebar-toggle" onclick={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Expand' : 'Collapse'}>
+      <button class="sidebar-toggle" onclick={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Expand' : 'Collapse'} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           {#if sidebarCollapsed}
             <polyline points="9 18 15 12 9 6"/>
@@ -156,7 +156,6 @@ function getIcon(name) {
   </main>
 </div>
 
-<div id="toast-container"></div>
 
 <style>
   /* ── CSS Design Tokens ── */
@@ -249,6 +248,7 @@ function getIcon(name) {
   }
   .sidebar-toggle svg { width: 16px; height: 16px; }
   .sidebar-toggle:hover { color: var(--c-text); background: var(--c-bg-hover); }
+  .sidebar-toggle:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   .collapsed .sidebar-toggle { display: none; }
 
   /* ── Navigation ── */
@@ -289,6 +289,7 @@ function getIcon(name) {
     white-space: nowrap;
   }
   .nav-item:hover { color: var(--c-text); background: var(--c-bg-hover); }
+  .nav-item:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -2px; }
   .nav-item.active {
     color: #93c5fd;
     background: var(--c-accent-bg);
@@ -456,6 +457,7 @@ function getIcon(name) {
   :global(.btn:hover) { filter: brightness(1.1); }
   :global(.btn:active) { transform: scale(0.98); }
   :global(.btn:disabled) { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+  :global(.btn:focus-visible) { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 
   :global(.btn-primary) { background: var(--c-accent); color: #fff; }
   :global(.btn-primary:hover) { background: #2563eb; }
@@ -565,11 +567,6 @@ function getIcon(name) {
   }
 
   /* ── Toast ── */
-  :global(.toast-container) {
-    position: fixed; top: 1rem; right: 1rem; z-index: 100;
-    display: flex; flex-direction: column; gap: 0.5rem;
-    pointer-events: none;
-  }
   :global(.toast) {
     padding: 0.6rem 1rem;
     border-radius: var(--radius);
@@ -625,5 +622,14 @@ function getIcon(name) {
     .sidebar .nav-item { justify-content: center; padding: 0.5rem; }
     .main { margin-left: var(--sidebar-collapsed) !important; }
     .main-scroll { padding: 1.25rem 1rem 2rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.page) { animation: none; }
+    :global(.toast) { animation: none; }
+    :global(.loading-skeleton) { animation: none; }
+    :global(.spinner) { animation: none; }
+    .sidebar { transition: none; }
+    .main { transition: none; }
   }
 </style>

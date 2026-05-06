@@ -206,6 +206,7 @@ let runningCount = $derived(instances.filter(i => i.running).length);
     </div>
   {/if}
 
+  {#if !loading}
   <div class="stats">
     <div class="stat">
       <div class="stat-icon blue">
@@ -274,6 +275,7 @@ let runningCount = $derived(instances.filter(i => i.running).length);
       <div class="empty-state">No instances.</div>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>

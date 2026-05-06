@@ -41,12 +41,6 @@ async function doUnblock(ip) {
   } catch(e) { error = e.message; }
 }
 
-function formatDuration(secs) {
-  if (secs === 0) return 'Forever';
-  const h = Math.floor(secs / 3600);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
 </script>
 
 <div class="page">
