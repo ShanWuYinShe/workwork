@@ -139,10 +139,10 @@ function downloadConfig() {
     <div class="card-header">
       <div class="card-title">Client Configuration</div>
       <div class="card-actions">
-        <button class="btn btn-sm btn-primary" onclick={copyConfig}>
+        <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label="Copy configuration to clipboard">
           {#if copied}Copied{:else}Copy{/if}
         </button>
-        <button class="btn btn-sm btn-ghost" onclick={downloadConfig}>Download</button>
+        <button class="btn btn-sm btn-ghost" onclick={downloadConfig} aria-label="Download configuration as JSON">Download</button>
       </div>
     </div>
     <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">

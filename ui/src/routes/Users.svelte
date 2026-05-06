@@ -130,7 +130,7 @@ function EyeIcon({ open }) {
         <label for="add-pass">Password</label>
         <div style="position:relative;">
           <input id="add-pass" type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:160px;padding-right:32px;">
-          <button class="eye-btn" onclick={() => showNewPass = !showNewPass}>
+          <button class="eye-btn" onclick={() => showNewPass = !showNewPass} aria-label={showNewPass ? 'Hide password' : 'Show password'}>
             {@html EyeIcon({ open: showNewPass })}
           </button>
         </div>
@@ -159,7 +159,7 @@ function EyeIcon({ open }) {
         <label for="pw-pass">New Password</label>
         <div style="position:relative;">
           <input id="pw-pass" type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;">
-          <button class="eye-btn" onclick={() => showPwPass = !showPwPass}>
+          <button class="eye-btn" onclick={() => showPwPass = !showPwPass} aria-label={showPwPass ? 'Hide password' : 'Show password'}>
             {@html EyeIcon({ open: showPwPass })}
           </button>
         </div>
