@@ -46,122 +46,176 @@ let nginxSynced = $derived(net.dns_nginx?.synced);
 let rotatingIP = $derived(net.xray_rotating);
 </script>
 
-<h1>Settings</h1>
-{#if loading}<p style="color:#64748b;">Loading...</p>{/if}
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">Settings</h1>
+    <div class="page-actions">
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+    </div>
+  </div>
 
-<div class="card">
-  <h2>External Services <span style="font-size:0.75rem;color:#64748b;font-weight:400;">— public IPv6 on ipvlan</span></h2>
-  <table>
-    <thead><tr><th>Service</th><th>IPv6 Address</th><th>Role</th><th>DNS</th></tr></thead>
-    <tbody>
-      <tr>
-        <td style="font-weight:500;">nginx</td>
-        <td style="font-family:monospace;">{net.nginx_ip}</td>
-        <td style="color:#94a3b8;">Web gateway (80/443)</td>
-        <td>
+  {#if loading}
+    <div class="card"><div class="loading-skeleton" style="height:150px;"></div></div>
+  {:else}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">External Services</div>
+        <div class="card-subtitle">Public IPv6 on ipvlan</div>
+      </div>
+      <table>
+        <thead><tr><th>Service</th><th>IPv6 Address</th><th>Role</th><th>DNS</th></tr></thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:500;">nginx</td>
+            <td class="td-mono">{net.nginx_ip}</td>
+            <td class="td-muted">Web gateway (80/443)</td>
+            <td>
+              {#if net.dns_nginx}
+                <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
+                  <span class="badge-dot"></span>{nginxSynced ? 'synced' : 'mismatch'}
+                </span>
+              {:else}
+                <span class="badge badge-red">no DNS</span>
+              {/if}
+            </td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;">xray reality</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
+            <td class="td-muted">VLESS Reality (443)</td>
+            <td>
+              {#if net.dns_reality}
+                <span class="badge badge-{realitySynced ? 'green' : 'red'}">
+                  <span class="badge-dot"></span>{realitySynced ? 'synced' : 'mismatch'}
+                </span>
+              {:else}
+                <span class="badge badge-red">no DNS</span>
+              {/if}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Reality IPv6 Details</div>
+      </div>
+      <table>
+        <tbody>
+          <tr>
+            <td style="color:var(--c-text-muted);width:160px;font-weight:500;">Primary (static)</td>
+            <td class="td-mono">{net.xray_primary}</td>
+            <td class="td-muted">Docker-assigned, permanent fallback</td>
+          </tr>
+          <tr>
+            <td style="color:var(--c-text-muted);font-weight:500;">Rotating</td>
+            <td class="td-mono" style="color:#93c5fd;">{rotatingIP || '—'}</td>
+            <td class="td-muted">Dynamically rotated, DNS points here</td>
+          </tr>
+          <tr>
+            <td style="color:var(--c-text-muted);font-weight:500;">Active</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
+            <td class="td-muted">Effective Reality endpoint</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">IPv6 Allocation</div>
+        <div class="card-subtitle">{net.subnet}</div>
+      </div>
+      <table>
+        <thead><tr><th>Range</th><th>Prefix</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-green">Static</span></td>
+            <td class="td-mono">:1::/80</td>
+            <td class="td-muted">nginx, xray primary</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-blue">Rotating</span></td>
+            <td class="td-mono">:f::/80</td>
+            <td class="td-muted">xray reality dynamic IPs</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Internal Services</div>
+        <div class="card-subtitle">Internal docker, nginx-proxied</div>
+      </div>
+      <table>
+        <thead><tr><th>Service</th><th>Port</th><th>Access</th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:500;">admin</td><td class="td-mono">8318</td><td class="td-muted">via nginx /admin/ + /api/admin/</td></tr>
+          <tr><td style="font-weight:500;">xray xhttp</td><td class="td-mono">8447</td><td class="td-muted">via nginx /proxy/query</td></tr>
+        </tbody>
+      </table>
+    </div>
+  {/if}
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">DNS Sync</div>
+    </div>
+    {#if !loading}
+      <table>
+        <thead><tr><th>Domain</th><th>DNS Record</th><th>Expected</th><th>Status</th></tr></thead>
+        <tbody>
           {#if net.dns_nginx}
-            <span class="badge" class:badge-green={nginxSynced} class:badge-red={!nginxSynced}>{nginxSynced ? 'synced' : 'mismatch'}</span>
-          {:else}
-            <span class="badge badge-red">no DNS</span>
+          <tr>
+            <td style="font-weight:500;">{net.dns_nginx.domain}</td>
+            <td class="td-mono">{net.dns_nginx.record?.content || '—'}</td>
+            <td class="td-mono">{net.nginx_ip}</td>
+            <td>
+              <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
+                <span class="badge-dot"></span>{nginxSynced ? 'synced' : 'mismatch'}
+              </span>
+            </td>
+          </tr>
           {/if}
-        </td>
-      </tr>
-      <tr>
-        <td style="font-weight:500;">xray reality</td>
-        <td style="font-family:monospace;color:#60a5fa;">{net.xray_active}</td>
-        <td style="color:#94a3b8;">VLESS Reality (443)</td>
-        <td>
           {#if net.dns_reality}
-            <span class="badge" class:badge-green={realitySynced} class:badge-red={!realitySynced}>{realitySynced ? 'synced' : 'mismatch'}</span>
-          {:else}
-            <span class="badge badge-red">no DNS</span>
+          <tr>
+            <td style="font-weight:500;">{net.dns_reality.domain}</td>
+            <td class="td-mono">{net.dns_reality.record?.content || '—'}</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
+            <td>
+              <span class="badge badge-{realitySynced ? 'green' : 'red'}">
+                <span class="badge-dot"></span>{realitySynced ? 'synced' : 'mismatch'}
+              </span>
+            </td>
+          </tr>
           {/if}
-        </td>
-      </tr>
-    </tbody>
-  </table>
-</div>
+        </tbody>
+      </table>
+    {/if}
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem;flex-wrap:wrap;">
+      <button class="btn btn-sm btn-primary" onclick={doSyncDNS}>Sync All DNS</button>
+      {#if syncMsg}<span style="font-size:0.78rem;color:var(--c-text-secondary);">{syncMsg}</span>{/if}
+    </div>
+  </div>
 
-<div class="card">
-  <h2>Reality IPv6 Details</h2>
-  <table>
-    <tbody>
-      <tr><td style="color:#64748b;width:140px;">Primary (static)</td><td style="font-family:monospace;">{net.xray_primary}</td><td style="color:#94a3b8;font-size:0.8rem;">Docker-assigned, permanent fallback</td></tr>
-      <tr><td style="color:#64748b;">Rotating</td><td style="font-family:monospace;color:#60a5fa;">{rotatingIP || '—'}</td><td style="color:#94a3b8;font-size:0.8rem;">Dynamically rotated, DNS points here</td></tr>
-      <tr><td style="color:#64748b;">Active</td><td style="font-family:monospace;color:#60a5fa;">{net.xray_active}</td><td style="color:#94a3b8;font-size:0.8rem;">Effective Reality endpoint</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2>IPv6 Allocation <span style="font-size:0.75rem;color:#64748b;font-weight:400;">— {net.subnet}</span></h2>
-  <table>
-    <thead><tr><th>Range</th><th>Prefix</th><th>Usage</th></tr></thead>
-    <tbody>
-      <tr>
-        <td style="font-weight:500;color:#6ee7b7;">Static</td>
-        <td style="font-family:monospace;font-size:0.8rem;">:1::/80</td>
-        <td style="color:#94a3b8;">nginx, xray primary</td>
-      </tr>
-      <tr>
-        <td style="font-weight:500;color:#60a5fa;">Rotating</td>
-        <td style="font-family:monospace;font-size:0.8rem;">:f::/80</td>
-        <td style="color:#94a3b8;">xray reality dynamic IPs</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2>Internal Services <span style="font-size:0.75rem;color:#64748b;font-weight:400;">— internal_docker only, nginx-proxied</span></h2>
-  <table>
-    <thead><tr><th>Service</th><th>Port</th><th>Access</th></tr></thead>
-    <tbody>
-      <tr><td style="font-weight:500;">admin</td><td style="font-family:monospace;">8318</td><td style="color:#94a3b8;">via nginx → /admin/ + /api/admin/</td></tr>
-      <tr><td style="font-weight:500;">xray xhttp</td><td style="font-family:monospace;">8447</td><td style="color:#94a3b8;">via nginx → /proxy/query</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<div class="card">
-  <h2>DNS Sync</h2>
-  <table>
-    <thead><tr><th>Domain</th><th>DNS Record</th><th>Expected</th><th>Status</th></tr></thead>
-    <tbody>
-      {#if net.dns_nginx}
-      <tr>
-        <td style="font-weight:500;">{net.dns_nginx.domain}</td>
-        <td style="font-family:monospace;font-size:0.8rem;">{net.dns_nginx.record?.content || '—'}</td>
-        <td style="font-family:monospace;font-size:0.8rem;">{net.nginx_ip}</td>
-        <td><span class="badge" class:badge-green={nginxSynced} class:badge-red={!nginxSynced}>{nginxSynced ? 'synced' : 'mismatch'}</span></td>
-      </tr>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">IPv6 Rotation</div>
+    </div>
+    <p style="color:var(--c-text-secondary);font-size:0.78rem;margin-bottom:1rem;line-height:1.6;">
+      Generates a new IPv6 in the rotating range (:f::/80), adds it to xray,
+      updates xray.yinghuoren.com DNS, then removes the old rotating IP.
+    </p>
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick={doRotate} disabled={rotating}>
+        {#if rotating}<span class="spinner" style="margin-right:0.35rem;"></span>{/if}
+        {rotating ? 'Rotating...' : 'Rotate Reality IPv6'}
+      </button>
+      {#if result.msg}
+        <div class="toast toast-{result.ok ? 'success' : 'error'}" style="margin:0;">{result.msg}</div>
       {/if}
-      {#if net.dns_reality}
-      <tr>
-        <td style="font-weight:500;">{net.dns_reality.domain}</td>
-        <td style="font-family:monospace;font-size:0.8rem;">{net.dns_reality.record?.content || '—'}</td>
-        <td style="font-family:monospace;font-size:0.8rem;color:#60a5fa;">{net.xray_active}</td>
-        <td><span class="badge" class:badge-green={realitySynced} class:badge-red={!realitySynced}>{realitySynced ? 'synced' : 'mismatch'}</span></td>
-      </tr>
-      {/if}
-    </tbody>
-  </table>
-  <button class="btn btn-sm btn-blue" on:click={doSyncDNS} style="margin-top:0.75rem;">Sync All DNS</button>
-  {#if syncMsg}
-    <div style="margin-top:0.5rem;font-size:0.8rem;color:#94a3b8;">{syncMsg}</div>
-  {/if}
-</div>
-
-<div class="card">
-  <h2>IPv6 Rotation</h2>
-  <p style="color:#94a3b8;font-size:0.8rem;margin-bottom:0.75rem;">
-    Generates a new IPv6 in the rotating range (:f::/80), adds it to xray,<br>
-    updates xray.yinghuoren.com DNS, then removes the old rotating IP.
-  </p>
-  <button class="btn btn-blue" on:click={doRotate} disabled={rotating}>
-    {rotating ? 'Rotating...' : 'Rotate Reality IPv6'}
-  </button>
-  {#if result.msg}
-    <div style="background:{result.ok ? '#064e3b' : '#7f1d1d'};color:{result.ok ? '#6ee7b7' : '#fca5a5'};padding:0.5rem 0.75rem;border-radius:0.375rem;margin-top:0.75rem;font-size:0.875rem;">{result.msg}</div>
-  {/if}
+    </div>
+  </div>
 </div>
