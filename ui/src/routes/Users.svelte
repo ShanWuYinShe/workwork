@@ -30,12 +30,14 @@ async function addUser() {
     adminUsers = d.adminUsers || [];
   } catch(e) { error = e.message; }
 }
+
 async function deleteUser(username) {
   if (!confirm(`Delete user "${username}"?`)) return;
   error = '';
   try { await deleteAdminUser(username); const d = await getUsers(); adminUsers = d.adminUsers || []; }
   catch(e) { error = e.message; }
 }
+
 async function changePw() {
   if (!pwUser || !pwPass) return;
   error = ''; message = '';
@@ -45,6 +47,7 @@ async function changePw() {
     pwPass = '';
   } catch(e) { error = e.message; }
 }
+
 async function changeRole(username, role) {
   error = ''; message = '';
   try {
@@ -54,71 +57,114 @@ async function changeRole(username, role) {
     adminUsers = d.adminUsers || [];
   } catch(e) { error = e.message; }
 }
+
+function EyeIcon({ open }) {
+  return `<svg style="width:16px;height:16px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
+}
 </script>
 
-<h1>Users</h1>
-{#if loading}<p style="color:#64748b;">Loading...</p>{/if}
-{#if error}<div class="toast toast-error">{error}</div>{/if}
-{#if message}<div class="toast toast-success">{message}</div>{/if}
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">Users</h1>
+  </div>
 
-<div class="card">
-  <h2>Admin Users ({adminUsers.length})</h2>
-  {#if adminUsers.length}
-  <table>
-    <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
-    <tbody>
-      {#each adminUsers as u}
-      <tr>
-        <td style="font-weight:500;">{u.username}</td>
-        <td>
-          <span class="badge" class:badge-green={u.role === 'admin'} class:badge-red={u.role !== 'admin'}>
-            {u.role}
-          </span>
-        </td>
-        <td style="color:#94a3b8;font-size:0.8rem;">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
-        <td style="display:flex;gap:0.25rem;flex-wrap:wrap;">
-          {#if u.role === 'admin'}
-            <button class="btn btn-gray btn-sm" on:click={() => changeRole(u.username, 'viewer')}>Set viewer</button>
-          {:else}
-            <button class="btn btn-blue btn-sm" on:click={() => changeRole(u.username, 'admin')}>Set admin</button>
-          {/if}
-          <button class="btn btn-red btn-sm" on:click={() => deleteUser(u.username)}>Delete</button>
-        </td>
-      </tr>
-      {/each}
-    </tbody>
-  </table>
-  {:else}<p style="color:#64748b;">No admin users.</p>{/if}
-</div>
+  {#if error}<div class="toast toast-error">{error}</div>{/if}
+  {#if message}<div class="toast toast-success">{message}</div>{/if}
 
-<div class="card">
-  <h2>Add User</h2>
-  <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
-    <div><label>Username</label><input type="text" bind:value={newUser} style="width:150px;"></div>
-    <div style="position:relative;"><label>Password</label><input type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:150px;padding-right:32px;"><button class="eye-btn" on:click={() => showNewPass = !showNewPass} title={showNewPass ? 'Hide' : 'Show'}><svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>{#if showNewPass}<line x1="1" y1="1" x2="23" y2="23"/>{/if}</svg></button></div>
-    <div>
-      <label>Role</label>
-      <select bind:value={newRole} style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:0.5rem 0.75rem;border-radius:0.375rem;font-size:0.875rem;">
-        <option value="viewer">Viewer</option>
-        <option value="admin">Admin</option>
-      </select>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        Admin Users
+        {#if adminUsers.length}<span class="card-title-count">{adminUsers.length}</span>{/if}
+      </div>
     </div>
-    <button class="btn btn-green" on:click={addUser}>Add</button>
+    {#if loading}
+      <div class="loading-skeleton" style="height:120px;"></div>
+    {:else if adminUsers.length}
+      <table>
+        <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody>
+          {#each adminUsers as u}
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:0.5rem;">
+                <div style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;{u.role === 'admin' ? 'background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;' : 'background:var(--c-bg-surface);color:var(--c-text-secondary);'}">
+                  {u.username[0].toUpperCase()}
+                </div>
+                <span style="font-weight:500;">{u.username}</span>
+              </div>
+            </td>
+            <td>
+              <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
+            </td>
+            <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+            <td>
+              <div class="td-actions">
+                {#if u.role === 'admin'}
+                  <button class="btn btn-ghost btn-sm" onclick={() => changeRole(u.username, 'viewer')}>Set viewer</button>
+                {:else}
+                  <button class="btn btn-primary btn-sm" onclick={() => changeRole(u.username, 'admin')}>Set admin</button>
+                {/if}
+                <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}>Delete</button>
+              </div>
+            </td>
+          </tr>
+          {/each}
+        </tbody>
+      </table>
+    {:else}
+      <div class="empty-state">No admin users.</div>
+    {/if}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Add User</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="add-user">Username</label>
+        <input id="add-user" type="text" bind:value={newUser} style="width:160px;">
+      </div>
+      <div class="form-group" style="position:relative;">
+        <label for="add-pass">Password</label>
+        <div style="position:relative;">
+          <input id="add-pass" type={showNewPass ? 'text' : 'password'} bind:value={newPass} style="width:160px;padding-right:32px;">
+          <button class="eye-btn" onclick={() => showNewPass = !showNewPass}>
+            {@html EyeIcon({ open: showNewPass })}
+          </button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="add-role">Role</label>
+        <select id="add-role" bind:value={newRole}>
+          <option value="viewer">Viewer</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button class="btn btn-success" onclick={addUser}>Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Change Password</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="pw-user">Username</label>
+        <input id="pw-user" type="text" bind:value={pwUser} style="width:180px;">
+      </div>
+      <div class="form-group">
+        <label for="pw-pass">New Password</label>
+        <div style="position:relative;">
+          <input id="pw-pass" type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;">
+          <button class="eye-btn" onclick={() => showPwPass = !showPwPass}>
+            {@html EyeIcon({ open: showPwPass })}
+          </button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick={changePw}>Change</button>
+    </div>
   </div>
 </div>
-
-<div class="card">
-  <h2>Change Password</h2>
-  <div style="display:flex;gap:0.75rem;align-items:end;flex-wrap:wrap;">
-    <div><label>Username</label><input type="text" bind:value={pwUser} style="width:180px;"></div>
-    <div style="position:relative;"><label>New Password</label><input type={showPwPass ? 'text' : 'password'} bind:value={pwPass} style="width:180px;padding-right:32px;"><button class="eye-btn" on:click={() => showPwPass = !showPwPass} title={showPwPass ? 'Hide' : 'Show'}><svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>{#if showPwPass}<line x1="1" y1="1" x2="23" y2="23"/>{/if}</svg></button></div>
-    <button class="btn btn-blue" on:click={changePw}>Change</button>
-  </div>
-</div>
-
-<style>
-  .toast { padding: 0.5rem 0.75rem; border-radius: 0.375rem; margin-bottom: 0.75rem; font-size: 0.875rem; animation: fadeIn 0.2s ease; }
-  .toast-success { background: #064e3b; color: #6ee7b7; }
-  .toast-error { background: #7f1d1d; color: #fca5a5; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-</style>
