@@ -122,7 +122,7 @@ func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func apiBlockIP(cli interface{}) http.HandlerFunc {
+func apiBlockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP       string `json:"ip"`
@@ -140,7 +140,7 @@ func apiBlockIP(cli interface{}) http.HandlerFunc {
 	}
 }
 
-func apiUnblockIP(cli interface{}) http.HandlerFunc {
+func apiUnblockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ IP string `json:"ip"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
@@ -153,7 +153,7 @@ func apiUnblockIP(cli interface{}) http.HandlerFunc {
 	}
 }
 
-func apiBlockedIPs(cli interface{}) http.HandlerFunc {
+func apiBlockedIPs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"entries": ipBlocker.list()})
 	}

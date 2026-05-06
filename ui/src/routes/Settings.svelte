@@ -2,11 +2,11 @@
 import { onMount } from 'svelte';
 import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
 
-let net = { nginx_ip:'-', xray_primary:'-', xray_rotating:null, xray_active:'-', subnet:'-', cf_configured:false, dns_reality:null, dns_nginx:null };
-let loading = true;
-let rotating = false;
-let syncMsg = '';
-let result = { ok: false, msg: '' };
+let net = $state({ nginx_ip:'-', xray_primary:'-', xray_rotating:null, xray_active:'-', subnet:'-', cf_configured:false, dns_reality:null, dns_nginx:null });
+let loading = $state(true);
+let rotating = $state(false);
+let syncMsg = $state('');
+let result = $state({ ok: false, msg: '' });
 
 onMount(refresh);
 
@@ -41,9 +41,9 @@ async function doRotate() {
   finally { rotating = false; }
 }
 
-$: realitySynced = net.dns_reality?.synced;
-$: nginxSynced = net.dns_nginx?.synced;
-$: rotatingIP = net.xray_rotating;
+let realitySynced = $derived(net.dns_reality?.synced);
+let nginxSynced = $derived(net.dns_nginx?.synced);
+let rotatingIP = $derived(net.xray_rotating);
 </script>
 
 <h1>Settings</h1>

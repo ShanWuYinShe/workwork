@@ -74,10 +74,14 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			if state == "" {
 				state = "stopped"
 			}
+			domain := getEnv("XHTTP_DOMAIN")
+			if domain == "" {
+				domain = "yinghuoren.com"
+			}
 			instances = append(instances, cliproxyInstance{
 				Username: username,
 				Token:    tok,
-				BaseURL:  "https://yinghuoren.com/api/cliproxy/user/" + tok,
+				BaseURL:  "https://" + domain + "/api/cliproxy/user/" + tok,
 				Status:   state,
 				Running:  state == "running",
 			})
@@ -472,11 +476,6 @@ func cliproxyConfigPath(token string) string {
 
 func cliproxyTokenForUser(username string) (string, error) {
 	return getOrCreateCliproxyToken(username)
-}
-
-func str(v any) string {
-	s, _ := v.(string)
-	return s
 }
 
 func maskKey(key string) string {

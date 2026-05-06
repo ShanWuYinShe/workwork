@@ -110,18 +110,8 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 func apiConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data := map[string]any{
-			"xrayVersion": "-", "xrayInbounds": 0, "xrayClients": 0,
-			"goVersion": "-", "configStatus": "-",
-		}
-		if out, err := exec.Command("/usr/local/bin/xray", "version").Output(); err == nil {
-			v := string(out)
-			if len(v) > 80 {
-				v = v[:80]
-			}
-			data["xrayVersion"] = v
-		}
-		if out, err := exec.Command("go", "version").Output(); err == nil {
-			data["goVersion"] = string(out)
+			"xrayInbounds": 0, "xrayClients": 0,
+			"configStatus": "-",
 		}
 		raw, err := os.ReadFile("/app/configs/xray.json")
 		if err == nil {
