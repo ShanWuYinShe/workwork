@@ -100,7 +100,7 @@ function downloadConfig() {
         <td style="font-size:0.8rem;color:#94a3b8;">{c.owner || '—'}</td>
         {/if}
         <td><span class="badge badge-green">reality</span> <span class="badge" style="background:#1e3a5f;color:#93c5fd;">xhttp</span></td>
-        <td><button class="btn btn-red btn-sm" on:click={() => deleteClient(c.id)}>Delete</button></td>
+        <td>{#if isAdmin}<button class="btn btn-red btn-sm" on:click={() => deleteClient(c.id)}>Delete</button>{/if}</td>
       </tr>
       {/each}
     </tbody>

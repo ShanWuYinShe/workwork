@@ -1,15 +1,17 @@
 <script>
 import { onMount } from 'svelte';
-import { getServices, serviceAction } from '../lib/api.js';
+import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
 
 let services = [];
 let loading = true;
 let error = '';
+let isAdmin = false;
 
 onMount(async () => {
   try {
-    const d = await getServices();
+    const [d, user] = await Promise.all([getServices(), getCurrentUser()]);
     services = d.services || [];
+    isAdmin = user.role === 'admin';
   } catch(e) { error = e.message; }
   finally { loading = false; }
 });
@@ -28,7 +30,7 @@ async function act(name, action) {
 
 <div class="card">
   <table>
-    <thead><tr><th>Service</th><th>State</th><th>Ports</th><th>Image</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Service</th><th>State</th><th>Ports</th><th>Image</th>{#if isAdmin}<th>Actions</th>{/if}</tr></thead>
     <tbody>
       {#each services as s}
       <tr>
@@ -36,6 +38,7 @@ async function act(name, action) {
         <td><span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">{s.state}</span></td>
         <td style="font-size:0.75rem;color:#94a3b8;font-family:monospace">{s.ports || '-'}</td>
         <td style="font-size:0.75rem;color:#94a3b8;">{s.image}</td>
+        {#if isAdmin}
         <td>
           <button class="btn btn-blue btn-sm" on:click={() => act(s.name, 'restart')}>Restart</button>
           {#if s.state === 'running'}
@@ -44,6 +47,7 @@ async function act(name, action) {
             <button class="btn btn-green btn-sm" on:click={() => act(s.name, 'start')}>Start</button>
           {/if}
         </td>
+        {/if}
       </tr>
       {/each}
     </tbody>
