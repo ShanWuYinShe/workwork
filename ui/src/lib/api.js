@@ -35,10 +35,6 @@ export async function serviceAction(name, action) {
   return json.data;
 }
 
-export async function getConfig() {
-  return req('/config');
-}
-
 export async function getUsers() {
   return req('/users');
 }

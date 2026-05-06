@@ -98,9 +98,6 @@ func deleteUserMeta(username string) error {
 	return saveUsersMeta(doc)
 }
 
-// Need to define deleteHtpasswdUser here since we use it in api.go
-// This is defined in api.go but referenced here for clarity
-
 func getUserFromContext(r *http.Request) (*UserInfo, string) {
 	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
 	username, _ := r.Context().Value(usernameCtxKey).(string)
