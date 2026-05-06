@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 const cfAPIBase = "https://api.cloudflare.com/client/v4"
@@ -84,7 +85,8 @@ func cfRequest(method, path string, body any) (*cfResponse, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+cfToken())
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	cfClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := cfClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("cf request failed: %w", err)
 	}

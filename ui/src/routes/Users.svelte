@@ -58,8 +58,8 @@ async function changeRole(username, role) {
 
 <h1>Users</h1>
 {#if loading}<p style="color:#64748b;">Loading...</p>{/if}
-{#if error}<div style="background:#7f1d1d;color:#fca5a5;padding:0.75rem 1rem;border-radius:0.5rem;margin-bottom:1rem;">{error}</div>{/if}
-{#if message}<div style="background:#064e3b;color:#6ee7b7;padding:0.75rem 1rem;border-radius:0.5rem;margin-bottom:1rem;">{message}</div>{/if}
+{#if error}<div class="toast toast-error">{error}</div>{/if}
+{#if message}<div class="toast toast-success">{message}</div>{/if}
 
 <div class="card">
   <h2>Admin Users ({adminUsers.length})</h2>
@@ -115,3 +115,10 @@ async function changeRole(username, role) {
     <button class="btn btn-blue" on:click={changePw}>Change</button>
   </div>
 </div>
+
+<style>
+  .toast { padding: 0.5rem 0.75rem; border-radius: 0.375rem; margin-bottom: 0.75rem; font-size: 0.875rem; animation: fadeIn 0.2s ease; }
+  .toast-success { background: #064e3b; color: #6ee7b7; }
+  .toast-error { background: #7f1d1d; color: #fca5a5; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
