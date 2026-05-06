@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"admin/handlers"
@@ -243,6 +244,9 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+		xrayConfigMu.Lock()
+		defer xrayConfigMu.Unlock()
+
 		data, err := os.ReadFile("/app/configs/xray.json")
 		if err != nil {
 			writeError(w, err.Error(), 500)
@@ -286,6 +290,9 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+		xrayConfigMu.Lock()
+		defer xrayConfigMu.Unlock()
+
 		data, err := os.ReadFile("/app/configs/xray.json")
 		if err != nil {
 			writeError(w, "Failed to read xray config: "+err.Error(), 500)
@@ -329,8 +336,13 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 }
 
 var htpasswdFile = "/app/htpasswd"
+var xrayConfigMu sync.Mutex
+var htpasswdMu sync.Mutex
 
 func htpasswdAddUser(username, password string) error {
+	htpasswdMu.Lock()
+	defer htpasswdMu.Unlock()
+
 	out, err := exec.Command("htpasswd", "-nbB", username, password).Output()
 	if err != nil {
 		return err
@@ -440,6 +452,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
+		htpasswdMu.Lock()
 		data, _ := os.ReadFile(htpasswdFile)
 		var lines []string
 		for _, line := range strings.Split(string(data), "\n") {
@@ -452,6 +465,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+		htpasswdMu.Unlock()
 		deleteUserMeta(body.Username)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}

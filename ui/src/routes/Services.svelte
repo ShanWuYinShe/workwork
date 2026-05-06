@@ -17,6 +17,7 @@ onMount(async () => {
 });
 
 async function act(name, action) {
+  if (!confirm(`${action} service "${name}"?`)) return;
   try {
     const d = await serviceAction(name, action);
     services = d.services || services;
@@ -26,7 +27,7 @@ async function act(name, action) {
 
 <h1>Services</h1>
 {#if loading}<p style="color:#64748b;">Loading...</p>{/if}
-{#if error}<div style="background:#7f1d1d;color:#fca5a5;padding:0.75rem 1rem;border-radius:0.5rem;margin-bottom:1rem;">{error}</div>{/if}
+{#if error}<div class="toast toast-error">{error}</div>{/if}
 
 <div class="card">
   <table>
@@ -53,3 +54,9 @@ async function act(name, action) {
     </tbody>
   </table>
 </div>
+
+<style>
+  .toast { padding: 0.5rem 0.75rem; border-radius: 0.375rem; margin-bottom: 0.75rem; font-size: 0.875rem; animation: fadeIn 0.2s ease; }
+  .toast-error { background: #7f1d1d; color: #fca5a5; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
