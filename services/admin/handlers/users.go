@@ -125,9 +125,25 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			map[string]any{"tag": "direct", "protocol": "freedom"},
 			map[string]any{"tag": "reject", "protocol": "blackhole"},
 		},
+		"burstObservatory": map[string]any{
+			"subjectSelector": []string{"reality", "xhttp"},
+			"pingConfig": map[string]any{
+				"destination": "https://cp.cloudflare.com/generate_204",
+				"connectivity": "https://www.google.com/generate_204",
+				"interval":     "30s",
+				"sampling":     10,
+				"timeout":      "5s",
+				"httpMethod":   "HEAD",
+			},
+		},
 		"routing": map[string]any{
 			"domainStrategy": "IPIfNonMatch",
-			"balancers": []map[string]any{{"tag": "proxy", "selector": []string{"reality", "xhttp"}}},
+			"balancers": []map[string]any{{
+				"tag":         "proxy",
+				"selector":    []string{"reality", "xhttp"},
+				"strategy":    map[string]any{"type": "leastPing"},
+				"fallbackTag": "direct",
+			}},
 			"rules": []map[string]any{
 				{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
 				{"type": "field", "balancerTag": "proxy", "domain": []string{"geosite:google", "geosite:github", "geosite:openai", "geosite:docker", "geosite:netflix", "geosite:instagram", "geosite:youtube", "geosite:facebook", "geosite:twitter"}},
