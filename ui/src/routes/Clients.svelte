@@ -8,8 +8,8 @@ let newUUID = $state('');
 let loading = $state(true);
 let error = $state('');
 let copied = $state(false);
-let copyError = $state('');
 let isAdmin = $state(false);
+let deletingId = $state('');
 
 onMount(async () => {
   try {
@@ -27,16 +27,19 @@ async function addClient() {
   try { await addXrayClient(newUUID); newUUID = ''; location.reload(); }
   catch(e) { error = e.message; }
 }
+
 async function deleteClient(uuid) {
   if (!confirm('Delete client ' + uuid.slice(0,8) + '...?')) return;
+  deletingId = uuid;
   error = '';
   try { await deleteXrayClient(uuid); location.reload(); }
   catch(e) { error = e.message; }
+  finally { deletingId = ''; }
 }
+
 function genUUID() { newUUID = crypto.randomUUID(); }
 
 async function copyConfig() {
-  copyError = '';
   try {
     await navigator.clipboard.writeText(generatedJSON);
     copied = true;
@@ -51,10 +54,7 @@ async function copyConfig() {
       document.execCommand('copy');
       copied = true;
       setTimeout(() => copied = false, 2000);
-    } catch {
-      copyError = 'Copy failed — select and copy manually';
-      setTimeout(() => copyError = '', 3000);
-    }
+    } catch { error = 'Copy failed — select and copy manually'; }
     document.body.removeChild(ta);
   }
 }
@@ -69,77 +69,90 @@ function downloadConfig() {
 }
 </script>
 
-<h1>Clients</h1>
-{#if loading}<p style="color:#64748b;">Loading...</p>{/if}
-{#if error}<div class="toast toast-error">{error}</div>{/if}
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">Clients</h1>
+  </div>
 
-{#if isAdmin}
-<div class="card">
-  <h2>Add Client</h2>
-  <div style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;">
-    <div style="flex:1;min-width:280px;">
-      <label>UUID</label>
-      <input type="text" bind:value={newUUID} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:100%;font-family:monospace;">
+  {#if error}<div class="toast toast-error">{error}</div>{/if}
+
+  {#if isAdmin}
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Add Client</div>
     </div>
-    <button class="btn btn-green" on:click={addClient}>Add</button>
-    <button class="btn btn-gray btn-sm" on:click={genUUID}>Generate</button>
+    <div class="form-row">
+      <div class="form-group form-group-grow">
+        <label for="client-uuid">UUID</label>
+        <input id="client-uuid" type="text" bind:value={newUUID} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="font-family:'SF Mono','Fira Code',ui-monospace,monospace;">
+      </div>
+      <button class="btn btn-success" onclick={addClient}>Add</button>
+      <button class="btn btn-ghost btn-sm" onclick={genUUID}>Generate</button>
+    </div>
+  </div>
+  {/if}
+
+  {#if loading}
+    <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
+  {:else}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          Clients
+          {#if clients.length}<span class="card-title-count">{clients.length}</span>{/if}
+        </div>
+      </div>
+      {#if clients.length}
+      <table>
+        <thead><tr><th>UUID</th>{#if isAdmin}<th>Owner</th>{/if}<th>Protocols</th><th>Actions</th></tr></thead>
+        <tbody>
+          {#each clients as c}
+          <tr>
+            <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
+            {#if isAdmin}
+            <td class="td-muted">{c.owner || '—'}</td>
+            {/if}
+            <td>
+              <span class="badge badge-green"><span class="badge-dot"></span>reality</span>
+              <span class="badge badge-blue">xhttp</span>
+            </td>
+            <td>
+              {#if isAdmin}
+                {#if deletingId === c.id}
+                  <span class="spinner"></span>
+                {:else}
+                  <button class="btn btn-danger btn-sm" onclick={() => deleteClient(c.id)}>Delete</button>
+                {/if}
+              {/if}
+            </td>
+          </tr>
+          {/each}
+        </tbody>
+      </table>
+      {:else}
+        <div class="empty-state">No proxy clients configured.</div>
+      {/if}
+    </div>
+  {/if}
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Client Configuration</div>
+      <div class="card-actions">
+        <button class="btn btn-sm btn-primary" onclick={copyConfig}>
+          {#if copied}Copied{:else}Copy{/if}
+        </button>
+        <button class="btn btn-sm btn-ghost" onclick={downloadConfig}>Download</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+      <span class="badge badge-gray">SOCKS5 :10808</span>
+      <span class="badge badge-gray">HTTP :10809</span>
+      <span class="badge badge-gray">Balancer: reality + xhttp</span>
+    </div>
+    <textarea rows="16" readonly>{generatedJSON}</textarea>
+    {#if copied}
+      <div class="toast toast-success" style="margin-top:0.75rem;">Copied to clipboard</div>
+    {/if}
   </div>
 </div>
-{/if}
-
-<div class="card">
-  <h2>Clients ({clients.length})</h2>
-  {#if clients.length}
-  <table>
-    <thead><tr><th>UUID</th>{#if isAdmin}<th>Owner</th>{/if}<th>Protocols</th><th>Actions</th></tr></thead>
-    <tbody>
-      {#each clients as c}
-      <tr>
-        <td style="font-family:monospace;font-size:0.8rem" title={c.id}>{c.id.slice(0, 16)}...</td>
-        {#if isAdmin}
-        <td style="font-size:0.8rem;color:#94a3b8;">{c.owner || '—'}</td>
-        {/if}
-        <td><span class="badge badge-green">reality</span> <span class="badge" style="background:#1e3a5f;color:#93c5fd;">xhttp</span></td>
-        <td>{#if isAdmin}<button class="btn btn-red btn-sm" on:click={() => deleteClient(c.id)}>Delete</button>{/if}</td>
-      </tr>
-      {/each}
-    </tbody>
-  </table>
-  {:else}<p style="color:#64748b;">No proxy clients configured.</p>{/if}
-</div>
-
-<div class="card">
-  <h2 style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-    <span>Client Configuration</span>
-    <div style="display:flex;gap:0.5rem;">
-      <button class="btn btn-sm btn-blue" on:click={copyConfig}>
-        {copied ? '✓ Copied' : 'Copy'}
-      </button>
-      <button class="btn btn-sm btn-gray" on:click={downloadConfig}>Download</button>
-    </div>
-  </h2>
-  <p style="color:#94a3b8;font-size:0.75rem;margin-bottom:0.75rem;">
-    SOCKS5 :10808 · HTTP :10809 · Balancer: reality ↔ xhttp
-  </p>
-  <textarea rows="18" readonly>{generatedJSON}</textarea>
-  {#if copied}
-    <div class="toast toast-success">Copied to clipboard</div>
-  {/if}
-  {#if copyError}
-    <div class="toast toast-error">{copyError}</div>
-  {/if}
-</div>
-
-<style>
-  .toast {
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.375rem;
-    margin-bottom: 0.75rem;
-    font-size: 0.875rem;
-    animation: fadeIn 0.2s ease;
-  }
-  .toast-success { background: #064e3b; color: #6ee7b7; }
-  .toast-error { background: #7f1d1d; color: #fca5a5; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-  textarea { resize: vertical; }
-</style>
