@@ -2,10 +2,10 @@
 import { onMount } from 'svelte';
 import { getDashboard } from '../lib/api.js';
 
-let stats = { services: '-', running: '-', dockerVersion: '-', cpu: '-', memory: '-', os: '-', arch: '-' };
-let services = [];
-let error = '';
-let loading = true;
+let stats = $state({ services: '-', running: '-', dockerVersion: '-', cpu: '-', memory: '-', os: '-', arch: '-' });
+let services = $state([]);
+let error = $state('');
+let loading = $state(true);
 
 onMount(async () => {
   try {

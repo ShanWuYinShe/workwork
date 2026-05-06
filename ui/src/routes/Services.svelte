@@ -2,10 +2,10 @@
 import { onMount } from 'svelte';
 import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
 
-let services = [];
-let loading = true;
-let error = '';
-let isAdmin = false;
+let services = $state([]);
+let loading = $state(true);
+let error = $state('');
+let isAdmin = $state(false);
 
 onMount(async () => {
   try {
