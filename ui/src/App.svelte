@@ -52,7 +52,7 @@ const navSections = [
       { path: '/cliproxy', label: 'Cliproxy', icon: 'zap', adminOnly: true },
       { path: '/settings', label: 'Settings', icon: 'settings', adminOnly: true },
       { path: '/model-pool', label: 'Model Pool', icon: 'layers', adminOnly: true },
-      { path: '/downloads', label: 'Downloads', icon: 'download', adminOnly: true },
+      { path: '/downloads', label: 'Downloads', icon: 'download' },
     ]
   }
 ];
@@ -158,7 +158,7 @@ function getIcon(name) {
       {:else if currentPath === '/model-pool'}
         {#if isAdmin}<ModelPool />{:else}<div class="page"><h1>Forbidden</h1></div>{/if}
       {:else if currentPath === '/downloads'}
-        {#if isAdmin}<Downloads />{:else}<div class="page"><h1>Forbidden</h1></div>{/if}
+        <Downloads />
       {:else}
         <div class="page"><h1>Not Found</h1></div>
       {/if}
