@@ -166,13 +166,11 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	// Read user's existing personal providers
 	var userProviders []cliproxyProvider
 	cfgPath := cliproxyConfigPath(tok)
-	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
-		metaPath := cfgPath[:idx+1] + tok + ".providers.json"
-		if metaData, err := os.ReadFile(metaPath); err == nil {
-			var meta struct{ Providers []cliproxyProvider `json:"providers"` }
-			if json.Unmarshal(metaData, &meta) == nil {
-				userProviders = meta.Providers
-			}
+	metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
+	if metaData, err := os.ReadFile(metaPath); err == nil {
+		var meta struct{ Providers []cliproxyProvider `json:"providers"` }
+		if json.Unmarshal(metaData, &meta) == nil {
+			userProviders = meta.Providers
 		}
 	}
 
@@ -228,14 +226,9 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	}
 
 	// Save merged providers metadata
-	metaPath := ""
-	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
-		metaPath = cfgPath[:idx+1] + tok + ".providers.json"
-	}
-	if metaPath != "" {
-		metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
-		os.WriteFile(metaPath, metaData, 0644)
-	}
+	metaPath = cfgPath[:len(cfgPath)-5] + ".providers.json"
+	metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
+	os.WriteFile(metaPath, metaData, 0644)
 
 	// Restart cliproxy if it's running
 	restartCliproxyIfRunning(username, cli)
