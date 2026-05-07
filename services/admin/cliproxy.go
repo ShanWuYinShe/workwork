@@ -417,7 +417,7 @@ func apiCliproxyPublicConfig(cli *client.Client) http.HandlerFunc {
 			for _, k := range body.APIKeys {
 				k = strings.TrimSpace(k)
 				if k != "" {
-					fmt.Fprintf(&keysYAML, "  - key: \"%s\"\n", k)
+					fmt.Fprintf(&keysYAML, "  - \"%s\"\n", k)
 				}
 			}
 			out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())

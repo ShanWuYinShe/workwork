@@ -75,11 +75,6 @@ func genXrayConfig() error {
 }
 
 func genNginxConfig() error {
-	if data, err := os.ReadFile("/app/configs/nginx.conf"); err == nil {
-		if len(data) > 100 {
-			return nil
-		}
-	}
 	tmpl, err := os.ReadFile("/app/configs/nginx.conf.tmpl")
 	if err != nil {
 		return err
@@ -89,6 +84,10 @@ func genNginxConfig() error {
 		"__NGINX_IPV6__": "NGINX_IPV6",
 		"__ADMIN_PORT__": "ADMIN_PORT",
 	})
+	// Check if unchanged to avoid unnecessary writes
+	if existing, err := os.ReadFile("/app/configs/nginx.conf"); err == nil && string(existing) == out {
+		return nil
+	}
 	return os.WriteFile("/app/configs/nginx.conf", []byte(out), 0644)
 }
 
@@ -111,11 +110,6 @@ func genHtpasswd() error {
 }
 
 func genCliproxyConfig() error {
-	if data, err := os.ReadFile("/app/configs/cliproxy.yaml"); err == nil {
-		if len(data) > 10 {
-			return nil
-		}
-	}
 	tmpl, err := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
 	if err != nil {
 		return err
@@ -126,13 +120,17 @@ func genCliproxyConfig() error {
 		for _, k := range strings.Split(keys, ",") {
 			k = strings.TrimSpace(k)
 			if k != "" {
-				fmt.Fprintf(&keysYAML, "  - key: \"%s\"\n", k)
+				fmt.Fprintf(&keysYAML, "  - \"%s\"\n", k)
 			}
 		}
 	}
 	out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
 	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
 	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
+	// Check if unchanged
+	if existing, err := os.ReadFile("/app/configs/cliproxy.yaml"); err == nil && string(existing) == out {
+		return nil
+	}
 	return os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0644)
 }
 
