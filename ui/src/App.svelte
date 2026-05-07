@@ -216,7 +216,7 @@ function getIcon(name) {
     overflow: hidden;
   }
   .collapsed .sidebar { width: var(--sidebar-collapsed); }
-  .collapsed .sidebar-header { justify-content: center; padding: 1rem; }
+  .collapsed .sidebar-header { flex-direction: column; justify-content: center; padding: 0.75rem 0; gap: 0.5rem; }
 
   .sidebar-header {
     padding: 1.25rem 1rem;
@@ -253,8 +253,8 @@ function getIcon(name) {
   .sidebar-toggle:hover { color: var(--c-text); background: var(--c-bg-hover); }
   .sidebar-toggle:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   .collapsed .sidebar-toggle {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
+    position: static;
+    transform: none;
   }
 
   /* ── Navigation ── */
