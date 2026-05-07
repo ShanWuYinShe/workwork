@@ -175,6 +175,7 @@ type cliproxyProvider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
+	Type    string `json:"type"` // "openai" or "anthropic"
 }
 
 func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
@@ -221,28 +222,35 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 					Name:    "[Pool] " + pp.Name,
 					BaseURL: pp.BaseURL,
 					APIKey:  pp.APIKey,
+					Type:    pp.Type,
 				})
 			}
 		}
 
-		// All providers → openai-compatibility
-		var compatYAML strings.Builder
+		// All providers → YAML (type-aware)
+		var provYAML strings.Builder
 		for _, p := range allProviders {
 			if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
 				continue
 			}
-			fmt.Fprintf(&compatYAML, "  - name: \"%s\"\n", p.Name)
-			fmt.Fprintf(&compatYAML, "    base-url: \"%s\"\n", p.BaseURL)
-			fmt.Fprintf(&compatYAML, "    api-key-entries:\n")
-			fmt.Fprintf(&compatYAML, "      - api-key: \"%s\"\n", p.APIKey)
-			fmt.Fprintf(&compatYAML, "    models:\n")
-			fmt.Fprintf(&compatYAML, "      - name: \"*\"\n")
-			fmt.Fprintf(&compatYAML, "        alias: \"%s/*\"\n", p.Name)
+			fmt.Fprintf(&provYAML, "  - name: \"%s\"\n", p.Name)
+			fmt.Fprintf(&provYAML, "    base-url: \"%s\"\n", p.BaseURL)
+			fmt.Fprintf(&provYAML, "    api-key-entries:\n")
+			fmt.Fprintf(&provYAML, "      - api-key: \"%s\"\n", p.APIKey)
+			// Include type if specified for proper API format routing
+			t := p.Type
+			if t == "" {
+				t = "openai"
+			}
+			fmt.Fprintf(&provYAML, "    type: \"%s\"\n", t)
+			fmt.Fprintf(&provYAML, "    models:\n")
+			fmt.Fprintf(&provYAML, "      - name: \"*\"\n")
+			fmt.Fprintf(&provYAML, "        alias: \"%s/*\"\n", p.Name)
 		}
 
 		out := string(tmpl)
 		out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", pubYAML.String())
-		out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", compatYAML.String())
+		out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", provYAML.String())
 
 		cfgPath := cliproxyConfigPath(tok)
 		dir := cfgPath[:strings.LastIndex(cfgPath, "/")]

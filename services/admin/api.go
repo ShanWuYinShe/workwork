@@ -56,7 +56,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 				}
 			}
 			genJSON := handlers.GenerateClientConfig(myClients, handlers.ClientConfig{
-				XrayIPV6:          getEnv("XRAY_IPV6"),
+				RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 				RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 				RealityShortID:    getEnv("XRAY_SHORT_IDS"),
@@ -233,7 +233,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		}
 
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
-			XrayIPV6:          getEnv("XRAY_IPV6"),
+			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
