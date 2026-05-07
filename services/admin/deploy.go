@@ -56,8 +56,8 @@ func genXrayConfig() error {
 			realityClientsJSON.WriteByte(',')
 		}
 		owner := getEnv("AUTH_USER")
-		fmt.Fprintf(&clientsJSON, `{"id":"%s","flow":"","owner":"%s"}`, u, owner)
-		fmt.Fprintf(&realityClientsJSON, `{"id":"%s","flow":"xtls-rprx-vision","owner":"%s"}`, u, owner)
+		fmt.Fprintf(&clientsJSON, `{"id":"%s","email":"%s","flow":"","owner":"%s"}`, u, owner, owner)
+		fmt.Fprintf(&realityClientsJSON, `{"id":"%s","email":"%s","flow":"xtls-rprx-vision","owner":"%s"}`, u, owner, owner)
 	}
 	clientsJSON.WriteByte(']')
 	realityClientsJSON.WriteByte(']')

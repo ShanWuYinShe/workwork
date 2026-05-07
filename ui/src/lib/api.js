@@ -127,8 +127,8 @@ export async function getClaudeReleases() {
   return req('/claude-code/releases');
 }
 
-export async function downloadClaudeVersion(version) {
-  return req('/claude-code/download', { method: 'POST', body: JSON.stringify({ version }) });
+export async function downloadClaudeVersion(version, plat) {
+  return req('/claude-code/download', { method: 'POST', body: JSON.stringify({ version, plat }) });
 }
 
 export async function deleteClaudeDownload(filename) {
