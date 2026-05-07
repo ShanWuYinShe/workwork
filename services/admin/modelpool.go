@@ -69,9 +69,9 @@ func setUserPoolAccess(username string, granted bool) error {
 func poolAuthorizedUsers() []string {
 	doc, err := readUsersMeta()
 	if err != nil {
-		return nil
+		return []string{}
 	}
-	var users []string
+	users := make([]string, 0)
 	for username, info := range doc.Users {
 		if info.PoolAccess {
 			users = append(users, username)
@@ -87,8 +87,12 @@ func apiModelPool(cli *client.Client) http.HandlerFunc {
 		case http.MethodGet:
 			cfg := loadModelPool()
 			users := poolAuthorizedUsers()
+			providers := cfg.Providers
+			if providers == nil {
+				providers = []modelPoolProvider{}
+			}
 			writeJSON(w, map[string]any{
-				"providers":        cfg.Providers,
+				"providers":        providers,
 				"authorized_users": users,
 			})
 		case http.MethodPost:
