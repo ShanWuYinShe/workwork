@@ -1,6 +1,6 @@
 <script>
 import { onMount } from 'svelte';
-import { getClaudeReleases, downloadClaudeVersion, deleteClaudeDownload } from '../lib/api.js';
+import { getCurrentUser, getClaudeReleases, getClaudeStored, downloadClaudeVersion, deleteClaudeDownload } from '../lib/api.js';
 
 let releases = $state([]);
 let platforms = $state([]);
@@ -8,22 +8,45 @@ let stored = $state([]);
 let loading = $state(true);
 let error = $state('');
 let message = $state('');
+let isAdmin = $state(false);
 let downloading = $state(false);
 let downloadKey = $state('');
 let deletingFile = $state('');
 let selectedPlat = $state('');
 
-onMount(refresh);
+onMount(async () => {
+  try {
+    const [user, d] = await Promise.all([
+      getCurrentUser(),
+      getClaudeReleases().catch(() => ({ releases: [], platforms: [], stored: [] }))
+    ]);
+    isAdmin = user.role === 'admin';
+    if (isAdmin) {
+      releases = d.releases || [];
+      platforms = d.platforms || [];
+      stored = d.stored || [];
+      if (platforms.length && !selectedPlat) selectedPlat = platforms[0].plat;
+    } else {
+      const s = await getClaudeStored();
+      stored = s.stored || [];
+    }
+  } catch(e) { error = e.message; }
+  finally { loading = false; }
+});
 
 async function refresh() {
-  loading = true;
-  error = '';
+  loading = true; error = '';
   try {
-    const d = await getClaudeReleases();
-    releases = d.releases || [];
-    platforms = d.platforms || [];
-    if (platforms.length && !selectedPlat) selectedPlat = platforms[0].plat;
-    stored = d.stored || [];
+    if (isAdmin) {
+      const d = await getClaudeReleases();
+      releases = d.releases || [];
+      platforms = d.platforms || [];
+      stored = d.stored || [];
+      if (platforms.length && !selectedPlat) selectedPlat = platforms[0].plat;
+    } else {
+      const s = await getClaudeStored();
+      stored = s.stored || [];
+    }
   } catch(e) { error = e.message; }
   finally { loading = false; }
 }
@@ -37,7 +60,7 @@ async function doDownload(version, plat) {
     if (d.status === 'already_exists') {
       message = `Claude Code ${version} (${plat}) already downloaded.`;
     } else {
-      message = `Downloaded ${d.filename} (${formatSize(d.size)}).`;
+      message = `Downloaded ${d.filename} (${formatSize(d.size)}) — SHA256: ${(d.checksum || '').slice(0,16)}...`;
     }
     await refresh();
   } catch(e) { error = e.message; }
@@ -87,8 +110,9 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
       </div>
       <div class="label">Stored</div>
-      <div class="value">{stored.length} / 3</div>
+      <div class="value">{stored.length}</div>
     </div>
+    {#if isAdmin}
     <div class="stat">
       <div class="stat-icon blue">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>
@@ -96,6 +120,7 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
       <div class="label">Available</div>
       <div class="value">{releases.length}</div>
     </div>
+    {/if}
   </div>
 
   {#if stored.length}
@@ -105,26 +130,30 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
         Stored Downloads
         <span class="card-title-count">{stored.length}</span>
       </div>
-      <div class="card-subtitle">Keeps latest 3 binaries from official GCS</div>
+      <div class="card-subtitle">Official Claude Code binaries from claude.ai CDN</div>
     </div>
     <table>
-      <thead><tr><th>Version</th><th>Platform</th><th>Filename</th><th>Size</th><th></th></tr></thead>
+      <thead><tr><th>Version</th><th>Platform</th><th>Size</th><th>Checksum</th><th></th></tr></thead>
       <tbody>
         {#each stored as s}
         <tr>
-          <td style="font-weight:500;">{s.version}</td>
-          <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
-          <td class="td-mono">
-            <a href="/api/admin/claude-code/downloads/{s.filename}" style="color:#93c5fd;text-decoration:none;" title="Download">
-              {s.filename}
+          <td style="font-weight:500;">
+            <a href="/api/admin/claude-code/downloads/{s.filename}" style="color:#93c5fd;text-decoration:none;" title="Download to local machine">
+              {s.version}
             </a>
           </td>
+          <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
           <td class="td-muted">{formatSize(s.size)}</td>
+          <td class="td-mono" style="font-size:0.65rem;color:var(--c-text-muted);" title={s.checksum}>
+            {s.checksum ? s.checksum.slice(0, 12) + '…' : '—'}
+          </td>
           <td>
-            {#if deletingFile === s.filename}
-              <span class="spinner"></span>
-            {:else}
-              <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}>Delete</button>
+            {#if isAdmin}
+              {#if deletingFile === s.filename}
+                <span class="spinner"></span>
+              {:else}
+                <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}>Delete</button>
+              {/if}
             {/if}
           </td>
         </tr>
@@ -134,13 +163,14 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
   </div>
   {/if}
 
+  {#if isAdmin}
   <div class="card">
     <div class="card-header">
       <div class="card-title">
         Available Versions
         <span class="card-title-count">{latestReleases.length}</span>
       </div>
-      <div class="card-subtitle">From GitHub releases. Official binaries via Google Cloud Storage.</div>
+      <div class="card-subtitle">From GitHub releases. Max 3 stored — old ones auto-removed.</div>
     </div>
     {#if loading}
       <div class="loading-skeleton" style="height:200px;"></div>
@@ -152,9 +182,6 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
             <option value={p.plat}>{p.label}</option>
           {/each}
         </select>
-        <span style="font-size:0.7rem;color:var(--c-text-muted);">
-          Binary ~150-180 MB
-        </span>
       </div>
       <table>
         <thead><tr><th>Version</th><th>Date</th><th>Status</th><th></th></tr></thead>
@@ -188,4 +215,11 @@ let alreadyDownloaded = $derived(new Set(stored.map(s => s.version + '-' + s.pla
       </table>
     {/if}
   </div>
+  {/if}
+
+  {#if !loading && !isAdmin && stored.length === 0}
+  <div class="card">
+    <div class="empty-state">No Claude Code binaries available yet. Ask an admin to download them.</div>
+  </div>
+  {/if}
 </div>
