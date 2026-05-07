@@ -7,7 +7,6 @@ from dev.cmds import (
     cmd_start, cmd_stop, cmd_teardown, cmd_restart, cmd_reset, cmd_build,
     cmd_shell, cmd_exec, cmd_run, cmd_logs, cmd_wait,
     cmd_backup, cmd_restore, cmd_list_backups, cmd_snapshot,
-    cmd_generate, cmd_list_instances, cmd_xray_start, cmd_xray_stop,
     cmd_start_test, cmd_stop_test, cmd_reset_test, cmd_test,
     cmd_init, cmd_status, cmd_doctor, cmd_prune,
     cmd_completion, cmd_version, cmd_port_usage,
@@ -19,7 +18,6 @@ _DISPATCH_KEYS = [
     "start", "stop", "teardown", "restart", "reset", "build",
     "shell", "exec", "run", "status", "logs", "wait",
     "init", "backup", "restore", "list-backups", "snapshot",
-    "generate", "list-instances", "xray-start", "xray-stop",
     "start-test", "stop-test", "reset-test", "test",
     "doctor", "prune", "version", "completion", "port-usage",
     "ip", "config",
@@ -90,12 +88,6 @@ def build_parser(services: list[str]) -> argparse.ArgumentParser:
     p_sd = sp.add_parser("delete", help="Delete a snapshot")
     p_sd.add_argument("name", help="snapshot name")
 
-    # ── Xray ───────────────────────────────────────────
-    sub.add_parser("generate", help="Generate Xray configs")
-    sub.add_parser("list-instances", help="List Xray instances")
-    sub.add_parser("xray-start", help="Start Xray proxy services")
-    sub.add_parser("xray-stop", help="Stop Xray proxy services")
-
     # ── Test ───────────────────────────────────────────
     sub.add_parser("start-test", help="Start test environment")
     sub.add_parser("stop-test", help="Stop test environment")
@@ -158,10 +150,6 @@ _DISPATCH = {
     "restore": cmd_restore,
     "list-backups": cmd_list_backups,
     "snapshot": cmd_snapshot,
-    "generate": cmd_generate,
-    "list-instances": cmd_list_instances,
-    "xray-start": cmd_xray_start,
-    "xray-stop": cmd_xray_stop,
     "start-test": cmd_start_test,
     "stop-test": cmd_stop_test,
     "reset-test": cmd_reset_test,
