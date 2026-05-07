@@ -9,14 +9,17 @@ let loading = $state(true);
 let error = $state('');
 let copied = $state(false);
 let isAdmin = $state(false);
+let currentUser = $state('');
 let deletingId = $state('');
 
 onMount(async () => {
   try {
     const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
-    clients = d.xrayClients || [];
+    const allClients = d.xrayClients || [];
     generatedJSON = d.generatedJSON || '';
     isAdmin = user.role === 'admin';
+    currentUser = user.username;
+    clients = isAdmin ? allClients : allClients.filter(c => c.owner === currentUser);
   } catch(e) { error = e.message; }
   finally { loading = false; }
 });
@@ -76,7 +79,6 @@ function downloadConfig() {
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
 
-  {#if isAdmin}
   <div class="card">
     <div class="card-header">
       <div class="card-title">Add Client</div>
@@ -90,7 +92,6 @@ function downloadConfig() {
       <button class="btn btn-ghost btn-sm" onclick={genUUID}>Generate</button>
     </div>
   </div>
-  {/if}
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
@@ -98,7 +99,7 @@ function downloadConfig() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Clients
+          {isAdmin ? 'All Clients' : 'My Clients'}
           {#if clients.length}<span class="card-title-count">{clients.length}</span>{/if}
         </div>
       </div>
@@ -117,12 +118,10 @@ function downloadConfig() {
               <span class="badge badge-blue">xhttp</span>
             </td>
             <td>
-              {#if isAdmin}
-                {#if deletingId === c.id}
-                  <span class="spinner"></span>
-                {:else}
-                  <button class="btn btn-danger btn-sm" onclick={() => deleteClient(c.id)}>Delete</button>
-                {/if}
+              {#if deletingId === c.id}
+                <span class="spinner"></span>
+              {:else}
+                <button class="btn btn-danger btn-sm" onclick={() => deleteClient(c.id)}>Delete</button>
               {/if}
             </td>
           </tr>
@@ -130,11 +129,12 @@ function downloadConfig() {
         </tbody>
       </table>
       {:else}
-        <div class="empty-state">No proxy clients configured.</div>
+        <div class="empty-state">{isAdmin ? 'No proxy clients configured.' : 'You have no proxy clients yet. Add one above.'}</div>
       {/if}
     </div>
   {/if}
 
+  {#if clients.length}
   <div class="card">
     <div class="card-header">
       <div class="card-title">Client Configuration</div>
@@ -155,4 +155,5 @@ function downloadConfig() {
       <div class="toast toast-success" style="margin-top:0.75rem;">Copied to clipboard</div>
     {/if}
   </div>
+  {/if}
 </div>
