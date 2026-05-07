@@ -81,6 +81,17 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 	}
 }
 
+// GET /api/admin/claude-code/stored — viewer+ can see downloaded binaries
+func apiClaudeCodeStored() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stored := listStoredDownloads()
+		if stored == nil {
+			stored = []claudeStoredDownload{}
+		}
+		writeJSON(w, map[string]any{"stored": stored})
+	}
+}
+
 // POST /api/admin/claude-code/download
 func apiClaudeCodeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
