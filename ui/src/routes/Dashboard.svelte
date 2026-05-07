@@ -11,7 +11,9 @@ onMount(async () => {
   try {
     const d = await getDashboard();
     stats = d.stats || stats;
-    services = d.services || [];
+    const raw = d.services || [];
+    const seen = new Set();
+    services = raw.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; });
   } catch (e) { error = e.message; }
   finally { loading = false; }
 });
