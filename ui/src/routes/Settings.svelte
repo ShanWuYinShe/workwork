@@ -181,8 +181,8 @@ let nginxSynced = $derived(net.dns_nginx?.synced);
       <div class="card-title">IPv6 Rotation</div>
     </div>
     <p style="color:var(--c-text-secondary);font-size:0.78rem;margin-bottom:1rem;line-height:1.6;">
-      Generates a new IPv6 in the rotating range (:f::/80), adds it to xray,
-      updates xray.yinghuoren.com DNS, then removes the old rotating IP.
+      Generates a new IPv6 in the rotating range ({net.rotating_range}), adds it to xray,
+      updates xray.yinghuoren.com DNS, then removes the old IP.
     </p>
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={doRotate} disabled={rotating}>
