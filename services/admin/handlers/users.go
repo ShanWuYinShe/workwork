@@ -116,7 +116,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 					"vnext": []any{map[string]any{
 						"address": ip, "port": 443,
 						"users": []any{map[string]any{
-							"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
+							"id": uuid, "email": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
 						}},
 					}},
 				},
@@ -135,7 +135,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 					"vnext": []any{map[string]any{
 						"address": domain, "port": 443,
 						"users": []any{map[string]any{
-							"id": uuid, "encryption": "none",
+							"id": uuid, "email": uuid, "encryption": "none",
 						}},
 					}},
 				},
