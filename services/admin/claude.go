@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,30 +16,27 @@ import (
 	"time"
 )
 
-// Official Claude Code binary distribution (Google Cloud Storage)
-const claudeCodeBaseURL = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+// Official Claude Code download base URL (from install.sh)
+const claudeCodeBaseURL = "https://downloads.claude.ai/claude-code-releases"
 
+// Platform definitions matching official install.sh naming
 var claudePlatforms = []struct {
-	Label  string `json:"label"`
-	Plat   string `json:"plat"`
-	Ext    string `json:"ext"`
+	Label string `json:"label"`
+	Plat  string `json:"plat"`
 }{
-	{"Linux x64", "linux-x64", ""},
-	{"Linux ARM64", "linux-arm64", ""},
-	{"macOS Apple Silicon", "darwin-arm64", ""},
-	{"macOS Intel", "darwin-x64", ""},
-	{"Windows x64", "win32-x64", ".exe"},
+	{"Linux x64", "linux-x64"},
+	{"Linux x64 (musl)", "linux-x64-musl"},
+	{"Linux ARM64", "linux-arm64"},
+	{"Linux ARM64 (musl)", "linux-arm64-musl"},
+	{"macOS Apple Silicon", "darwin-arm64"},
+	{"macOS Intel", "darwin-x64"},
+	{"Windows x64", "win32-x64"},
+	{"Windows ARM64", "win32-arm64"},
 }
 
 type claudeRelease struct {
 	Version string `json:"version"`
 	Date    string `json:"date"`
-}
-
-type claudePlatformInfo struct {
-	Label string `json:"label"`
-	Plat  string `json:"plat"`
-	Ext   string `json:"ext"`
 }
 
 type claudeStoredDownload struct {
@@ -46,7 +45,14 @@ type claudeStoredDownload struct {
 	PlatformName string `json:"platform_name"`
 	Filename     string `json:"filename"`
 	Size         int64  `json:"size"`
+	Checksum     string `json:"checksum"`
 	DownloadedAt string `json:"downloaded_at"`
+}
+
+type claudeManifest struct {
+	Platforms map[string]struct {
+		Checksum string `json:"checksum"`
+	} `json:"platforms"`
 }
 
 var (
@@ -58,7 +64,7 @@ var (
 	claudeCacheMu sync.Mutex
 )
 
-// GET /api/admin/claude-code/releases — list available versions + platforms
+// GET /api/admin/claude-code/releases
 func apiClaudeCodeReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := fetchClaudeCodeVersions()
@@ -75,7 +81,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 	}
 }
 
-// POST /api/admin/claude-code/download — download specific version + platform
+// POST /api/admin/claude-code/download
 func apiClaudeCodeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -89,11 +95,9 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 
 		// Validate platform
 		valid := false
-		var ext string
 		for _, p := range claudePlatforms {
 			if p.Plat == body.Plat {
 				valid = true
-				ext = p.Ext
 				break
 			}
 		}
@@ -103,7 +107,7 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		}
 
 		// Check if already downloaded
-		filename := fmt.Sprintf("claude-code-%s-%s%s", body.Version, body.Plat, ext)
+		filename := fmt.Sprintf("claude-code-%s-%s", body.Version, body.Plat)
 		for _, s := range listStoredDownloads() {
 			if s.Filename == filename {
 				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
@@ -111,8 +115,20 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			}
 		}
 
-		// Download from GCS
-		size, err := downloadClaudeBinary(body.Version, body.Plat, ext, filename)
+		// Fetch manifest for checksum
+		manifest, err := fetchManifest(body.Version)
+		if err != nil {
+			writeError(w, "Failed to fetch manifest: "+err.Error(), 500)
+			return
+		}
+		platInfo, ok := manifest.Platforms[body.Plat]
+		if !ok {
+			writeError(w, "Platform "+body.Plat+" not in manifest for version "+body.Version, 400)
+			return
+		}
+
+		// Download binary
+		size, err := downloadClaudeBinary(body.Version, body.Plat, filename, platInfo.Checksum)
 		if err != nil {
 			writeError(w, "Download failed: "+err.Error(), 500)
 			return
@@ -120,11 +136,11 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 
 		cleanupOldDownloads(3)
 
-		writeJSON(w, map[string]any{"status": "ok", "filename": filename, "size": size})
+		writeJSON(w, map[string]any{"status": "ok", "filename": filename, "size": size, "checksum": platInfo.Checksum})
 	}
 }
 
-// GET /api/admin/claude-code/downloads/{filename} — serve binary for browser download
+// GET /api/admin/claude-code/downloads/{filename}
 func apiClaudeCodeServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
@@ -133,17 +149,13 @@ func apiClaudeCodeServeDownload() http.HandlerFunc {
 			return
 		}
 		path := filepath.Join(claudeDownloadsDir, filename)
-		contentType := "application/octet-stream"
-		if strings.HasSuffix(filename, ".exe") {
-			contentType = "application/vnd.microsoft.portable-executable"
-		}
-		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 		http.ServeFile(w, r, path)
 	}
 }
 
-// DELETE /api/admin/claude-code/downloads — delete a stored download
+// DELETE /api/admin/claude-code/downloads
 func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -158,8 +170,7 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			writeError(w, "Invalid filename", 400)
 			return
 		}
-		path := filepath.Join(claudeDownloadsDir, body.Filename)
-		if err := os.Remove(path); err != nil {
+		if err := os.Remove(filepath.Join(claudeDownloadsDir, body.Filename)); err != nil {
 			writeError(w, err.Error(), 500)
 			return
 		}
@@ -176,7 +187,6 @@ func fetchClaudeCodeVersions() ([]claudeRelease, error) {
 	}
 	claudeCacheMu.Unlock()
 
-	// Use GitHub releases API (no auth needed for public repos, 60 req/hour)
 	req, _ := http.NewRequest("GET", "https://api.github.com/repos/anthropics/claude-code/releases?per_page=30", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "workwork-admin")
@@ -212,6 +222,23 @@ func fetchClaudeCodeVersions() ([]claudeRelease, error) {
 	return releases, nil
 }
 
+func fetchManifest(version string) (*claudeManifest, error) {
+	url := fmt.Sprintf("%s/%s/manifest.json", claudeCodeBaseURL, version)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("fetch manifest: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("manifest not found for %s (HTTP %d)", version, resp.StatusCode)
+	}
+	var m claudeManifest
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+	return &m, nil
+}
+
 func listStoredDownloads() []claudeStoredDownload {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 	entries, err := os.ReadDir(claudeDownloadsDir)
@@ -229,12 +256,18 @@ func listStoredDownloads() []claudeStoredDownload {
 		if info != nil {
 			modTime = info.ModTime().UTC().Format(time.RFC3339)
 		}
+		// Try to read checksum from accompanying file
+		checksum := ""
+		if csData, err := os.ReadFile(filepath.Join(claudeDownloadsDir, e.Name()+".sha256")); err == nil {
+			checksum = strings.TrimSpace(string(csData))
+		}
 		result = append(result, claudeStoredDownload{
 			Version:      version,
 			Plat:         plat,
 			PlatformName: platName,
 			Filename:     e.Name(),
 			Size:         info.Size(),
+			Checksum:     checksum,
 			DownloadedAt: modTime,
 		})
 	}
@@ -248,11 +281,14 @@ func listStoredDownloads() []claudeStoredDownload {
 }
 
 func parseStoredFilename(name string) (version, plat, platName string) {
-	// claude-code-2.1.132-linux-x64 or claude-code-2.1.132-win32-x64.exe
 	rest := strings.TrimPrefix(name, "claude-code-")
-	rest = strings.TrimSuffix(rest, ".exe")
-	// Find platform suffix
-	for _, p := range claudePlatforms {
+	// Try to match platform suffix (longest first to avoid partial matches)
+	plats := make([]struct{ Label, Plat string }, len(claudePlatforms))
+	for i, p := range claudePlatforms {
+		plats[i] = struct{ Label, Plat string }{p.Label, p.Plat}
+	}
+	sort.Slice(plats, func(i, j int) bool { return len(plats[i].Plat) > len(plats[j].Plat) })
+	for _, p := range plats {
 		suffix := "-" + p.Plat
 		if strings.HasSuffix(rest, suffix) {
 			version = rest[:len(rest)-len(suffix)]
@@ -266,10 +302,10 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeBinary(version, plat, ext, filename string) (int64, error) {
+func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int64, error) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 
-	url := fmt.Sprintf("%s/%s/%s/claude%s", claudeCodeBaseURL, version, plat, ext)
+	url := fmt.Sprintf("%s/%s/%s/claude", claudeCodeBaseURL, version, plat)
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -278,7 +314,7 @@ func downloadClaudeBinary(version, plat, ext, filename string) (int64, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("GCS returned %d for %s/%s", resp.StatusCode, version, plat)
+		return 0, fmt.Errorf("HTTP %d for %s/%s", resp.StatusCode, version, plat)
 	}
 
 	path := filepath.Join(claudeDownloadsDir, filename)
@@ -288,17 +324,28 @@ func downloadClaudeBinary(version, plat, ext, filename string) (int64, error) {
 		return 0, err
 	}
 
-	written, err := io.Copy(f, resp.Body)
+	hasher := sha256.New()
+	written, err := io.Copy(io.MultiWriter(f, hasher), resp.Body)
 	f.Close()
 	if err != nil {
 		os.Remove(tmpPath)
 		return 0, err
 	}
 
+	// Verify SHA256 checksum
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != expectedChecksum {
+		os.Remove(tmpPath)
+		return 0, fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum[:16], actual[:16])
+	}
+
 	if err := os.Rename(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
 		return 0, err
 	}
+
+	// Save checksum alongside for later reference
+	os.WriteFile(path+".sha256", []byte(actual), 0644)
 
 	return written, nil
 }
@@ -310,6 +357,7 @@ func cleanupOldDownloads(maxKeep int) {
 	}
 	for _, d := range downloads[maxKeep:] {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
+		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename+".sha256"))
 	}
 }
 
