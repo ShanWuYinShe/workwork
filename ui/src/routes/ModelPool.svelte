@@ -8,7 +8,7 @@ let error = $state('');
 let message = $state('');
 let saving = $state(false);
 
-let newName = $state(''), newURL = $state(''), newKey = $state('');
+let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai');
 
 onMount(refresh);
 
@@ -24,8 +24,8 @@ async function refresh() {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey }];
-  newName = ''; newURL = ''; newKey = '';
+  pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey, type: newType }];
+  newName = ''; newURL = ''; newKey = ''; newType = 'openai';
 }
 
 function removeProvider(idx) {
@@ -93,11 +93,14 @@ let isAuthorized = (username) => pool.authorized_users.includes(username);
 
       {#if pool.providers.length}
       <table style="margin-bottom:1rem;">
-        <thead><tr><th>Provider</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
+        <thead><tr><th>Provider</th><th>Type</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
         <tbody>
           {#each pool.providers as p, i}
           <tr>
             <td style="font-weight:500;">{p.name}</td>
+            <td>
+              <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type || 'openai'}</span>
+            </td>
             <td class="td-mono" style="color:#93c5fd;">{p.base_url}</td>
             <td class="td-mono" style="color:var(--c-text-muted);">{maskKey(p.api_key)}</td>
             <td><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}>Del</button></td>
@@ -115,6 +118,13 @@ let isAuthorized = (username) => pool.authorized_users.includes(username);
           <div class="form-group">
             <label for="mp-name">Provider</label>
             <input id="mp-name" type="text" bind:value={newName} placeholder="e.g. openai" style="width:110px;font-size:0.78rem;">
+          </div>
+          <div class="form-group">
+            <label for="mp-type">Type</label>
+            <select id="mp-type" bind:value={newType} style="width:110px;">
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
           </div>
           <div class="form-group form-group-grow">
             <label for="mp-url">Base URL</label>

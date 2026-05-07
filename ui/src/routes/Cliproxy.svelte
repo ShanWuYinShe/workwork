@@ -12,7 +12,7 @@ let providers = $state([]);
 let configLoading = $state(false);
 let codexOutput = $state('');
 let codexLoading = $state(false);
-let newName = $state(''), newURL = $state(''), newKey = $state('');
+let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai');
 let actingUser = $state('');
 let selectedPoolAccess = $state(false);
 let poolToggling = $state(false);
@@ -68,8 +68,8 @@ async function openConfig(username) {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey }];
-  newName = ''; newURL = ''; newKey = '';
+  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey, type: newType }];
+  newName = ''; newURL = ''; newKey = ''; newType = 'openai';
 }
 
 function removeProvider(idx) {
@@ -161,18 +161,21 @@ let runningCount = $derived(instances.filter(i => i.running).length);
         <div class="loading-skeleton" style="height:120px;"></div>
       {:else}
         <table style="margin-bottom:1rem;">
-          <thead><tr><th>Provider</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
+          <thead><tr><th>Provider</th><th>Type</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
           <tbody>
             {#each providers as p, i}
             <tr>
               <td style="font-weight:500;">{p.name}</td>
+              <td>
+                <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type || 'openai'}</span>
+              </td>
               <td class="td-mono" style="color:#93c5fd;">{p.base_url}</td>
               <td class="td-mono" style="color:var(--c-text-muted);">{p.api_key}</td>
               <td><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}>Del</button></td>
             </tr>
             {/each}
             {#if providers.length === 0}
-              <tr><td colspan="4" class="empty-state" style="padding:1rem;">No API providers configured.</td></tr>
+              <tr><td colspan="5" class="empty-state" style="padding:1rem;">No API providers configured.</td></tr>
             {/if}
           </tbody>
         </table>
@@ -183,6 +186,13 @@ let runningCount = $derived(instances.filter(i => i.running).length);
             <div class="form-group">
               <label for="cp-provider">Provider</label>
               <input id="cp-provider" type="text" bind:value={newName} placeholder="e.g. deepseek" style="width:100px;font-size:0.78rem;">
+            </div>
+            <div class="form-group">
+              <label for="cp-type">Type</label>
+              <select id="cp-type" bind:value={newType} style="width:110px;">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
             </div>
             <div class="form-group form-group-grow">
               <label for="cp-url">Base URL</label>
