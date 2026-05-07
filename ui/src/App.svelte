@@ -216,12 +216,14 @@ function getIcon(name) {
     overflow: hidden;
   }
   .collapsed .sidebar { width: var(--sidebar-collapsed); }
+  .collapsed .sidebar-header { justify-content: center; padding: 1rem; }
 
   .sidebar-header {
     padding: 1.25rem 1rem;
     display: flex; align-items: center; gap: 0.75rem;
     border-bottom: 1px solid var(--c-border);
     min-height: 60px;
+    position: relative;
   }
 
   .brand-icon {
@@ -234,7 +236,8 @@ function getIcon(name) {
   }
   .brand-icon svg { width: 18px; height: 18px; }
 
-  .brand-text { flex: 1; min-width: 0; }
+  .brand-text { flex: 1; min-width: 0; transition: opacity 0.15s ease; }
+  .collapsed .brand-text { display: none; }
   .brand-title { display: block; font-size: 0.9rem; font-weight: 700; color: var(--c-text-heading); letter-spacing: -0.01em; line-height: 1.3; }
   .brand-sub { display: block; font-size: 0.625rem; color: var(--c-text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
 
@@ -249,7 +252,10 @@ function getIcon(name) {
   .sidebar-toggle svg { width: 16px; height: 16px; }
   .sidebar-toggle:hover { color: var(--c-text); background: var(--c-bg-hover); }
   .sidebar-toggle:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
-  .collapsed .sidebar-toggle { display: none; }
+  .collapsed .sidebar-toggle {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  }
 
   /* ── Navigation ── */
   .sidebar-nav {
