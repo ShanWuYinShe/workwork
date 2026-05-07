@@ -44,6 +44,34 @@ func writeError(w http.ResponseWriter, msg string, code int) {
 
 func apiDashboard(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		userInfo, username := getUserFromContext(r)
+
+		// For non-admin users, return personalized dashboard
+		if userInfo != nil && userInfo.Role != "admin" {
+			allClients, _ := handlers.ReadXrayClients()
+			var myClients []map[string]string
+			for _, c := range allClients {
+				if c["owner"] == username {
+					myClients = append(myClients, c)
+				}
+			}
+			genJSON := handlers.GenerateClientConfig(myClients, handlers.ClientConfig{
+				XrayIPV6:          getEnv("XRAY_IPV6"),
+				RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+				RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+			})
+			writeJSON(w, map[string]any{
+				"role":          userInfo.Role,
+				"username":      username,
+				"myClients":     myClients,
+				"generatedJSON": genJSON,
+			})
+			return
+		}
+
+		// Admin: full system dashboard
 		info, err := cli.Info(r.Context())
 		stats := map[string]string{
 			"services": "0", "running": "0", "dockerVersion": "-",
@@ -61,7 +89,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		svcs := listServicesJSON(r.Context(), cli)
-		writeJSON(w, map[string]any{"stats": stats, "services": svcs})
+		writeJSON(w, map[string]any{"stats": stats, "services": svcs, "role": "admin"})
 	}
 }
 
@@ -220,13 +248,22 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			CreatedAt string `json:"created_at"`
 		}
 		var adminUsers []adminUserJSON
-		for _, u := range readHtpasswdUsers() {
-			au := adminUserJSON{Username: u, Role: "viewer"}
-			if info, ok := doc.Users[u]; ok {
-				au.Role = info.Role
-				au.CreatedAt = info.CreatedAt
+		if userInfo != nil && userInfo.Role == "admin" {
+			for _, u := range readHtpasswdUsers() {
+				au := adminUserJSON{Username: u, Role: "viewer"}
+				if info, ok := doc.Users[u]; ok {
+					au.Role = info.Role
+					au.CreatedAt = info.CreatedAt
+				}
+				adminUsers = append(adminUsers, au)
 			}
-			adminUsers = append(adminUsers, au)
+		} else {
+			// Regular users only see themselves
+			if curInfo, ok := doc.Users[username]; ok {
+				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
+			} else {
+				adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
+			}
 		}
 
 		writeJSON(w, map[string]any{
@@ -562,22 +599,9 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		xrayPrimary := getEnv("XRAY_IPV6")
 		xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
 		state := loadRotatingState()
-		xrayActive := state.CurrentIP
-		if xrayActive == "" {
-			xrayActive = xrayPrimary
-		}
-
-		// Collect all IPv6 addresses actually on xray container
-		xrayAddrs := []string{}
-		containers, _ := cli.ContainerList(r.Context(), container.ListOptions{
-			Filters: filters.NewArgs(filters.KeyValuePair{
-				Key: "label", Value: "com.docker.compose.service=xray",
-			}),
-		})
-		if len(containers) > 0 {
-			for _, net := range containers[0].NetworkSettings.Networks {
-				xrayAddrs = append(xrayAddrs, net.GlobalIPv6Address)
-			}
+		xrayIP := state.CurrentIP
+		if xrayIP == "" {
+			xrayIP = xrayPrimary
 		}
 
 		// CF DNS records
@@ -597,7 +621,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 				} else {
 					dnsReality.Record = rec
 					if rec != nil {
-						dnsReality.Synced = rec.Content == xrayActive
+						dnsReality.Synced = rec.Content == xrayIP
 					}
 				}
 			}
@@ -617,32 +641,14 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		// Derive allocation ranges from subnet
-	prefix := ""
-	if _, ipNet, err := net.ParseCIDR(subnet); err == nil {
-		ip := ipNet.IP.To16()
-		if ip != nil && len(ip) == 16 {
-			parts := make([]string, 4)
-			for i := 0; i < 4; i++ {
-				parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
-			}
-			prefix = strings.Join(parts, ":")
-		}
-	}
-
-	writeJSON(w, map[string]any{
-		"subnet":         subnet,
-		"static_range":   prefix + ":1::/80",
-		"rotating_range": prefix + ":f::/80",
-		"nginx_ip":       nginxIP,
-		"xray_primary":   xrayPrimary,
-		"xray_rotating":  state.CurrentIP,
-		"xray_active":    xrayActive,
-		"xray_addrs":     xrayAddrs,
-		"cf_configured":  cfOK,
-		"dns_reality":    dnsReality,
-		"dns_nginx":      dnsNginx,
-	})
+		writeJSON(w, map[string]any{
+			"subnet":        subnet,
+			"nginx_ip":      nginxIP,
+			"xray_ip":       xrayIP,
+			"cf_configured": cfOK,
+			"dns_reality":   dnsReality,
+			"dns_nginx":     dnsNginx,
+		})
 	}
 }
 

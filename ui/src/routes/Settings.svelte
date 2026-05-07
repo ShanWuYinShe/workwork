@@ -2,7 +2,7 @@
 import { onMount } from 'svelte';
 import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
 
-let net = $state({ nginx_ip:'-', xray_primary:'-', xray_rotating:null, xray_active:'-', subnet:'-', cf_configured:false, dns_reality:null, dns_nginx:null });
+let net = $state({ nginx_ip: '-', xray_ip: '-', subnet: '-', cf_configured: false, dns_reality: null, dns_nginx: null });
 let loading = $state(true);
 let rotating = $state(false);
 let syncMsg = $state('');
@@ -43,7 +43,6 @@ async function doRotate() {
 
 let realitySynced = $derived(net.dns_reality?.synced);
 let nginxSynced = $derived(net.dns_nginx?.synced);
-let rotatingIP = $derived(net.xray_rotating);
 </script>
 
 <div class="page">
@@ -83,7 +82,7 @@ let rotatingIP = $derived(net.xray_rotating);
           </tr>
           <tr>
             <td style="font-weight:500;">xray reality</td>
-            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
             <td class="td-muted">VLESS Reality (443)</td>
             <td>
               {#if net.dns_reality}
@@ -101,31 +100,6 @@ let rotatingIP = $derived(net.xray_rotating);
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Reality IPv6 Details</div>
-      </div>
-      <table>
-        <tbody>
-          <tr>
-            <td style="color:var(--c-text-muted);width:160px;font-weight:500;">Primary (static)</td>
-            <td class="td-mono">{net.xray_primary}</td>
-            <td class="td-muted">Docker-assigned, permanent fallback</td>
-          </tr>
-          <tr>
-            <td style="color:var(--c-text-muted);font-weight:500;">Rotating</td>
-            <td class="td-mono" style="color:#93c5fd;">{rotatingIP || '—'}</td>
-            <td class="td-muted">Dynamically rotated, DNS points here</td>
-          </tr>
-          <tr>
-            <td style="color:var(--c-text-muted);font-weight:500;">Active</td>
-            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
-            <td class="td-muted">Effective Reality endpoint</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
         <div class="card-title">IPv6 Allocation</div>
         <div class="card-subtitle">{net.subnet}</div>
       </div>
@@ -135,7 +109,7 @@ let rotatingIP = $derived(net.xray_rotating);
           <tr>
             <td><span class="badge badge-green">Static</span></td>
             <td class="td-mono">:1::/80</td>
-            <td class="td-muted">nginx, xray primary</td>
+            <td class="td-muted">nginx, xray</td>
           </tr>
           <tr>
             <td><span class="badge badge-blue">Rotating</span></td>
@@ -185,7 +159,7 @@ let rotatingIP = $derived(net.xray_rotating);
           <tr>
             <td style="font-weight:500;">{net.dns_reality.domain}</td>
             <td class="td-mono">{net.dns_reality.record?.content || '—'}</td>
-            <td class="td-mono" style="color:#93c5fd;">{net.xray_active}</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
             <td>
               <span class="badge badge-{realitySynced ? 'green' : 'red'}">
                 <span class="badge-dot"></span>{realitySynced ? 'synced' : 'mismatch'}
