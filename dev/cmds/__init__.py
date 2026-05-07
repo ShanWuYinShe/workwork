@@ -9,9 +9,6 @@ from dev.cmds.access import (
 from dev.cmds.backup import (
     cmd_backup, cmd_restore, cmd_list_backups, cmd_snapshot,
 )
-from dev.cmds.xray import (
-    cmd_generate, cmd_list_instances, cmd_xray_start, cmd_xray_stop,
-)
 from dev.cmds.test_env import (
     cmd_start_test, cmd_stop_test, cmd_reset_test, cmd_test,
 )
