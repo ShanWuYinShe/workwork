@@ -122,3 +122,15 @@ export async function setModelPool(providers) {
 export async function setModelPoolUser(username, granted) {
   return req('/model-pool/users', { method: 'POST', body: JSON.stringify({ username, granted }) });
 }
+
+export async function getClaudeReleases() {
+  return req('/claude-code/releases');
+}
+
+export async function downloadClaudeVersion(version) {
+  return req('/claude-code/download', { method: 'POST', body: JSON.stringify({ version }) });
+}
+
+export async function deleteClaudeDownload(filename) {
+  return req('/claude-code/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
+}

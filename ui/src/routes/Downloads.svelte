@@ -1,0 +1,174 @@
+<script>
+import { onMount } from 'svelte';
+import { getClaudeReleases, downloadClaudeVersion, deleteClaudeDownload } from '../lib/api.js';
+
+let releases = $state([]);
+let stored = $state([]);
+let loading = $state(true);
+let error = $state('');
+let message = $state('');
+let downloading = $state(false);
+let downloadVer = $state('');
+let deletingFile = $state('');
+
+onMount(refresh);
+
+async function refresh() {
+  loading = true;
+  error = '';
+  try {
+    const d = await getClaudeReleases();
+    releases = d.releases || [];
+    stored = d.stored || [];
+  } catch(e) { error = e.message; }
+  finally { loading = false; }
+}
+
+async function doDownload(version) {
+  downloadVer = version;
+  downloading = true; error = ''; message = '';
+  try {
+    const d = await downloadClaudeVersion(version);
+    if (d.status === 'already_exists') {
+      message = `Version ${version} already downloaded.`;
+    } else {
+      message = `Downloaded ${d.filename} (${formatSize(d.size)}).`;
+    }
+    await refresh();
+  } catch(e) { error = e.message; }
+  finally { downloading = false; downloadVer = ''; }
+}
+
+async function doDelete(filename) {
+  deletingFile = filename;
+  error = ''; message = '';
+  try {
+    await deleteClaudeDownload(filename);
+    message = `Deleted ${filename}.`;
+    await refresh();
+  } catch(e) { error = e.message; }
+  finally { deletingFile = ''; }
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '? MB';
+  return (bytes / 1024 / 1024).toFixed(0) + ' MB';
+}
+
+function formatDate(s) {
+  if (!s) return '';
+  return s.slice(0, 10);
+}
+
+// Show only the 10 latest releases
+let latestReleases = $derived(releases.slice(0, 10));
+let alreadyDownloaded = $derived(new Set(stored.map(s => s.version)));
+</script>
+
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">Downloads</h1>
+    <div class="page-actions">
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+    </div>
+  </div>
+
+  {#if error}<div class="toast toast-error">{error}</div>{/if}
+  {#if message}<div class="toast toast-success">{message}</div>{/if}
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-icon purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+      </div>
+      <div class="label">Stored Versions</div>
+      <div class="value">{stored.length} / 3</div>
+    </div>
+    <div class="stat">
+      <div class="stat-icon blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>
+      </div>
+      <div class="label">Available Releases</div>
+      <div class="value">{releases.length}</div>
+    </div>
+  </div>
+
+  {#if stored.length}
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        Stored Downloads
+        <span class="card-title-count">{stored.length}</span>
+      </div>
+      <div class="card-subtitle">Keeps latest 3 versions. Older auto-removed on new download.</div>
+    </div>
+    <table>
+      <thead><tr><th>Version</th><th>Filename</th><th>Size</th><th>Downloaded</th><th></th></tr></thead>
+      <tbody>
+        {#each stored as s}
+        <tr>
+          <td style="font-weight:500;">{s.version}</td>
+          <td class="td-mono">
+            <a href="/api/admin/claude-code/downloads/{s.filename}" style="color:#93c5fd;text-decoration:none;" title="Download to local machine">
+              {s.filename}
+            </a>
+          </td>
+          <td class="td-muted">{formatSize(s.size)}</td>
+          <td class="td-muted">{formatDate(s.downloaded_at)}</td>
+          <td>
+            {#if deletingFile === s.filename}
+              <span class="spinner"></span>
+            {:else}
+              <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}>Delete</button>
+            {/if}
+          </td>
+        </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+  {/if}
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        Available Versions
+        <span class="card-title-count">{latestReleases.length}</span>
+      </div>
+      <div class="card-subtitle">From npm registry. Cached 30 min.</div>
+    </div>
+    {#if loading}
+      <div class="loading-skeleton" style="height:200px;"></div>
+    {:else}
+      <table>
+        <thead><tr><th>Version</th><th>Published</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {#each latestReleases as rel}
+          <tr>
+            <td style="font-weight:500;">{rel.version}</td>
+            <td class="td-muted">{formatDate(rel.date)}</td>
+            <td>
+              {#if alreadyDownloaded.has(rel.version)}
+                <span class="badge badge-green"><span class="badge-dot"></span>downloaded</span>
+              {:else}
+                <span class="badge badge-gray">—</span>
+              {/if}
+            </td>
+            <td>
+              {#if downloadVer === rel.version}
+                <span class="spinner"></span>
+              {:else if alreadyDownloaded.has(rel.version)}
+                <button class="btn btn-ghost btn-sm" disabled>Downloaded</button>
+              {:else}
+                <button class="btn btn-primary btn-sm" onclick={() => doDownload(rel.version)} disabled={downloading}>
+                  Download
+                </button>
+              {/if}
+            </td>
+          </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+  </div>
+</div>
