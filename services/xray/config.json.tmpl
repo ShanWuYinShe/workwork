@@ -43,11 +43,36 @@
   "outbounds": [
     {
       "protocol": "freedom",
-      "tag": "direct"
+      "tag": "direct-v6",
+      "settings": {
+        "domainStrategy": "UseIPv6"
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "direct-v4",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
     },
     {
       "protocol": "blackhole",
       "tag": "blocked"
     }
-  ]
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "outboundTag": "direct-v6",
+        "ip": ["::/0"]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct-v4",
+        "ip": ["0.0.0.0/0"]
+      }
+    ]
+  }
 }
