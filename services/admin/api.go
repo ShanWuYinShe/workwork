@@ -606,6 +606,23 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 			xrayIP = xrayPrimary
 		}
 
+		// Derive allocation ranges from subnet's first /64
+		prefix := ""
+		staticRange := ""
+		rotatingRange := ""
+		if _, ipNet, err := net.ParseCIDR(subnet); err == nil {
+			ip := ipNet.IP.To16()
+			if ip != nil && len(ip) == 16 {
+				parts := make([]string, 4)
+				for i := 0; i < 4; i++ {
+					parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2 : i*2+2]))
+				}
+				prefix = strings.Join(parts, ":") + ":"
+				staticRange = prefix + "1::/80"
+				rotatingRange = prefix + "f::/80"
+			}
+		}
+
 		// CF DNS records
 		type dnsInfo struct {
 			Domain  string        `json:"domain"`
@@ -627,7 +644,6 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 					}
 				}
 			}
-			// Also check main domain for nginx
 			nginxDomain := getEnv("XHTTP_DOMAIN")
 			if nginxDomain != "" {
 				dnsNginx = &dnsInfo{Domain: nginxDomain}
@@ -644,12 +660,14 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		}
 
 		writeJSON(w, map[string]any{
-			"subnet":        subnet,
-			"nginx_ip":      nginxIP,
-			"xray_ip":       xrayIP,
-			"cf_configured": cfOK,
-			"dns_reality":   dnsReality,
-			"dns_nginx":     dnsNginx,
+			"subnet":         prefix + "/64",
+			"static_range":   staticRange,
+			"rotating_range": rotatingRange,
+			"nginx_ip":       nginxIP,
+			"xray_ip":        xrayIP,
+			"cf_configured":  cfOK,
+			"dns_reality":    dnsReality,
+			"dns_nginx":      dnsNginx,
 		})
 	}
 }
