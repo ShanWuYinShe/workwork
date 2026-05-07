@@ -757,16 +757,14 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 		if _, err := io.ReadFull(rand.Reader, ifid[:]); err != nil {
 			return "", err
 		}
-		// Force first nibble to 'f' → rotating IPs live in :fxxx:.../80 range,
-		// never colliding with static IPs in ::1::/80 range.
-		g0 := binary.BigEndian.Uint16(ifid[0:2])
-		g0 = 0xf000 | (g0 & 0x0fff)
+		// 5th hextet fixed to 000f → all rotating IPs live in :f::/80,
+		// never colliding with static IPs in :1::/80 range.
 		ip := fmt.Sprintf("%s%x:%x:%x:%x",
 			prefix,
-			g0,
+			0xf,
+			binary.BigEndian.Uint16(ifid[0:2]),
 			binary.BigEndian.Uint16(ifid[2:4]),
 			binary.BigEndian.Uint16(ifid[4:6]),
-			binary.BigEndian.Uint16(ifid[6:8]),
 		)
 		excluded := false
 		for _, e := range exclude {
