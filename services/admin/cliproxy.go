@@ -440,8 +440,11 @@ func startCliproxy(ctx context.Context, cli *client.Client, username string) err
 			"8317/tcp": struct{}{},
 		},
 		Labels: map[string]string{
-			"app":            "cliproxy",
-			"cliproxy.token": tok,
+			"app":                        "cliproxy",
+			"cliproxy.token":             tok,
+			"com.docker.compose.project": "",
+			"com.docker.compose.service": "",
+			"com.docker.compose.version": "",
 		},
 	}
 
