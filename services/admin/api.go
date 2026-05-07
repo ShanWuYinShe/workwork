@@ -702,8 +702,35 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		}
 		xrayID := containers[0].ID
 
-		// Add new IPv6 to xray container
-		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", newIP+"/64", "dev", "eth0"); err != nil {
+		// Detect the ipvlan interface (the one with IPv6 enabled)
+		iface := ""
+		for _, try := range []string{"eth1", "eth0", "eth2"} {
+			var buf bytes.Buffer
+			execConfig := container.ExecOptions{
+				Cmd:          []string{"sh", "-c", fmt.Sprintf("cat /proc/sys/net/ipv6/conf/%s/disable_ipv6 2>/dev/null || echo 1", try)},
+				AttachStdout: true,
+				AttachStderr: true,
+			}
+			execResp, createErr := cli.ContainerExecCreate(r.Context(), xrayID, execConfig)
+			if createErr == nil {
+				attachResp, attachErr := cli.ContainerExecAttach(r.Context(), execResp.ID, container.ExecStartOptions{})
+				if attachErr == nil {
+					stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
+					attachResp.Close()
+					val := strings.TrimSpace(buf.String())
+					if val == "0" {
+						iface = try
+						break
+					}
+				}
+			}
+		}
+		if iface == "" {
+			iface = "eth1" // fallback
+		}
+
+		// Add new IPv6 to xray container on the ipvlan interface
+		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", newIP+"/64", "dev", iface); err != nil {
 			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
 			return
 		}
@@ -712,7 +739,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		if domain != "" && getEnv("CF_API_TOKEN") != "" {
 			if _, err := cfUpsertAAAARecord(domain, newIP); err != nil {
 				// Rollback: remove the IP we just added
-				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", newIP+"/64", "dev", "eth0")
+				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", newIP+"/64", "dev", iface)
 				writeError(w, "DNS update failed: "+err.Error(), 500)
 				return
 			}
@@ -721,7 +748,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		// Remove old rotating IP
 		oldState := loadRotatingState()
 		if oldState.CurrentIP != "" && oldState.CurrentIP != primaryIP {
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", "eth0")
+			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", iface)
 		}
 
 		saveRotatingState(rotatingIPState{CurrentIP: newIP})
