@@ -23,6 +23,7 @@ logs/
 
 # Browser data
 browser-data/
+services/admin/browser-data/
 
 # OS
 .DS_Store

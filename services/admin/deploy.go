@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,9 @@ import (
 func generateConfigs() error {
 	if err := genXrayConfig(); err != nil {
 		return fmt.Errorf("xray config: %w", err)
+	}
+	if err := migrateXrayClients(); err != nil {
+		return fmt.Errorf("xray migrate: %w", err)
 	}
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
@@ -72,6 +76,54 @@ func genXrayConfig() error {
 		"__XRAY_SHORT_IDS__":           "XRAY_SHORT_IDS",
 	})
 	return os.WriteFile("/app/configs/xray.json", []byte(out), 0644)
+}
+
+// migrateXrayClients ensures all existing clients have email and removes test entries.
+func migrateXrayClients() error {
+	data, err := os.ReadFile("/app/configs/xray.json")
+	if err != nil {
+		return nil
+	}
+	var full map[string]any
+	if err := json.Unmarshal(data, &full); err != nil {
+		return nil
+	}
+	inbounds, _ := full["inbounds"].([]any)
+	changed := false
+	for i := range inbounds {
+		ib, _ := inbounds[i].(map[string]any)
+		settings, _ := ib["settings"].(map[string]any)
+		if settings == nil {
+			continue
+		}
+		clientsRaw, _ := settings["clients"].([]any)
+		var kept []any
+		for _, c := range clientsRaw {
+			cm, _ := c.(map[string]any)
+			id, _ := cm["id"].(string)
+			// Remove test entries
+			if id == "" || id == "test" {
+				changed = true
+				continue
+			}
+			// Add email if missing
+			if _, hasEmail := cm["email"]; !hasEmail {
+				owner, _ := cm["owner"].(string)
+				if owner == "" {
+					owner = id
+				}
+				cm["email"] = owner
+				changed = true
+			}
+			kept = append(kept, c)
+		}
+		settings["clients"] = kept
+	}
+	if changed {
+		out, _ := json.MarshalIndent(full, "", "  ")
+		return os.WriteFile("/app/configs/xray.json", out, 0644)
+	}
+	return nil
 }
 
 func genNginxConfig() error {
