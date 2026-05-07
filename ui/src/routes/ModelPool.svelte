@@ -16,7 +16,8 @@ async function refresh() {
   loading = true;
   error = '';
   try {
-    pool = await getModelPool();
+    const d = await getModelPool();
+    pool = { providers: d.providers || [], authorized_users: d.authorized_users || [] };
   } catch(e) { error = e.message; }
   finally { loading = false; }
 }
