@@ -158,11 +158,7 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 	project := ""
 	var services []svcJSON
 	for _, c := range containers {
-		// Skip dynamically-created cliproxy containers (per-user instances managed by cliproxy API)
-		if c.Labels["app"] == "cliproxy" && c.Labels["cliproxy.user"] != "public" {
-			continue
-		}
-		if project == "" {
+		if project == "" && c.Labels["com.docker.compose.project"] != "" {
 			project = c.Labels["com.docker.compose.project"]
 		}
 		if c.Labels["com.docker.compose.project"] != project {
