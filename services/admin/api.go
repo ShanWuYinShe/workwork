@@ -243,9 +243,10 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		// Build adminUsers with role info
 		doc, _ := readUsersMeta()
 		type adminUserJSON struct {
-			Username  string `json:"username"`
-			Role      string `json:"role"`
-			CreatedAt string `json:"created_at"`
+			Username   string `json:"username"`
+			Role       string `json:"role"`
+			CreatedAt  string `json:"created_at"`
+			PoolAccess bool   `json:"pool_access"`
 		}
 		var adminUsers []adminUserJSON
 		if userInfo != nil && userInfo.Role == "admin" {
@@ -254,13 +255,14 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 				if info, ok := doc.Users[u]; ok {
 					au.Role = info.Role
 					au.CreatedAt = info.CreatedAt
+					au.PoolAccess = info.PoolAccess
 				}
 				adminUsers = append(adminUsers, au)
 			}
 		} else {
 			// Regular users only see themselves
 			if curInfo, ok := doc.Users[username]; ok {
-				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
+				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt, PoolAccess: curInfo.PoolAccess}}
 			} else {
 				adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
 			}

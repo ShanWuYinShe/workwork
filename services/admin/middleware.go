@@ -20,6 +20,7 @@ type UserInfo struct {
 	Role          string `json:"role"`
 	CreatedAt     string `json:"created_at"`
 	CliproxyToken string `json:"cliproxy_token"`
+	PoolAccess    bool   `json:"pool_access"`
 }
 
 type usersMetaDoc struct {

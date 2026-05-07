@@ -1,6 +1,6 @@
 <script>
 import { onMount } from 'svelte';
-import { getCliproxyInstances, cliproxyStart, cliproxyStop, cliproxyGetConfig, cliproxySetConfig, cliproxyCodexLogin } from '../lib/api.js';
+import { getCliproxyInstances, cliproxyStart, cliproxyStop, cliproxyGetConfig, cliproxySetConfig, cliproxyCodexLogin, setModelPoolUser } from '../lib/api.js';
 
 let instances = $state([]);
 let loading = $state(true);
@@ -14,6 +14,8 @@ let codexOutput = $state('');
 let codexLoading = $state(false);
 let newName = $state(''), newURL = $state(''), newKey = $state('');
 let actingUser = $state('');
+let selectedPoolAccess = $state(false);
+let poolToggling = $state(false);
 
 onMount(refresh);
 
@@ -54,6 +56,8 @@ async function openConfig(username) {
   selectedUser = username;
   configLoading = true;
   error = '';
+  const inst = instances.find(i => i.username === username);
+  selectedPoolAccess = inst?.pool_access || false;
   try {
     const d = await cliproxyGetConfig(username);
     configText = d.config || '';
@@ -107,6 +111,21 @@ async function uploadOAuth(e) {
   e.target.value = '';
 }
 
+async function togglePoolAccess() {
+  if (!selectedUser) return;
+  poolToggling = true; error = ''; message = '';
+  try {
+    const granted = !selectedPoolAccess;
+    await setModelPoolUser(selectedUser, granted);
+    selectedPoolAccess = granted;
+    // Update the instance in the list
+    const idx = instances.findIndex(i => i.username === selectedUser);
+    if (idx >= 0) instances[idx].pool_access = granted;
+    message = granted ? `${selectedUser} granted pool access.` : `${selectedUser} removed from pool.`;
+  } catch(e) { error = e.message; }
+  finally { poolToggling = false; }
+}
+
 async function copyUrl(url) {
   try { await navigator.clipboard.writeText(url); } catch {}
 }
@@ -129,7 +148,10 @@ let runningCount = $derived(instances.filter(i => i.running).length);
     <div class="card">
       <div class="card-header">
         <div class="card-title">{selectedUser} — Configuration</div>
-        <div class="card-actions">
+        <div class="card-actions" style="flex-wrap:wrap;">
+          <button class="btn btn-sm" style={selectedPoolAccess ? 'background:var(--c-purple);color:#fff;' : ''} class:btn-ghost={!selectedPoolAccess} onclick={togglePoolAccess} disabled={poolToggling}>
+            {poolToggling ? '...' : selectedPoolAccess ? 'Pool ✓' : 'Pool ✗'}
+          </button>
           <button class="btn btn-success btn-sm" onclick={saveConfig}>Save</button>
           <button class="btn btn-ghost btn-sm" onclick={() => { selectedUser = null; codexOutput = ''; }}>Cancel</button>
         </div>
@@ -235,11 +257,18 @@ let runningCount = $derived(instances.filter(i => i.running).length);
       <div class="loading-skeleton" style="height:120px;"></div>
     {:else if instances.length}
       <table>
-        <thead><tr><th>User</th><th>Base URL</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>User</th><th>Pool</th><th>Base URL</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           {#each instances as ci}
           <tr>
             <td style="font-weight:500;">{ci.username}</td>
+            <td>
+              {#if ci.pool_access}
+                <span class="badge badge-purple"><span class="badge-dot"></span>pool</span>
+              {:else}
+                <span class="badge badge-gray">—</span>
+              {/if}
+            </td>
             <td>
               <div style="display:flex;align-items:center;gap:0.375rem;">
                 <span class="td-mono" style="color:#93c5fd;">{ci.base_url || '—'}</span>
