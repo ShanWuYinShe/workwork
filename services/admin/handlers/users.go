@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -39,11 +40,32 @@ func ReadXrayClients() ([]map[string]string, error) {
 }
 
 type ClientConfig struct {
-	XrayIPV6           string
-	RealityServerName  string
-	RealityPublicKey   string
-	RealityShortID     string
-	XHTTPDomain        string
+	XrayIPV6          string
+	RealityServerName string
+	RealityPublicKey  string
+	RealityShortID    string
+	XHTTPDomain       string
+}
+
+// Ordered JSON builder: preserves field order in output.
+type jsonField struct {
+	key string
+	val any
+}
+
+func orderedJSON(fields []jsonField) string {
+	var buf []byte
+	buf = append(buf, "{\n"...)
+	for i, f := range fields {
+		val, _ := json.MarshalIndent(f.val, "  ", "  ")
+		buf = append(buf, fmt.Sprintf("  %q: %s", f.key, val)...)
+		if i < len(fields)-1 {
+			buf = append(buf, ',')
+		}
+		buf = append(buf, '\n')
+	}
+	buf = append(buf, "}\n"...)
+	return string(buf)
 }
 
 func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string {
@@ -73,32 +95,30 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		domain = "yinghuoren.com"
 	}
 
-	out := map[string]any{
-		"log": map[string]any{"loglevel": "warning"},
-		"inbounds": []map[string]any{
-			{
-				"tag":      "socks",
-				"port":     10808,
-				"listen":   "127.0.0.1",
-				"protocol": "socks",
-				"settings": map[string]any{"udp": true},
-				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+	return orderedJSON([]jsonField{
+		{"log", map[string]any{"loglevel": "warning"}},
+		{"inbounds", []any{
+			map[string]any{
+				"tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
+				"settings":  map[string]any{"udp": true},
+				"sniffing":  map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
 			},
-			{
-				"tag":      "http",
-				"port":     10809,
-				"listen":   "127.0.0.1",
-				"protocol": "http",
-				"settings": map[string]any{},
-				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+			map[string]any{
+				"tag": "http", "port": 10809, "listen": "127.0.0.1", "protocol": "http",
+				"settings":  map[string]any{},
+				"sniffing":  map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
 			},
-		},
-		"outbounds": []map[string]any{
-			{
-				"tag":      "reality",
-				"protocol": "vless",
+		}},
+		{"outbounds", []any{
+			map[string]any{
+				"tag": "reality", "protocol": "vless",
 				"settings": map[string]any{
-					"vnext": []map[string]any{{"address": ip, "port": 443, "users": []map[string]any{{"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none"}}}},
+					"vnext": []any{map[string]any{
+						"address": ip, "port": 443,
+						"users": []any{map[string]any{
+							"id": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
+						}},
+					}},
 				},
 				"streamSettings": map[string]any{
 					"network": "tcp", "security": "reality",
@@ -109,52 +129,53 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
 			},
-			{
-				"tag":      "xhttp",
-				"protocol": "vless",
+			map[string]any{
+				"tag": "xhttp", "protocol": "vless",
 				"settings": map[string]any{
-					"vnext": []map[string]any{{"address": domain, "port": 443, "users": []map[string]any{{"id": uuid, "encryption": "none"}}}},
+					"vnext": []any{map[string]any{
+						"address": domain, "port": 443,
+						"users": []any{map[string]any{
+							"id": uuid, "encryption": "none",
+						}},
+					}},
 				},
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
-					"tlsSettings": map[string]any{"serverName": domain, "fingerprint": "chrome"},
+					"tlsSettings":   map[string]any{"serverName": domain, "fingerprint": "chrome"},
 					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "auto"},
-					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
+					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
 			},
 			map[string]any{"tag": "direct", "protocol": "freedom"},
 			map[string]any{"tag": "reject", "protocol": "blackhole"},
-		},
-		"burstObservatory": map[string]any{
+		}},
+		{"routing", map[string]any{
+			"domainStrategy": "IPIfNonMatch",
+			"balancers": []any{map[string]any{
+				"tag": "proxy",
+				"selector": []string{"reality", "xhttp"},
+				"strategy": map[string]any{"type": "leastPing"},
+			}},
+			"rules": []any{
+				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
+				map[string]any{"type": "field", "balancerTag": "proxy", "domain": []string{
+					"geosite:google", "geosite:github", "geosite:openai",
+					"geosite:docker", "geosite:netflix", "geosite:instagram",
+					"geosite:youtube", "geosite:facebook", "geosite:twitter",
+				}},
+				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
+			},
+		}},
+		{"burstObservatory", map[string]any{
 			"subjectSelector": []string{"reality", "xhttp"},
 			"pingConfig": map[string]any{
-				"destination": "https://cp.cloudflare.com/generate_204",
+				"destination":  "https://cp.cloudflare.com/generate_204",
 				"connectivity": "https://www.google.com/generate_204",
 				"interval":     "30s",
 				"sampling":     10,
 				"timeout":      "5s",
 				"httpMethod":   "HEAD",
 			},
-		},
-		"routing": map[string]any{
-			"domainStrategy": "IPIfNonMatch",
-			"balancers": []map[string]any{{
-				"tag":         "proxy",
-				"selector":    []string{"reality", "xhttp"},
-				"strategy":    map[string]any{"type": "leastPing"},
-				"fallbackTag": "direct",
-			}},
-			"rules": []map[string]any{
-				{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
-				{"type": "field", "balancerTag": "proxy", "domain": []string{"geosite:google", "geosite:github", "geosite:openai", "geosite:docker", "geosite:netflix", "geosite:instagram", "geosite:youtube", "geosite:facebook", "geosite:twitter"}},
-				{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
-			},
-		},
-	}
-
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return `{"error": "failed to generate config"}`
-	}
-	return string(b)
+		}},
+	})
 }
