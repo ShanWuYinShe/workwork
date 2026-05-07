@@ -1,9 +1,5 @@
 #!/bin/sh
-ip route del default 2>/dev/null
-GW=$(ip route | grep 'default via' | head -1 | awk '{print $3}' 2>/dev/null)
-if [ -n "$GW" ]; then
-  ip route add default via "$GW" dev eth1 2>/dev/null
-else
-  ip route add default via 172.20.0.1 dev eth1 2>/dev/null
-fi
+# IPv4: route through Docker bridge (auto NAT), IPv6: via ipvlan (auto L3)
+BRIDGE_IF=$(ip -o -4 addr show | awk '/172\.20\./{print $2; exit}')
+[ -n "$BRIDGE_IF" ] && ip route replace default via 172.20.0.1 dev "$BRIDGE_IF" 2>/dev/null
 exec xray -config /etc/xray/config.json "$@"
