@@ -12,7 +12,7 @@ let providers = $state([]);
 let configLoading = $state(false);
 let codexOutput = $state('');
 let codexLoading = $state(false);
-let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai');
+let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai'), newAlias = $state('');
 let actingUser = $state('');
 let selectedPoolAccess = $state(false);
 let poolToggling = $state(false);
@@ -68,8 +68,8 @@ async function openConfig(username) {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey, type: newType }];
-  newName = ''; newURL = ''; newKey = ''; newType = 'openai';
+  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, alias: newAlias || newName }];
+  newName = ''; newURL = ''; newKey = ''; newType = 'openai'; newAlias = '';
 }
 
 function removeProvider(idx) {
@@ -161,14 +161,15 @@ let runningCount = $derived(instances.filter(i => i.running).length);
         <div class="loading-skeleton" style="height:120px;"></div>
       {:else}
         <table style="margin-bottom:1rem;">
-          <thead><tr><th>Provider</th><th>Type</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
+          <thead><tr><th>Provider</th><th>Format</th><th>Alias</th><th>Upstream URL</th><th>Upstream Key</th><th></th></tr></thead>
           <tbody>
             {#each providers as p, i}
             <tr>
               <td style="font-weight:500;">{p.name}</td>
               <td>
-                <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type || 'openai'}</span>
+                <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type === 'anthropic' ? 'Anthropic' : 'OpenAI'}</span>
               </td>
+              <td class="td-mono">{p.alias || p.name}/*</td>
               <td class="td-mono" style="color:#93c5fd;">{p.base_url}</td>
               <td class="td-mono" style="color:var(--c-text-muted);">{p.api_key}</td>
               <td><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}>Del</button></td>
@@ -188,18 +189,22 @@ let runningCount = $derived(instances.filter(i => i.running).length);
               <input id="cp-provider" type="text" bind:value={newName} placeholder="e.g. deepseek" style="width:100px;font-size:0.78rem;">
             </div>
             <div class="form-group">
-              <label for="cp-type">Type</label>
+              <label for="cp-type">Format</label>
               <select id="cp-type" bind:value={newType} style="width:110px;">
-                <option value="openai">OpenAI</option>
+                <option value="openai">OpenAI Compat</option>
                 <option value="anthropic">Anthropic</option>
               </select>
             </div>
+            <div class="form-group">
+              <label for="cp-alias">Alias</label>
+              <input id="cp-alias" type="text" bind:value={newAlias} placeholder="e.g. ds" style="width:80px;font-size:0.78rem;">
+            </div>
             <div class="form-group form-group-grow">
-              <label for="cp-url">Base URL</label>
+              <label for="cp-url">Upstream URL</label>
               <input id="cp-url" type="text" bind:value={newURL} placeholder="https://api.example.com/v1" style="font-size:0.78rem;">
             </div>
             <div class="form-group form-group-grow">
-              <label for="cp-key">API Key</label>
+              <label for="cp-key">Upstream Key</label>
               <input id="cp-key" type="text" bind:value={newKey} placeholder="sk-xxx" style="font-size:0.78rem;">
             </div>
             <button class="btn btn-success btn-sm" onclick={addProvider}>Add</button>

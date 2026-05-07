@@ -132,6 +132,7 @@ func genCliproxyConfig() error {
 	}
 	out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
 	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
+	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
 	return os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0644)
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -16,7 +17,8 @@ type modelPoolProvider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
-	Type    string `json:"type"` // "openai" or "anthropic"
+	Type    string `json:"type"`  // "openai" or "anthropic"
+	Alias   string `json:"alias"` // model alias prefix
 }
 
 type modelPoolConfig struct {
@@ -179,14 +181,15 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 		}
 	}
 
-	// Public keys
-	var keysYAML strings.Builder
+	// API keys for cliproxy access
+	var apiKeysYAML strings.Builder
+	fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", tok)
 	pubKeys := getEnv("CLIPROXY_PUBLIC_API_KEYS")
 	if pubKeys != "" {
 		for _, k := range strings.Split(pubKeys, ",") {
 			k = strings.TrimSpace(k)
 			if k != "" {
-				keysYAML.WriteString("  - key: \"" + k + "\"\n")
+				fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", k)
 			}
 		}
 	}
@@ -195,36 +198,58 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	var allProviders []cliproxyProvider
 	allProviders = append(allProviders, userProviders...)
 	for _, pp := range poolProviders {
+		alias := pp.Alias
+		if alias == "" {
+			alias = pp.Name
+		}
 		allProviders = append(allProviders, cliproxyProvider{
 			Name:    "[Pool] " + pp.Name,
 			BaseURL: pp.BaseURL,
 			APIKey:  pp.APIKey,
 			Type:    pp.Type,
+			Alias:   alias,
 		})
 	}
 
-	var compatYAML strings.Builder
+	// Generate separate sections by type
+	var openAICompatYAML strings.Builder
+	var claudeAPIKeyYAML strings.Builder
 	for _, p := range allProviders {
 		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
 			continue
 		}
-		compatYAML.WriteString("  - name: \"" + p.Name + "\"\n")
-		compatYAML.WriteString("    base-url: \"" + p.BaseURL + "\"\n")
-		compatYAML.WriteString("    api-key-entries:\n")
-		compatYAML.WriteString("      - api-key: \"" + p.APIKey + "\"\n")
+		alias := p.Alias
+		if alias == "" {
+			alias = p.Name
+		}
 		t := p.Type
 		if t == "" {
 			t = "openai"
 		}
-		compatYAML.WriteString("    type: \"" + t + "\"\n")
-		compatYAML.WriteString("    models:\n")
-		compatYAML.WriteString("      - name: \"*\"\n")
-		compatYAML.WriteString("        alias: \"" + p.Name + "/*\"\n")
+
+		if t == "anthropic" {
+			fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", p.APIKey)
+			if p.BaseURL != "https://api.anthropic.com/v1" {
+				fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", p.BaseURL)
+			}
+			fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
+			fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"*\"\n")
+			fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", alias)
+		} else {
+			fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", p.Name)
+			fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", p.BaseURL)
+			fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
+			fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", p.APIKey)
+			fmt.Fprintf(&openAICompatYAML, "    models:\n")
+			fmt.Fprintf(&openAICompatYAML, "      - name: \"*\"\n")
+			fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", alias)
+		}
 	}
 
 	out := string(tmpl)
-	out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
-	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", compatYAML.String())
+	out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", apiKeysYAML.String())
+	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", openAICompatYAML.String())
+	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", claudeAPIKeyYAML.String())
 
 	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
 		dir := cfgPath[:idx]
