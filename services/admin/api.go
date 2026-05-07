@@ -305,7 +305,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 				continue
 			}
 			clientsRaw, _ := settings["clients"].([]any)
-			nc := map[string]any{"id": body.UUID, "owner": username}
+			nc := map[string]any{"id": body.UUID, "email": username, "owner": username}
 			if tag == "reality-in" {
 				nc["flow"] = "xtls-rprx-vision"
 			}
