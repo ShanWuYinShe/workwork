@@ -56,8 +56,8 @@ services:
 
   admin:
     build:
-      context: ./services/admin
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./services/admin/Dockerfile
     restart: unless-stopped
     networks:
       - internal_docker
@@ -79,7 +79,6 @@ services:
       - ./services/cliproxy/config.yaml:/app/configs/cliproxy.yaml:rw
       - ./services/cliproxy/config.yaml.tmpl:/app/configs/cliproxy.yaml.tmpl:ro
       - ./cliproxy-data:/app/cliproxy-data
-      - ./ui/dist:/app/ui:ro
     depends_on:
       - nginx
 
