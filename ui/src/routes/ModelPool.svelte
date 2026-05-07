@@ -8,7 +8,7 @@ let error = $state('');
 let message = $state('');
 let saving = $state(false);
 
-let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai');
+let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai'), newAlias = $state('');
 
 onMount(refresh);
 
@@ -24,8 +24,8 @@ async function refresh() {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey, type: newType }];
-  newName = ''; newURL = ''; newKey = ''; newType = 'openai';
+  pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, alias: newAlias || newName }];
+  newName = ''; newURL = ''; newKey = ''; newType = 'openai'; newAlias = '';
 }
 
 function removeProvider(idx) {
@@ -93,14 +93,15 @@ let isAuthorized = (username) => pool.authorized_users.includes(username);
 
       {#if pool.providers.length}
       <table style="margin-bottom:1rem;">
-        <thead><tr><th>Provider</th><th>Type</th><th>Base URL</th><th>API Key</th><th></th></tr></thead>
+        <thead><tr><th>Provider</th><th>Format</th><th>Alias</th><th>Upstream URL</th><th>Upstream Key</th><th></th></tr></thead>
         <tbody>
           {#each pool.providers as p, i}
           <tr>
             <td style="font-weight:500;">{p.name}</td>
             <td>
-              <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type || 'openai'}</span>
+              <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}">{p.type === 'anthropic' ? 'Anthropic' : 'OpenAI'}</span>
             </td>
+            <td class="td-mono">{p.alias || p.name}/*</td>
             <td class="td-mono" style="color:#93c5fd;">{p.base_url}</td>
             <td class="td-mono" style="color:var(--c-text-muted);">{maskKey(p.api_key)}</td>
             <td><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}>Del</button></td>
@@ -117,21 +118,25 @@ let isAuthorized = (username) => pool.authorized_users.includes(username);
         <div class="form-row">
           <div class="form-group">
             <label for="mp-name">Provider</label>
-            <input id="mp-name" type="text" bind:value={newName} placeholder="e.g. openai" style="width:110px;font-size:0.78rem;">
+            <input id="mp-name" type="text" bind:value={newName} placeholder="e.g. openai" style="width:100px;font-size:0.78rem;">
           </div>
           <div class="form-group">
-            <label for="mp-type">Type</label>
+            <label for="mp-type">Format</label>
             <select id="mp-type" bind:value={newType} style="width:110px;">
-              <option value="openai">OpenAI</option>
+              <option value="openai">OpenAI Compat</option>
               <option value="anthropic">Anthropic</option>
             </select>
           </div>
+          <div class="form-group">
+            <label for="mp-alias">Alias</label>
+            <input id="mp-alias" type="text" bind:value={newAlias} placeholder="e.g. gpt" style="width:80px;font-size:0.78rem;">
+          </div>
           <div class="form-group form-group-grow">
-            <label for="mp-url">Base URL</label>
+            <label for="mp-url">Upstream URL</label>
             <input id="mp-url" type="text" bind:value={newURL} placeholder="https://api.openai.com/v1" style="font-size:0.78rem;">
           </div>
           <div class="form-group form-group-grow">
-            <label for="mp-key">API Key</label>
+            <label for="mp-key">Upstream Key</label>
             <input id="mp-key" type="text" bind:value={newKey} placeholder="sk-xxx" style="font-size:0.78rem;">
           </div>
           <button class="btn btn-success btn-sm" onclick={addProvider}>Add</button>
