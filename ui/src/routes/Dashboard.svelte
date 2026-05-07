@@ -1,22 +1,66 @@
 <script>
 import { onMount } from 'svelte';
-import { getDashboard } from '../lib/api.js';
+import { getDashboard, getCurrentUser } from '../lib/api.js';
 
 let stats = $state({ services: '-', running: '-', dockerVersion: '-', cpu: '-', memory: '-', os: '-', arch: '-' });
 let services = $state([]);
+let role = $state('');
+let username = $state('');
+let myClients = $state([]);
+let generatedJSON = $state('');
 let error = $state('');
 let loading = $state(true);
+let copied = $state(false);
+let isAdmin = $state(false);
 
 onMount(async () => {
   try {
-    const d = await getDashboard();
-    stats = d.stats || stats;
-    const raw = d.services || [];
-    const seen = new Set();
-    services = raw.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; });
+    const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
+    isAdmin = user.role === 'admin';
+    role = d.role || user.role;
+    username = d.username || user.username;
+
+    if (isAdmin) {
+      stats = d.stats || stats;
+      const raw = d.services || [];
+      const seen = new Set();
+      services = raw.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; });
+    } else {
+      myClients = d.myClients || [];
+      generatedJSON = d.generatedJSON || '';
+    }
   } catch (e) { error = e.message; }
   finally { loading = false; }
 });
+
+async function copyConfig() {
+  try {
+    await navigator.clipboard.writeText(generatedJSON);
+    copied = true;
+    setTimeout(() => copied = false, 2000);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = generatedJSON;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      copied = true;
+      setTimeout(() => copied = false, 2000);
+    } catch { error = 'Copy failed'; }
+    document.body.removeChild(ta);
+  }
+}
+
+function downloadConfig() {
+  const blob = new Blob([generatedJSON], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'xray-config.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 
 <div class="page">
@@ -28,11 +72,12 @@ onMount(async () => {
 
   {#if loading}
     <div class="stats">
-      {#each Array(5) as _}
+      {#each Array(4) as _}
         <div class="stat"><div class="loading-skeleton" style="height:80px;"></div></div>
       {/each}
     </div>
-  {:else}
+  {:else if isAdmin}
+    <!-- Admin: system dashboard -->
     <div class="stats">
       <div class="stat">
         <div class="stat-icon blue">
@@ -62,44 +107,136 @@ onMount(async () => {
         <div class="label">CPU / Memory</div>
         <div class="value" style="font-size:0.85rem">{stats.cpu} / {stats.memory}</div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          Services
+          {#if services.length}<span class="card-title-count">{services.length}</span>{/if}
+        </div>
+      </div>
+      {#if services.length}
+        <table>
+          <thead><tr><th>Service</th><th>State</th><th>Image</th></tr></thead>
+          <tbody>
+            {#each services as s}
+            <tr>
+              <td style="font-weight:500;">{s.name}</td>
+              <td>
+                <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
+                  <span class="badge-dot"></span>{s.state}
+                </span>
+              </td>
+              <td class="td-muted">{s.image}</td>
+            </tr>
+            {/each}
+          </tbody>
+        </table>
+      {:else}
+        <div class="empty-state">No services found.</div>
+      {/if}
+    </div>
+  {:else}
+    <!-- Viewer: personal dashboard -->
+    <div class="welcome-card">
+      <div class="welcome-avatar">{username[0].toUpperCase()}</div>
+      <div>
+        <div class="welcome-title">Welcome back, {username}</div>
+        <div class="welcome-sub">Manage your proxy clients and configuration below.</div>
+      </div>
+    </div>
+
+    <div class="stats">
       <div class="stat">
         <div class="stat-icon blue">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
         </div>
-        <div class="label">OS / Arch</div>
-        <div class="value" style="font-size:0.85rem">{stats.os} / {stats.arch}</div>
+        <div class="label">My Clients</div>
+        <div class="value">{myClients.length}</div>
       </div>
     </div>
-  {/if}
 
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">
-        Services
-        {#if !loading && services.length}<span class="card-title-count">{services.length}</span>{/if}
+    {#if myClients.length}
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            My Clients
+            <span class="card-title-count">{myClients.length}</span>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>UUID</th><th>Protocols</th></tr></thead>
+          <tbody>
+            {#each myClients as c}
+            <tr>
+              <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
+              <td>
+                <span class="badge badge-green"><span class="badge-dot"></span>reality</span>
+                <span class="badge badge-blue">xhttp</span>
+              </td>
+            </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
-    </div>
-    {#if loading}
-      <div class="loading-skeleton" style="height:80px;"></div>
-    {:else if services.length}
-      <table>
-        <thead><tr><th>Service</th><th>State</th><th>Image</th></tr></thead>
-        <tbody>
-          {#each services as s}
-          <tr>
-            <td style="font-weight:500;">{s.name}</td>
-            <td>
-              <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                <span class="badge-dot"></span>{s.state}
-              </span>
-            </td>
-            <td class="td-muted">{s.image}</td>
-          </tr>
-          {/each}
-        </tbody>
-      </table>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Client Configuration</div>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label="Copy configuration">
+              {#if copied}Copied{:else}Copy{/if}
+            </button>
+            <button class="btn btn-sm btn-ghost" onclick={downloadConfig} aria-label="Download configuration">Download</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+          <span class="badge badge-gray">SOCKS5 :10808</span>
+          <span class="badge badge-gray">HTTP :10809</span>
+          <span class="badge badge-gray">Balancer: reality + xhttp</span>
+        </div>
+        <textarea rows="16" readonly>{generatedJSON}</textarea>
+        {#if copied}
+          <div class="toast toast-success" style="margin-top:0.75rem;">Copied to clipboard</div>
+        {/if}
+      </div>
     {:else}
-      <div class="empty-state">No services found.</div>
+      <div class="card">
+        <div class="empty-state">
+          <p style="margin-bottom:0.5rem;">You don't have any proxy clients yet.</p>
+          <p style="font-size:0.78rem;">Go to <strong>Clients</strong> to create your first proxy configuration.</p>
+        </div>
+      </div>
     {/if}
-  </div>
+  {/if}
 </div>
+
+<style>
+  .welcome-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--c-bg-elevated);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .welcome-avatar {
+    width: 48px; height: 48px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .welcome-title {
+    font-size: 1.1rem; font-weight: 700; color: var(--c-text-heading);
+    margin-bottom: 0.2rem;
+  }
+  .welcome-sub {
+    font-size: 0.78rem; color: var(--c-text-secondary);
+  }
+</style>

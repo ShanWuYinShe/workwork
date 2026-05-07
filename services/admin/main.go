@@ -29,9 +29,9 @@ func main() {
 	// Auth — available to all authenticated users
 	mux.HandleFunc("GET /api/admin/auth/me", requireRole("viewer")(apiWhoAmI(cli)))
 
-	// Dashboard — viewer+
+	// Dashboard — viewer+ (returns role-appropriate data)
 	mux.HandleFunc("GET /api/admin/dashboard", requireRole("viewer")(apiDashboard(cli)))
-	mux.HandleFunc("GET /api/admin/services", requireRole("viewer")(apiServices(cli)))
+	mux.HandleFunc("GET /api/admin/services", requireRole("admin")(apiServices(cli)))
 	mux.HandleFunc("GET /api/admin/config", requireRole("viewer")(apiConfig(cli)))
 
 	// User operations — viewer+ (read own), admin (manage all)
@@ -40,8 +40,9 @@ func main() {
 
 	// Admin-only operations
 	mux.HandleFunc("POST /api/admin/services/{name}/{action}", requireRole("admin")(apiServiceAction(cli)))
-	mux.HandleFunc("POST /api/admin/users/xray/add", requireRole("admin")(apiAddXray(cli)))
-	mux.HandleFunc("POST /api/admin/users/xray/delete", requireRole("admin")(apiDeleteXray(cli)))
+	// Xray client management — viewers can manage their own clients
+	mux.HandleFunc("POST /api/admin/users/xray/add", requireRole("viewer")(apiAddXray(cli)))
+	mux.HandleFunc("POST /api/admin/users/xray/delete", requireRole("viewer")(apiDeleteXray(cli)))
 	mux.HandleFunc("POST /api/admin/users/admin/add", requireRole("admin")(apiAddAdmin(cli)))
 	mux.HandleFunc("POST /api/admin/users/admin/delete", requireRole("admin")(apiDeleteAdmin(cli)))
 	mux.HandleFunc("POST /api/admin/users/roles/set", requireRole("admin")(apiSetRole(cli)))
