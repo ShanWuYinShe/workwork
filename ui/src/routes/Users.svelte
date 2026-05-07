@@ -1,6 +1,6 @@
 <script>
 import { onMount } from 'svelte';
-import { getUsers, addAdminUser, deleteAdminUser, changePassword, setUserRole } from '../lib/api.js';
+import { getUsers, addAdminUser, deleteAdminUser, changePassword, setUserRole, setModelPoolUser } from '../lib/api.js';
 
 let adminUsers = $state([]);
 let loading = $state(true);
@@ -58,6 +58,16 @@ async function changeRole(username, role) {
   } catch(e) { error = e.message; }
 }
 
+async function togglePool(username, granted) {
+  error = ''; message = '';
+  try {
+    await setModelPoolUser(username, granted);
+    message = granted ? `${username} granted pool access.` : `${username} removed from pool.`;
+    const d = await getUsers();
+    adminUsers = d.adminUsers || [];
+  } catch(e) { error = e.message; }
+}
+
 function EyeIcon({ open }) {
   return `<svg style="width:16px;height:16px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
 }
@@ -82,7 +92,7 @@ function EyeIcon({ open }) {
       <div class="loading-skeleton" style="height:120px;"></div>
     {:else if adminUsers.length}
       <table>
-        <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Username</th><th>Role</th><th>Pool</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>
           {#each adminUsers as u}
           <tr>
@@ -97,6 +107,13 @@ function EyeIcon({ open }) {
             <td>
               <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
             </td>
+            <td>
+              {#if u.pool_access}
+                <span class="badge badge-purple"><span class="badge-dot"></span>pool</span>
+              {:else}
+                <span class="badge badge-gray">—</span>
+              {/if}
+            </td>
             <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
             <td>
               <div class="td-actions">
@@ -104,6 +121,11 @@ function EyeIcon({ open }) {
                   <button class="btn btn-ghost btn-sm" onclick={() => changeRole(u.username, 'viewer')}>Set viewer</button>
                 {:else}
                   <button class="btn btn-primary btn-sm" onclick={() => changeRole(u.username, 'admin')}>Set admin</button>
+                {/if}
+                {#if u.pool_access}
+                  <button class="btn btn-ghost btn-sm" onclick={() => togglePool(u.username, false)} title="Revoke pool access">No Pool</button>
+                {:else}
+                  <button class="btn btn-sm" style="background:#7c3aed;color:#fff;" onclick={() => togglePool(u.username, true)} title="Grant pool access">Grant Pool</button>
                 {/if}
                 <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}>Delete</button>
               </div>

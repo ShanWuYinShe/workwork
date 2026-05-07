@@ -1,0 +1,262 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
+)
+
+type modelPoolProvider struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+}
+
+type modelPoolConfig struct {
+	Providers []modelPoolProvider `json:"providers"`
+}
+
+var modelPoolPath = "/app/data/model-pool.json"
+
+func loadModelPool() modelPoolConfig {
+	var cfg modelPoolConfig
+	data, err := os.ReadFile(modelPoolPath)
+	if err != nil {
+		return cfg
+	}
+	json.Unmarshal(data, &cfg)
+	return cfg
+}
+
+func saveModelPool(cfg modelPoolConfig) error {
+	os.MkdirAll("/app/data", 0755)
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(modelPoolPath, data, 0644)
+}
+
+func getUserPoolAccess(username string) bool {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return false
+	}
+	info, ok := doc.Users[username]
+	return ok && info.PoolAccess
+}
+
+func setUserPoolAccess(username string, granted bool) error {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return err
+	}
+	info, ok := doc.Users[username]
+	if !ok {
+		info = UserInfo{Role: "viewer"}
+	}
+	info.PoolAccess = granted
+	doc.Users[username] = info
+	return saveUsersMeta(doc)
+}
+
+func poolAuthorizedUsers() []string {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return nil
+	}
+	var users []string
+	for username, info := range doc.Users {
+		if info.PoolAccess {
+			users = append(users, username)
+		}
+	}
+	return users
+}
+
+// GET/POST /api/admin/model-pool
+func apiModelPool(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			cfg := loadModelPool()
+			users := poolAuthorizedUsers()
+			writeJSON(w, map[string]any{
+				"providers":        cfg.Providers,
+				"authorized_users": users,
+			})
+		case http.MethodPost:
+			var cfg modelPoolConfig
+			if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+				writeError(w, "Invalid body: "+err.Error(), 400)
+				return
+			}
+			if err := saveModelPool(cfg); err != nil {
+				writeError(w, err.Error(), 500)
+				return
+			}
+			regenerated := regeneratePoolConfigs(cfg.Providers, cli)
+			writeJSON(w, map[string]any{
+				"status":      "ok",
+				"regenerated": regenerated,
+			})
+		}
+	}
+}
+
+// POST /api/admin/model-pool/users
+func apiModelPoolUsers(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Username string `json:"username"`
+			Granted  bool   `json:"granted"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
+			writeError(w, "Username and granted required", 400)
+			return
+		}
+		if err := setUserPoolAccess(body.Username, body.Granted); err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+
+		regenerated := false
+		if body.Granted {
+			pool := loadModelPool()
+			regenerated = regenerateUserPoolConfig(body.Username, pool.Providers, cli)
+		} else {
+			regenerated = regenerateUserPoolConfig(body.Username, nil, cli)
+		}
+
+		users := poolAuthorizedUsers()
+		writeJSON(w, map[string]any{
+			"status":           "ok",
+			"regenerated":      regenerated,
+			"authorized_users": users,
+		})
+	}
+}
+
+func regeneratePoolConfigs(poolProviders []modelPoolProvider, cli *client.Client) []string {
+	var regenerated []string
+	for _, username := range poolAuthorizedUsers() {
+		if regenerateUserPoolConfig(username, poolProviders, cli) {
+			regenerated = append(regenerated, username)
+		}
+	}
+	return regenerated
+}
+
+func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider, cli *client.Client) bool {
+	tok, err := cliproxyTokenForUser(username)
+	if err != nil {
+		return false
+	}
+	tmpl, err := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
+	if err != nil {
+		return false
+	}
+
+	// Read user's existing personal providers
+	var userProviders []cliproxyProvider
+	cfgPath := cliproxyConfigPath(tok)
+	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
+		metaPath := cfgPath[:idx+1] + tok + ".providers.json"
+		if metaData, err := os.ReadFile(metaPath); err == nil {
+			var meta struct{ Providers []cliproxyProvider `json:"providers"` }
+			if json.Unmarshal(metaData, &meta) == nil {
+				userProviders = meta.Providers
+			}
+		}
+	}
+
+	// Public keys
+	var keysYAML strings.Builder
+	pubKeys := getEnv("CLIPROXY_PUBLIC_API_KEYS")
+	if pubKeys != "" {
+		for _, k := range strings.Split(pubKeys, ",") {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				keysYAML.WriteString("  - key: \"" + k + "\"\n")
+			}
+		}
+	}
+
+	// Merge: user providers + pool providers
+	var allProviders []cliproxyProvider
+	allProviders = append(allProviders, userProviders...)
+	for _, pp := range poolProviders {
+		allProviders = append(allProviders, cliproxyProvider{
+			Name:    "[Pool] " + pp.Name,
+			BaseURL: pp.BaseURL,
+			APIKey:  pp.APIKey,
+		})
+	}
+
+	var compatYAML strings.Builder
+	for _, p := range allProviders {
+		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
+			continue
+		}
+		compatYAML.WriteString("  - name: \"" + p.Name + "\"\n")
+		compatYAML.WriteString("    base-url: \"" + p.BaseURL + "\"\n")
+		compatYAML.WriteString("    api-key-entries:\n")
+		compatYAML.WriteString("      - api-key: \"" + p.APIKey + "\"\n")
+		compatYAML.WriteString("    models:\n")
+		compatYAML.WriteString("      - name: \"*\"\n")
+		compatYAML.WriteString("        alias: \"" + p.Name + "/*\"\n")
+	}
+
+	out := string(tmpl)
+	out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
+	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", compatYAML.String())
+
+	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
+		dir := cfgPath[:idx]
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return false
+		}
+	}
+	if err := os.WriteFile(cfgPath, []byte(out), 0644); err != nil {
+		return false
+	}
+
+	// Save merged providers metadata
+	metaPath := ""
+	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
+		metaPath = cfgPath[:idx+1] + tok + ".providers.json"
+	}
+	if metaPath != "" {
+		metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
+		os.WriteFile(metaPath, metaData, 0644)
+	}
+
+	// Restart cliproxy if it's running
+	restartCliproxyIfRunning(username, cli)
+
+	return true
+}
+
+func restartCliproxyIfRunning(username string, cli *client.Client) {
+	tok, err := cliproxyTokenForUser(username)
+	if err != nil {
+		return
+	}
+	conts, err := cli.ContainerList(context.Background(), container.ListOptions{
+		Filters: filters.NewArgs(
+			filters.KeyValuePair{Key: "label", Value: "app=cliproxy"},
+			filters.KeyValuePair{Key: "label", Value: "cliproxy.token=" + tok},
+		),
+	})
+	if err != nil || len(conts) == 0 || conts[0].State != "running" {
+		return
+	}
+	t := 10
+	cli.ContainerRestart(context.Background(), conts[0].ID, container.StopOptions{Timeout: &t})
+}

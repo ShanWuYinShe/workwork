@@ -18,13 +18,14 @@ import (
 )
 
 type cliproxyInstance struct {
-	Username string   `json:"username"`
-	Token    string   `json:"token,omitempty"`
-	BaseURL  string   `json:"base_url,omitempty"`
-	Status   string   `json:"status"`
-	Running  bool     `json:"running"`
-	Image    string   `json:"image"`
-	APIKeys  []string `json:"api_keys,omitempty"`
+	Username   string   `json:"username"`
+	Token      string   `json:"token,omitempty"`
+	BaseURL    string   `json:"base_url,omitempty"`
+	Status     string   `json:"status"`
+	Running    bool     `json:"running"`
+	Image      string   `json:"image"`
+	APIKeys    []string `json:"api_keys,omitempty"`
+	PoolAccess bool     `json:"pool_access"`
 }
 
 func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
@@ -79,11 +80,12 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 				domain = "yinghuoren.com"
 			}
 			instances = append(instances, cliproxyInstance{
-				Username: username,
-				Token:    tok,
-				BaseURL:  "https://" + domain + "/api/cliproxy/user/" + tok,
-				Status:   state,
-				Running:  state == "running",
+				Username:   username,
+				Token:      tok,
+				BaseURL:    "https://" + domain + "/api/cliproxy/user/" + tok,
+				Status:     state,
+				Running:    state == "running",
+				PoolAccess: info.PoolAccess,
 			})
 		}
 		writeJSON(w, map[string]any{"instances": instances})
@@ -209,9 +211,23 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		// User's custom providers → openai-compatibility
+		// Merge: user's providers + pool providers (if user has access)
+		var allProviders []cliproxyProvider
+		allProviders = append(allProviders, body.Providers...)
+		if getUserPoolAccess(body.Username) {
+			pool := loadModelPool()
+			for _, pp := range pool.Providers {
+				allProviders = append(allProviders, cliproxyProvider{
+					Name:    "[Pool] " + pp.Name,
+					BaseURL: pp.BaseURL,
+					APIKey:  pp.APIKey,
+				})
+			}
+		}
+
+		// All providers → openai-compatibility
 		var compatYAML strings.Builder
-		for _, p := range body.Providers {
+		for _, p := range allProviders {
 			if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
 				continue
 			}
@@ -238,9 +254,9 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, err.Error(), 500)
 			return
 		}
-		// Save providers metadata alongside config
+		// Save merged providers metadata alongside config
 		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
-		metaData, _ := json.Marshal(map[string]any{"providers": body.Providers})
+		metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
 		os.WriteFile(metaPath, metaData, 0644)
 
 		writeJSON(w, map[string]string{"status": "ok"})
