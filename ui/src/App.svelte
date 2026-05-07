@@ -38,7 +38,7 @@ const navSections = [
   {
     label: 'Manage',
     items: [
-      { path: '/services', label: 'Services', icon: 'box' },
+      { path: '/services', label: 'Services', icon: 'box', adminOnly: true },
       { path: '/clients', label: 'Clients', icon: 'users' },
     ]
   },
@@ -138,7 +138,7 @@ function getIcon(name) {
       {#if currentPath === '/'}
         <Dashboard />
       {:else if currentPath === '/services'}
-        <Services />
+        {#if isAdmin}<Services />{:else}<div class="page"><h1>Forbidden</h1></div>{/if}
       {:else if currentPath === '/clients'}
         <Clients />
       {:else if currentPath === '/users'}
