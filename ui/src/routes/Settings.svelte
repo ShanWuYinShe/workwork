@@ -2,7 +2,7 @@
 import { onMount } from 'svelte';
 import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
 
-let net = $state({ nginx_ip: '-', xray_ip: '-', subnet: '-', cf_configured: false, dns_reality: null, dns_nginx: null });
+let net = $state({ nginx_ip: '-', xray_ip: '-', subnet: '-', static_range: '-', rotating_range: '-', cf_configured: false, dns_reality: null, dns_nginx: null });
 let loading = $state(true);
 let rotating = $state(false);
 let syncMsg = $state('');
@@ -108,12 +108,12 @@ let nginxSynced = $derived(net.dns_nginx?.synced);
         <tbody>
           <tr>
             <td><span class="badge badge-green">Static</span></td>
-            <td class="td-mono">:1::/80</td>
+            <td class="td-mono">{net.static_range}</td>
             <td class="td-muted">nginx, xray</td>
           </tr>
           <tr>
             <td><span class="badge badge-blue">Rotating</span></td>
-            <td class="td-mono">:f::/80</td>
+            <td class="td-mono">{net.rotating_range}</td>
             <td class="td-muted">xray reality dynamic IPs</td>
           </tr>
         </tbody>
