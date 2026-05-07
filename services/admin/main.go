@@ -67,6 +67,11 @@ func main() {
 	mux.HandleFunc("GET /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
 	mux.HandleFunc("POST /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
 	mux.HandleFunc("POST /api/admin/model-pool/users", requireRole("admin")(apiModelPoolUsers(cli)))
+	// Claude Code downloads
+	mux.HandleFunc("GET /api/admin/claude-code/releases", requireRole("admin")(apiClaudeCodeReleases()))
+	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
+	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("admin")(apiClaudeCodeServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)
