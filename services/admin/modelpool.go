@@ -16,6 +16,7 @@ type modelPoolProvider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
+	Type    string `json:"type"` // "openai" or "anthropic"
 }
 
 type modelPoolConfig struct {
@@ -198,6 +199,7 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 			Name:    "[Pool] " + pp.Name,
 			BaseURL: pp.BaseURL,
 			APIKey:  pp.APIKey,
+			Type:    pp.Type,
 		})
 	}
 
@@ -210,6 +212,11 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 		compatYAML.WriteString("    base-url: \"" + p.BaseURL + "\"\n")
 		compatYAML.WriteString("    api-key-entries:\n")
 		compatYAML.WriteString("      - api-key: \"" + p.APIKey + "\"\n")
+		t := p.Type
+		if t == "" {
+			t = "openai"
+		}
+		compatYAML.WriteString("    type: \"" + t + "\"\n")
 		compatYAML.WriteString("    models:\n")
 		compatYAML.WriteString("      - name: \"*\"\n")
 		compatYAML.WriteString("        alias: \"" + p.Name + "/*\"\n")

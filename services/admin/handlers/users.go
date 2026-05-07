@@ -40,7 +40,7 @@ func ReadXrayClients() ([]map[string]string, error) {
 }
 
 type ClientConfig struct {
-	XrayIPV6          string
+	RealityDomain     string
 	RealityServerName string
 	RealityPublicKey  string
 	RealityShortID    string
@@ -74,9 +74,9 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		uuid = clients[0]["id"]
 	}
 
-	ip := cfg.XrayIPV6
-	if ip == "" {
-		ip = "2605:a141:2322:2623:1::12"
+	realityAddr := cfg.RealityDomain
+	if realityAddr == "" {
+		realityAddr = "xray.yinghuoren.com"
 	}
 	sni := cfg.RealityServerName
 	if sni == "" {
@@ -114,7 +114,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"tag": "reality", "protocol": "vless",
 				"settings": map[string]any{
 					"vnext": []any{map[string]any{
-						"address": ip, "port": 443,
+						"address": realityAddr, "port": 443,
 						"users": []any{map[string]any{
 							"id": uuid, "email": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
 						}},
