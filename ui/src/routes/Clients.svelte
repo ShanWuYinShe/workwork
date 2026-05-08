@@ -94,19 +94,21 @@
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
 
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">{t('generateClient')}</div>
+  {#if !isAdmin}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">{t('generateClient')}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
+          {loading ? t('generating') : t('generateAndAdd')}
+        </button>
+        <span style="font-size:0.75rem;color:var(--c-text-muted);"
+          >{t('generateDesc')}</span
+        >
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:0.75rem;">
-      <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
-        {loading ? t('generating') : t('generateAndAdd')}
-      </button>
-      <span style="font-size:0.75rem;color:var(--c-text-muted);"
-        >{t('generateDesc')}</span
-      >
-    </div>
-  </div>
+  {/if}
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
