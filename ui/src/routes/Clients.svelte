@@ -24,10 +24,10 @@ onMount(async () => {
   finally { loading = false; }
 });
 
-async function addClient() {
-  if (!newUUID) return;
+async function generateAndAdd() {
   error = '';
-  try { await addXrayClient(newUUID); newUUID = ''; location.reload(); }
+  const uuid = crypto.randomUUID();
+  try { await addXrayClient(uuid); location.reload(); }
   catch(e) { error = e.message; }
 }
 
@@ -39,8 +39,6 @@ async function deleteClient(uuid) {
   catch(e) { error = e.message; }
   finally { deletingId = ''; }
 }
-
-function genUUID() { newUUID = crypto.randomUUID(); }
 
 async function copyConfig() {
   try {
@@ -81,15 +79,13 @@ function downloadConfig() {
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">Add Client</div>
+      <div class="card-title">Generate Client</div>
     </div>
-    <div class="form-row">
-      <div class="form-group form-group-grow">
-        <label for="client-uuid">UUID</label>
-        <input id="client-uuid" type="text" bind:value={newUUID} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="font-family:'SF Mono','Fira Code',ui-monospace,monospace;">
-      </div>
-      <button class="btn btn-success" onclick={addClient}>Add</button>
-      <button class="btn btn-ghost btn-sm" onclick={genUUID}>Generate</button>
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
+        {loading ? 'Generating...' : 'Generate & Add'}
+      </button>
+      <span style="font-size:0.75rem;color:var(--c-text-muted);">Generates a random UUID and adds it as a new xray client</span>
     </div>
   </div>
 
