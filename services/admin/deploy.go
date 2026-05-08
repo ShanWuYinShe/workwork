@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,6 +32,9 @@ func generateConfigs() error {
 	}
 	if err := seedAdminUser(); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
+	}
+	if err := genInternalToken(); err != nil {
+		return fmt.Errorf("internal token: %w", err)
 	}
 	return nil
 }
@@ -199,6 +204,24 @@ func seedAdminUser() error {
 		doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 		return saveUsersMeta(doc)
 	}
+	return nil
+}
+
+func genInternalToken() error {
+	// Already set via env / .env
+	if os.Getenv("INTERNAL_TOKEN") != "" {
+		return nil
+	}
+	// Generate and persist a random token
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	tok := hex.EncodeToString(b)
+	if err := os.WriteFile("/app/data/.internal-token", []byte(tok), 0600); err != nil {
+		return err
+	}
+	os.Setenv("INTERNAL_TOKEN", tok)
 	return nil
 }
 
