@@ -25,9 +25,8 @@
     try {
       const [user, d] = await Promise.all([
         getCurrentUser(),
-        getClaudeReleases().catch(() => ({ releases: [], platforms: [], stored: [] })),
+        isAdmin ? getClaudeReleases() : Promise.resolve({ releases: [], platforms: [], stored: [] }),
       ]);
-      isAdmin = user.role === 'admin';
       if (isAdmin) {
         releases = d.releases || [];
         platforms = d.platforms || [];
