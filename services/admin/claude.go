@@ -56,9 +56,9 @@ type claudeManifest struct {
 }
 
 var (
-	claudeDownloadsDir  = "/app/data/claude-code"
-	claudeManifestPath  = "/app/data/claude-code/downloads.json"
-	claudeCache         struct {
+	claudeDownloadsDir = "/app/data/claude-code"
+	claudeManifestPath = "/app/data/claude-code/downloads.json"
+	claudeCache        struct {
 		releases  []claudeRelease
 		checkedAt time.Time
 	}

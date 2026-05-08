@@ -4,28 +4,16 @@ root = true
 charset = utf-8
 end_of_line = lf
 indent_style = space
+indent_size = 2
 insert_final_newline = true
 trim_trailing_whitespace = true
 
 [*.go]
-indent_size = 4
 indent_style = tab
-
-[*.{svelte,js,ts,css,html}]
-indent_size = 2
-indent_style = space
-
-[*.{yml,yaml,json,md}]
-indent_size = 2
-indent_style = space
+indent_size = 4
 
 [*.py]
 indent_size = 4
-indent_style = space
 
 [Makefile]
 indent_style = tab
-
-[*.sh]
-indent_style = tab
-indent_size = 4
