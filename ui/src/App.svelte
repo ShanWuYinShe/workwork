@@ -225,6 +225,11 @@ function getIcon(name) {
     -moz-osx-font-smoothing: grayscale;
   }
 
+  :global(*::-webkit-scrollbar) { width: 6px; height: 6px; }
+  :global(*::-webkit-scrollbar-track) { background: var(--c-bg-deep); }
+  :global(*::-webkit-scrollbar-thumb) { background: var(--c-bg-hover); border-radius: 3px; }
+  :global(*::-webkit-scrollbar-thumb:hover) { background: var(--c-text-muted); }
+
   /* ── Layout ── */
   .layout { display: flex; min-height: 100vh; }
 
