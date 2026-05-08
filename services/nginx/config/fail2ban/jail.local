@@ -3,16 +3,22 @@ ignoreself = true
 ignoreip = 127.0.0.1/8 ::1
 
 [nginx-auth]
-enabled = false
+enabled = true
+filter = nginx-auth
+logpath = /var/log/nginx/admin-access.log
+action = iptables-allports
+bantime = 3600
+findtime = 300
+maxretry = 8
 
 [nginx-secure-auth]
 enabled = true
 filter = nginx-auth
 logpath = /var/log/nginx/admin-access.log
 action = iptables-allports
-bantime = 3600
+bantime = 7200
 findtime = 600
-maxretry = 5
+maxretry = 15
 
 [admin-manual]
 enabled = true
