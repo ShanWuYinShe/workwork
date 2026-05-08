@@ -1,42 +1,47 @@
 <script>
-import { onMount } from 'svelte';
-import { getServices, getServiceLogs } from '../lib/api.js';
+  import { onMount } from 'svelte';
+  import { getServices, getServiceLogs } from '../lib/api.js';
 
-let services = $state([]);
-let selectedService = $state('');
-let logLines = $state('');
-let loading = $state(true);
-let error = $state('');
+  let services = $state([]);
+  let selectedService = $state('');
+  let logLines = $state('');
+  let loading = $state(true);
+  let error = $state('');
 
-onMount(refresh);
+  onMount(refresh);
 
-async function refresh() {
-  loading = true;
-  error = '';
-  try {
-    const s = await getServices();
-    services = s.services || [];
-    if (services.length && !selectedService) selectedService = services[0].name;
-    if (selectedService) await loadLogs();
-  } catch(e) { error = e.message; }
-  finally { loading = false; }
-}
+  async function refresh() {
+    loading = true;
+    error = '';
+    try {
+      const s = await getServices();
+      services = s.services || [];
+      if (services.length && !selectedService) selectedService = services[0].name;
+      if (selectedService) await loadLogs();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
+  }
 
-async function loadLogs() {
-  if (!selectedService) return;
-  error = '';
-  try {
-    const d = await getServiceLogs(selectedService, 200);
-    logLines = d.logs || '';
-  } catch(e) { error = e.message; }
-}
+  async function loadLogs() {
+    if (!selectedService) return;
+    error = '';
+    try {
+      const d = await getServiceLogs(selectedService, 200);
+      logLines = d.logs || '';
+    } catch (e) {
+      error = e.message;
+    }
+  }
 
-function selectService(name) {
-  selectedService = name;
-  loadLogs();
-}
+  function selectService(name) {
+    selectedService = name;
+    loadLogs();
+  }
 
-let parsed = $derived(logLines.split('\n').filter(Boolean));
+  let parsed = $derived(logLines.split('\n').filter(Boolean));
 </script>
 
 <div class="page">
@@ -58,9 +63,17 @@ let parsed = $derived(logLines.split('\n').filter(Boolean));
       </div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
         {#each services as s}
-          <button class="btn btn-sm" style={selectedService === s.name ? 'background:var(--c-accent);color:#fff;' : ''} class:btn-ghost={selectedService !== s.name} onclick={() => selectService(s.name)}>
+          <button
+            class="btn btn-sm"
+            style={selectedService === s.name ? 'background:var(--c-accent);color:#fff;' : ''}
+            class:btn-ghost={selectedService !== s.name}
+            onclick={() => selectService(s.name)}
+          >
             {s.name}
-            <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}" style="margin-left:4px;">
+            <span
+              class="badge badge-{s.state === 'running' ? 'green' : 'red'}"
+              style="margin-left:4px;"
+            >
               <span class="badge-dot"></span>{s.state}
             </span>
           </button>
@@ -103,5 +116,7 @@ let parsed = $derived(logLines.split('\n').filter(Boolean));
     word-break: break-all;
     color: var(--c-text-secondary);
   }
-  .log-line:has(:global(.timestamp)) { color: var(--c-text); }
+  .log-line:has(:global(.timestamp)) {
+    color: var(--c-text);
+  }
 </style>
