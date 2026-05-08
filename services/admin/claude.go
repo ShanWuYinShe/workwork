@@ -19,6 +19,8 @@ import (
 // Official Claude Code download base URL (from install.sh)
 const claudeCodeBaseURL = "https://downloads.claude.ai/claude-code-releases"
 
+var githubClient = &http.Client{Timeout: 15 * time.Second}
+
 // Platform definitions matching official install.sh naming
 var claudePlatforms = []struct {
 	Label string `json:"label"`
@@ -234,7 +236,7 @@ func fetchClaudeCodeVersions() ([]claudeRelease, error) {
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "workwork-admin")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github api: %w", err)
 	}
@@ -267,7 +269,7 @@ func fetchClaudeCodeVersions() ([]claudeRelease, error) {
 
 func fetchManifest(version string) (*claudeManifest, error) {
 	url := fmt.Sprintf("%s/%s/manifest.json", claudeCodeBaseURL, version)
-	resp, err := http.Get(url)
+	resp, err := githubClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest: %w", err)
 	}
@@ -314,7 +316,7 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 
 	url := fmt.Sprintf("%s/%s/%s/claude", claudeCodeBaseURL, version, plat)
 
-	resp, err := http.Get(url)
+	resp, err := githubClient.Get(url)
 	if err != nil {
 		return 0, fmt.Errorf("download: %w", err)
 	}
