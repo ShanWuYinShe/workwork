@@ -33,10 +33,7 @@ server {
     listen [__NGINX_IPV6__]:80;
     server_name _;
 
-    # Only accept Cloudflare IPs
-    include /etc/nginx/conf.d/cloudflare-allow.conf;
-    deny all;
-
+    # HTTP only used for CF health checks; all real traffic is HTTPS + mTLS
     location / {
         return 404;
     }
@@ -132,11 +129,8 @@ server {
     ssl_certificate_key /etc/nginx/certs/server_cert.key;
 
     # Cloudflare Authenticated Origin Pulls (mTLS)
-    # 1. Download cert: CF Dashboard → SSL/TLS → Origin Server → Authenticated Origin Pulls
-    # 2. Save as cert/cloudflare-origin-pull.pem
-    # 3. Uncomment the two lines below and restart nginx
-    # ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull.pem;
-    # ssl_verify_client on;
+    ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull.pem;
+    ssl_verify_client on;
 
     location /proxy/query {
         auth_basic off;
