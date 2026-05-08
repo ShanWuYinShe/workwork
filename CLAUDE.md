@@ -25,12 +25,50 @@ go build -C services/admin -o /dev/null .
 npm --prefix ui run build
 
 # Full deploy (after git push)
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin && docker compose up -d"
+ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker compose up -d"
 
 # Python CLI
 python3 dev/dev.py <command>
 python3 -m pytest tests/ -v
 ```
+
+## RBAC — Do NOT break this
+
+All access control works through a **three-layer chain**:
+
+### Layer 1: nginx basic auth
+- `/admin/` and `/api/admin/` require HTTP basic auth via `.htpasswd`
+- nginx sets `X-Forwarded-User` header from auth username
+- nginx sets `X-Real-IP` from `CF-Connecting-IP` (Cloudflare Full Proxy)
+
+### Layer 2: Go middleware chain
+Request flows: `rateLimitMiddleware → ipBlockMiddleware → requireRole → handler`
+
+- **`requireRole("admin")`**: Only users with `role=admin` in `/app/data/users.json`
+- **`requireRole("viewer")`**: Any authenticated user (admin or viewer)
+- **`X-Internal-Token` bypass**: Internal services (fail2ban) use shared `INTERNAL_TOKEN` env var to call admin API. This is the ONLY bypass. Never use `RemoteAddr` checks — all requests come through Docker bridge (172.20.x.x).
+
+### Layer 3: Frontend guards
+- Nav items with `adminOnly: true` are hidden from non-admin
+- Route guards check `isAdmin` before rendering admin components
+- `/api/admin/` endpoints MUST match their UI route's adminOnly status
+
+### Page/API access matrix
+
+| Page | Nav visible | Route guard | API endpoints | Role |
+|------|-------------|-------------|---------------|------|
+| Dashboard | all | all | `/api/admin/dashboard` | viewer+ (returns role-specific data) |
+| Services | adminOnly | adminOnly | `/api/admin/services` | admin |
+| Clients | all | all | `/api/admin/users` (filtered) | viewer+ |
+| Users | adminOnly | adminOnly | `/api/admin/users/admin/*` | admin |
+| Security | adminOnly | adminOnly | `/api/admin/security/*` | admin |
+| Cliproxy | adminOnly | adminOnly | `/api/admin/cliproxy/*` | admin |
+| Settings | adminOnly | adminOnly | `/api/admin/network/*` | admin |
+| Model Pool | adminOnly | adminOnly | `/api/admin/model-pool/*` | admin |
+| Downloads | all | all | `/api/admin/claude-code/stored` | viewer+ |
+| Downloads mgmt | adminOnly* | adminOnly* | `/api/admin/claude-code/download` | admin |
+
+*Downloads page is visible to all but admin-only controls (download/delete) are hidden for viewers.
 
 ## Service Architecture
 
@@ -40,53 +78,81 @@ Module layout: single `main` package, no sub-packages except `handlers/`.
 
 | File | Purpose |
 |------|---------|
-| `main.go` | HTTP route registration + SPA serving |
-| `api.go` | Dashboard, Services, Users (xray clients CRUD), Network status, IPv6 rotation, DNS sync |
-| `cliproxy.go` | Per-user cliproxy container lifecycle, config get/set, Codex OAuth |
+| `main.go` | HTTP route registration, middleware chain, SPA serving |
+| `api.go` | Dashboard, Services, Users (xray CRUD), Network status, IPv6 rotation, DNS sync |
+| `cliproxy.go` | Per-user cliproxy containers, config get/set (openai-compat + claude-api-key sections) |
 | `modelpool.go` | Public AI model pool: providers config + per-user pool access grants |
-| `middleware.go` | Auth middleware (`requireRole`), UserInfo (Role/PoolAccess/CliproxyToken) in `users.json` |
+| `middleware.go` | `requireRole` auth, `isInternalRequest` (shared secret based), UserInfo in `users.json` |
+| `ratelimit.go` | Per-IP rate limiter (20 req/10s → auto-ban 30min), feeds into ipblocker |
+| `ipblocker.go` | Persistent IP blocklist middleware, admin API for ban/unban |
 | `cloudflare.go` | Cloudflare DNS API (AAAA record upsert/find) |
-| `deploy.go` | First-start config generation: xray.json, nginx.conf, cliproxy.yaml from templates |
-| `ipblocker.go` | IP block middleware |
+| `deploy.go` | Startup config generation: xray.json, nginx.conf, cliproxy.yaml, internal token |
+| `claude.go` | Claude Code binary download from official CDN with SHA256 verification |
 | `handlers/users.go` | Xray client config generation (ordered JSON, client template) |
-
-**Role-based access**: `requireRole("admin")` / `requireRole("viewer")` middleware checks `X-Forwarded-User` header (set by nginx basic auth). User roles stored in `/app/data/users.json`. Admin sees all; viewer sees only their own resources.
-
-**IPv6 rotation**: `genRandomIPv6()` generates IPs in `:f::/80` rotating range (5th hextet = `000f`). Rotation adds IP to xray container's ipvlan interface (auto-detected via `disable_ipv6` check), updates Cloudflare DNS, removes old IP. Static IPs live in `:1::/80` range.
-
-**Model pool**: Admin configures shared AI providers (name/base_url/api_key) in `/app/data/model-pool.json`. Per-user `pool_access` toggle grants access. Pool providers are merged into user's cliproxy config with `[Pool]` prefix, auto- regenerating and restarting containers on change.
 
 ### `ui/` — Svelte 5 SPA
 
-Built with Vite, served by admin Go binary from `/app/ui` (built into Docker image). Routes: Dashboard, Services (admin), Clients, Users (admin), Security (admin), Cliproxy (admin), Settings (admin), Model Pool (admin).
+Built with Vite, served by admin Go binary from `/app/ui` (built into Docker image three-stage Dockerfile: node → golang → alpine).
 
 ### `services/xray/` — Xray VLESS proxy
 
-- `config.json.tmpl` — Template with `__XRAY_CLIENTS_JSON__` / `__XRAY_REALITY_CLIENTS_JSON__` placeholders
-- `entrypoint.sh` — Routes IPv4 through Docker bridge (`172.20.0.1`), IPv6 through ipvlan. Auto-detects bridge interface by matching `172.20.x.x` subnet.
-- Two inbounds: `xhttp-in` (8447, XHTTP+TLS via Cloudflare) + `reality-in` (443, VLESS Reality direct)
-- Three outbounds: `direct-v6` (UseIPv6), `direct-v4` (UseIPv4), `blocked`
-- Routing: IPv6 traffic → direct-v6, IPv4 → direct-v4
+- `config.json.tmpl` / `entrypoint.sh` — IPv4 via bridge, IPv6 via ipvlan
+- Inbounds: `xhttp-in` (8447, via Cloudflare) + `reality-in` (443, Reality direct)
+- Outbounds: `direct-v6` (UseIPv6), `direct-v4` (UseIPv4), `blocked`
+- Clients have `email` field (=owner username) for per-user policy/traffic stats
+- `migrateXrayClients()` ensures all clients have email on startup
 
-### `services/nginx/` — Nginx reverse proxy
+### `services/nginx/` — Nginx + fail2ban
 
-Serves admin panel at `/admin/` and proxies `/api/admin/` to admin:8318, `/proxy/query` to xray:8447. HTTP basic auth via `.htpasswd`. Cloudflare Full Proxy handles TLS.
+- Serves admin SPA, proxies `/api/admin/` to admin:8318, `/proxy/query` to xray:8447
+- fail2ban watches auth log for 401s, calls admin API with `X-Internal-Token` to block real client IPs (not Cloudflare IPs)
+- Cloudflare Full Proxy: `real_ip_header CF-Connecting-IP` extracts real client IP
 
-### `services/cliproxy/` — CLI Proxy API
+### IPv6 addressing
 
-Per-user containers (`cliproxy-{token}`) created dynamically by admin service. Each mounts a generated `config.yaml` with the user's API providers. Public instance defined in docker-compose.yml.
+- Subnet: `/64` from `IPV6_SUBNET` env var
+- Static range: `{prefix}:1::/80` — Docker-assigned IPs (nginx, xray primary)
+- Rotating range: `{prefix}:f::/80` — 5th hextet = `000f`, DNS points here
+- `xray.yinghuoren.com` → rotating IP (reality uses domain, not raw IP)
+- Client config: reality outbound uses `xray.yinghuoren.com`, xhttp uses `yinghuoren.com`
+
+### Cliproxy config format
+
+Provider sections (from `services/cliproxy/config.yaml.tmpl`):
+```yaml
+api-keys:                    # User-facing keys to ACCESS cliproxy
+  - "key-value"              # Format: "- \"value\"" NOT "- key: \"value\""
+openai-compatibility:        # OpenAI API format providers
+  - name: "provider-name"
+    base-url: "https://..."
+    api-key-entries:
+      - api-key: "sk-xxx"
+    models:
+      - name: "*"
+        alias: "prefix/*"
+claude-api-key:              # Anthropic API format providers
+  - api-key: "sk-ant-xxx"
+    base-url: "https://..."
+    models:
+      - name: "*"
+        alias: "model-alias"
+```
 
 ### `docker-compose.yml`
 
 4 services: nginx, xray, cliproxy-public, admin. Networks: `ipvlan_docker` (external, IPv6 L3) + `internal_docker` (bridge, 172.20.0.0/16). Admin build context is project root (builds both Go + UI in multi-stage Dockerfile).
 
-### Python CLI (`dev/`)
+## Security — Multi-layer brute force protection
 
-Module chain: `paths.py` → `config.py` → `core.py` → `ipam.py` → `cmds/*.py`. `paths.py` and `config.py` must never import from `core.py`. Manages local dev environment (PostgreSQL, Redis, MinIO, dev container), not the production proxy services.
+1. **Go rate limiter** (`ratelimit.go`): 20 requests/10s per real IP (X-Real-IP from CF-Connecting-IP) → 429 → auto-ban 30min
+2. **Go IP blocker** (`ipblocker.go`): Persistent blocklist → 403
+3. **fail2ban in nginx** → calls admin API with shared `INTERNAL_TOKEN` → admin adds real IP to blocklist
+4. **Cloudflare DDoS/WAF** at the edge
 
 ## Key Conventions
 
-- Git: linear history on main, one commit per feature. Rebase in worktree, merge with `--ff-only`. Format: `<type>(<scope>): <subject>`.
-- Deployment: `git push` → SSH server → `git pull` → `docker compose build --no-cache admin` → `docker compose up -d`. The Dockerfile builds both Go and Svelte UI.
-- IPv6: static range `:1::/80` (Docker-assigned), rotating range `:f::/80` (dynamically generated). DNS points to rotating IP.
-- Configs/secrets: gitignored `configs/`, `cert/`, `.wework/`. Local `.env` overrides `dev.yml` defaults.
+- Git: linear history on main, one commit per feature. Format: `<type>(<scope>): <subject>`. Push → SSH pull → `docker compose build` → `docker compose up -d`.
+- Never use `RemoteAddr` for auth decisions — all traffic on Docker bridge looks internal.
+- Internal service-to-service auth uses `INTERNAL_TOKEN` (auto-generated at startup, stored in `.wework/.internal-token`).
+- Configs/secrets: gitignored `configs/`, `cert/`, `.wework/`. Local `.env` overrides defaults.
+- API keys are NOT the same thing: `api-keys:` = cliproxy access keys (user-facing); `api-key-entries:` = upstream provider keys.
