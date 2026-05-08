@@ -1,46 +1,57 @@
 <script>
-import { onMount } from 'svelte';
-import { getBlockedIPs, blockIP, unblockIP } from '../lib/api.js';
+  import { onMount } from 'svelte';
+  import { getBlockedIPs, blockIP, unblockIP } from '../lib/api.js';
 
-let entries = $state([]);
-let loading = $state(true);
-let error = $state('');
-let message = $state('');
-let newIP = $state(''), newReason = $state(''), newDuration = $state('86400');
+  let entries = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let message = $state('');
+  let newIP = $state(''),
+    newReason = $state(''),
+    newDuration = $state('86400');
 
-onMount(refresh);
+  onMount(refresh);
 
-async function refresh() {
-  loading = true;
-  error = '';
-  try {
-    const d = await getBlockedIPs();
-    entries = d.entries || [];
-  } catch(e) { error = e.message; }
-  finally { loading = false; }
-}
+  async function refresh() {
+    loading = true;
+    error = '';
+    try {
+      const d = await getBlockedIPs();
+      entries = d.entries || [];
+    } catch (e) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
+  }
 
-async function doBlock() {
-  if (!newIP) return;
-  error = ''; message = '';
-  try {
-    await blockIP(newIP, newReason, parseInt(newDuration));
-    message = `IP ${newIP} blocked.`;
-    newIP = ''; newReason = '';
-    await refresh();
-  } catch(e) { error = e.message; }
-}
+  async function doBlock() {
+    if (!newIP) return;
+    error = '';
+    message = '';
+    try {
+      await blockIP(newIP, newReason, parseInt(newDuration));
+      message = `IP ${newIP} blocked.`;
+      newIP = '';
+      newReason = '';
+      await refresh();
+    } catch (e) {
+      error = e.message;
+    }
+  }
 
-async function doUnblock(ip) {
-  if (!confirm(`Unblock ${ip}?`)) return;
-  error = ''; message = '';
-  try {
-    await unblockIP(ip);
-    message = `IP ${ip} unblocked.`;
-    await refresh();
-  } catch(e) { error = e.message; }
-}
-
+  async function doUnblock(ip) {
+    if (!confirm(`Unblock ${ip}?`)) return;
+    error = '';
+    message = '';
+    try {
+      await unblockIP(ip);
+      message = `IP ${ip} unblocked.`;
+      await refresh();
+    } catch (e) {
+      error = e.message;
+    }
+  }
 </script>
 
 <div class="page">
@@ -59,11 +70,17 @@ async function doUnblock(ip) {
     <div class="form-row">
       <div class="form-group">
         <label for="block-ip">IP Address</label>
-        <input id="block-ip" type="text" bind:value={newIP} placeholder="1.2.3.4" style="width:160px;">
+        <input
+          id="block-ip"
+          type="text"
+          bind:value={newIP}
+          placeholder="1.2.3.4"
+          style="width:160px;"
+        />
       </div>
       <div class="form-group form-group-grow">
         <label for="block-reason">Reason</label>
-        <input id="block-reason" type="text" bind:value={newReason} placeholder="Brute force">
+        <input id="block-reason" type="text" bind:value={newReason} placeholder="Brute force" />
       </div>
       <div class="form-group">
         <label for="block-duration">Duration</label>
@@ -92,24 +109,28 @@ async function doUnblock(ip) {
       <div class="loading-skeleton" style="height:100px;"></div>
     {:else if entries.length}
       <table>
-        <thead><tr><th>IP</th><th>Reason</th><th>Blocked</th><th>Expires</th><th>Actions</th></tr></thead>
+        <thead
+          ><tr><th>IP</th><th>Reason</th><th>Blocked</th><th>Expires</th><th>Actions</th></tr
+          ></thead
+        >
         <tbody>
           {#each entries as e}
-          <tr>
-            <td class="td-mono">{e.ip}</td>
-            <td class="td-muted">{e.reason || '—'}</td>
-            <td class="td-muted">{e.blocked_at?.slice(0,16) || '—'}</td>
-            <td>
-              {#if e.expires_at}
-                <span class="td-muted">{e.expires_at.slice(0,16)}</span>
-              {:else}
-                <span class="badge badge-red">Permanent</span>
-              {/if}
-            </td>
-            <td>
-              <button class="btn btn-ghost btn-sm" onclick={() => doUnblock(e.ip)}>Unblock</button>
-            </td>
-          </tr>
+            <tr>
+              <td class="td-mono">{e.ip}</td>
+              <td class="td-muted">{e.reason || '—'}</td>
+              <td class="td-muted">{e.blocked_at?.slice(0, 16) || '—'}</td>
+              <td>
+                {#if e.expires_at}
+                  <span class="td-muted">{e.expires_at.slice(0, 16)}</span>
+                {:else}
+                  <span class="badge badge-red">Permanent</span>
+                {/if}
+              </td>
+              <td>
+                <button class="btn btn-ghost btn-sm" onclick={() => doUnblock(e.ip)}>Unblock</button
+                >
+              </td>
+            </tr>
           {/each}
         </tbody>
       </table>

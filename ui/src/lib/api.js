@@ -4,7 +4,7 @@ async function req(path, opts = {}) {
   const r = await fetch(BASE + path, {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...opts.headers },
-    ...opts
+    ...opts,
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   const json = await r.json();
@@ -56,7 +56,10 @@ export async function changePassword(username, password) {
 }
 
 export async function addAdminUser(username, password, role = 'viewer') {
-  return req('/users/admin/add', { method: 'POST', body: JSON.stringify({ username, password, role }) });
+  return req('/users/admin/add', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, role }),
+  });
 }
 
 export async function deleteAdminUser(username) {
@@ -108,7 +111,10 @@ export async function cliproxyGetConfig(username) {
 }
 
 export async function cliproxySetConfig(username, api_keys) {
-  return req('/cliproxy/set-config', { method: 'POST', body: JSON.stringify({ username, api_keys }) });
+  return req('/cliproxy/set-config', {
+    method: 'POST',
+    body: JSON.stringify({ username, api_keys }),
+  });
 }
 
 export async function cliproxyCodexLogin(username) {
