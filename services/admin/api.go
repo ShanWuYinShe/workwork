@@ -435,7 +435,11 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 
 func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username, Password, Role string }
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Role     string `json:"role"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
 			return
@@ -516,7 +520,10 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 
 func apiSetRole(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username, Role string }
+		var body struct {
+			Username string `json:"username"`
+			Role     string `json:"role"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
 			writeError(w, "Username and role required", 400)
 			return
