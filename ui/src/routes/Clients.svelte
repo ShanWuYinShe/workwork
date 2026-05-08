@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let clients = $state([]);
   let generatedJSON = $state('');
@@ -88,21 +89,21 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Clients</h1>
+    <h1 class="page-title">{t('clients')}</h1>
   </div>
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">Generate Client</div>
+      <div class="card-title">{t('generateClient')}</div>
     </div>
     <div style="display:flex;align-items:center;gap:0.75rem;">
       <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
-        {loading ? 'Generating...' : 'Generate & Add'}
+        {loading ? t('generating') : t('generateAndAdd')}
       </button>
       <span style="font-size:0.75rem;color:var(--c-text-muted);"
-        >Generates a random UUID and adds it as a new xray client</span
+        >{t('generateDesc')}</span
       >
     </div>
   </div>
@@ -113,7 +114,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          {isAdmin ? 'All Clients' : 'My Clients'}
+          {isAdmin ? t('allXrayClients') : t('myXrayClients')}
           {#if clients.length}<span class="card-title-count">{clients.length}</span>{/if}
         </div>
       </div>
@@ -121,7 +122,7 @@
         <table>
           <thead
             ><tr
-              ><th>UUID</th>{#if isAdmin}<th>Owner</th>{/if}<th>Protocols</th><th>Actions</th></tr
+              ><th>UUID</th>{#if isAdmin}<th>{t('owner')}</th>{/if}<th>{t('protocols')}</th><th>{t('actions')}</th></tr
             ></thead
           >
           <tbody>
@@ -140,7 +141,7 @@
                     <span class="spinner"></span>
                   {:else}
                     <button class="btn btn-danger btn-sm" onclick={() => deleteClient(c.id)}
-                      >Delete</button
+                      >{t('delete')}</button
                     >
                   {/if}
                 </td>
@@ -151,8 +152,8 @@
       {:else}
         <div class="empty-state">
           {isAdmin
-            ? 'No proxy clients configured.'
-            : 'You have no proxy clients yet. Add one above.'}
+            ? t('noProxyClients')
+            : t('noClientsYet')}
         </div>
       {/if}
     </div>
@@ -161,30 +162,30 @@
   {#if clients.length}
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Client Configuration</div>
+        <div class="card-title">{t('clientConfig')}</div>
         <div class="card-actions">
           <button
             class="btn btn-sm btn-primary"
             onclick={copyConfig}
-            aria-label="Copy configuration to clipboard"
+            aria-label={t('copyConfiguration')}
           >
-            {#if copied}Copied{:else}Copy{/if}
+            {#if copied}{t('copied')}{:else}{t('copyConfig')}{/if}
           </button>
           <button
             class="btn btn-sm btn-ghost"
             onclick={downloadConfig}
-            aria-label="Download configuration as JSON">Download</button
+            aria-label={t('downloadConfiguration')}>{t('download')}</button
           >
         </div>
       </div>
       <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
-        <span class="badge badge-gray">SOCKS5 :10808</span>
-        <span class="badge badge-gray">HTTP :10809</span>
-        <span class="badge badge-gray">Balancer: reality + xhttp</span>
+        <span class="badge badge-gray">{t('socks5')}:10808</span>
+        <span class="badge badge-gray">{t('http')}:10809</span>
+        <span class="badge badge-gray">{t('balancer')}: reality + xhttp</span>
       </div>
       <textarea rows="16" readonly>{generatedJSON}</textarea>
       {#if copied}
-        <div class="toast toast-success" style="margin-top:0.75rem;">Copied to clipboard</div>
+        <div class="toast toast-success" style="margin-top:0.75rem;">{t('configCopied')}</div>
       {/if}
     </div>
   {/if}

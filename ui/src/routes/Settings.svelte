@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let net = $state({
     nginx_ip: '-',
@@ -62,9 +63,9 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Settings</h1>
+    <h1 class="page-title">{t('settings')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -75,37 +76,37 @@
   {:else}
     <div class="card">
       <div class="card-header">
-        <div class="card-title">External Services</div>
-        <div class="card-subtitle">Public IPv6 on ipvlan</div>
+        <div class="card-title">{t('externalServices')}</div>
+        <div class="card-subtitle">{t('publicIPv6')}</div>
       </div>
       <table>
-        <thead><tr><th>Service</th><th>IPv6 Address</th><th>Role</th><th>DNS</th></tr></thead>
+        <thead><tr><th>{t('service')}</th><th>{t('ipv6Address')}</th><th>{t('roleCol')}</th><th>{t('dns')}</th></tr></thead>
         <tbody>
           <tr>
             <td style="font-weight:500;">nginx</td>
             <td class="td-mono">{net.nginx_ip}</td>
-            <td class="td-muted">Web gateway (80/443)</td>
+            <td class="td-muted">{t('webGateway')}</td>
             <td>
               {#if net.dns_nginx}
                 <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{nginxSynced ? 'synced' : 'mismatch'}
+                  <span class="badge-dot"></span>{nginxSynced ? t('synced') : t('mismatch')}
                 </span>
               {:else}
-                <span class="badge badge-red">no DNS</span>
+                <span class="badge badge-red">{t('noDNS')}</span>
               {/if}
             </td>
           </tr>
           <tr>
             <td style="font-weight:500;">xray reality</td>
             <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
-            <td class="td-muted">VLESS Reality (443)</td>
+            <td class="td-muted">{t('realityDesc')}</td>
             <td>
               {#if net.dns_reality}
                 <span class="badge badge-{realitySynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{realitySynced ? 'synced' : 'mismatch'}
+                  <span class="badge-dot"></span>{realitySynced ? t('synced') : t('mismatch')}
                 </span>
               {:else}
-                <span class="badge badge-red">no DNS</span>
+                <span class="badge badge-red">{t('noDNS')}</span>
               {/if}
             </td>
           </tr>
@@ -115,21 +116,21 @@
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">IPv6 Allocation</div>
+        <div class="card-title">{t('ipv6Allocation')}</div>
         <div class="card-subtitle">{net.subnet}</div>
       </div>
       <table>
-        <thead><tr><th>Range</th><th>Prefix</th><th>Usage</th></tr></thead>
+        <thead><tr><th>{t('range')}</th><th>Prefix</th><th>Usage</th></tr></thead>
         <tbody>
           <tr>
-            <td><span class="badge badge-green">Static</span></td>
+            <td><span class="badge badge-green">{t('staticRange')}</span></td>
             <td class="td-mono">{net.static_range}</td>
-            <td class="td-muted">nginx, xray</td>
+            <td class="td-muted">{t('staticRangeUsage')}</td>
           </tr>
           <tr>
-            <td><span class="badge badge-blue">Rotating</span></td>
+            <td><span class="badge badge-blue">{t('rotatingRange')}</span></td>
             <td class="td-mono">{net.rotating_range}</td>
-            <td class="td-muted">xray reality dynamic IPs</td>
+            <td class="td-muted">{t('rotatingRangeUsage')}</td>
           </tr>
         </tbody>
       </table>
@@ -137,20 +138,20 @@
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Internal Services</div>
-        <div class="card-subtitle">Internal docker, nginx-proxied</div>
+        <div class="card-title">{t('internalServices')}</div>
+        <div class="card-subtitle">{t('internalDocker')}</div>
       </div>
       <table>
-        <thead><tr><th>Service</th><th>Port</th><th>Access</th></tr></thead>
+        <thead><tr><th>{t('service')}</th><th>{t('port')}</th><th>{t('access')}</th></tr></thead>
         <tbody>
           <tr
             ><td style="font-weight:500;">admin</td><td class="td-mono">8318</td><td
-              class="td-muted">via nginx /admin/ + /api/admin/</td
+              class="td-muted">{t('internalDockerViaNginx')}</td
             ></tr
           >
           <tr
             ><td style="font-weight:500;">xray xhttp</td><td class="td-mono">8447</td><td
-              class="td-muted">via nginx /proxy/query</td
+              class="td-muted">{t('internalDockerViaProxyQuery')}</td
             ></tr
           >
         </tbody>
@@ -160,11 +161,11 @@
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">DNS Sync</div>
+      <div class="card-title">{t('dnsSync')}</div>
     </div>
     {#if !loading}
       <table>
-        <thead><tr><th>Domain</th><th>DNS Record</th><th>Expected</th><th>Status</th></tr></thead>
+        <thead><tr><th>{t('domain')}</th><th>{t('dnsRecord')}</th><th>{t('expected')}</th><th>{t('status')}</th></tr></thead>
         <tbody>
           {#if net.dns_nginx}
             <tr>
@@ -173,7 +174,7 @@
               <td class="td-mono">{net.nginx_ip}</td>
               <td>
                 <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{nginxSynced ? 'synced' : 'mismatch'}
+                  <span class="badge-dot"></span>{nginxSynced ? t('synced') : t('mismatch')}
                 </span>
               </td>
             </tr>
@@ -185,7 +186,7 @@
               <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
               <td>
                 <span class="badge badge-{realitySynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{realitySynced ? 'synced' : 'mismatch'}
+                  <span class="badge-dot"></span>{realitySynced ? t('synced') : t('mismatch')}
                 </span>
               </td>
             </tr>
@@ -194,7 +195,7 @@
       </table>
     {/if}
     <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem;flex-wrap:wrap;">
-      <button class="btn btn-sm btn-primary" onclick={doSyncDNS}>Sync All DNS</button>
+      <button class="btn btn-sm btn-primary" onclick={doSyncDNS}>{t('syncAllDNS')}</button>
       {#if syncMsg}<span style="font-size:0.78rem;color:var(--c-text-secondary);">{syncMsg}</span
         >{/if}
     </div>
@@ -202,16 +203,15 @@
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">IPv6 Rotation</div>
+      <div class="card-title">{t('ipv6Rotation')}</div>
     </div>
     <p style="color:var(--c-text-secondary);font-size:0.78rem;margin-bottom:1rem;line-height:1.6;">
-      Generates a new IPv6 in the rotating range ({net.rotating_range}), adds it to xray, updates
-      xray.yinghuoren.com DNS, then removes the old IP.
+      {t('rotateDesc', { range: net.rotating_range })}
     </p>
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={doRotate} disabled={rotating}>
         {#if rotating}<span class="spinner" style="margin-right:0.35rem;"></span>{/if}
-        {rotating ? 'Rotating...' : 'Rotate Reality IPv6'}
+        {rotating ? t('rotating') : t('rotateReality')}
       </button>
       {#if result.msg}
         <div class="toast toast-{result.ok ? 'success' : 'error'}" style="margin:0;">
