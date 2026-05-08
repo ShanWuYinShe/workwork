@@ -10,6 +10,7 @@ import Cliproxy from './routes/Cliproxy.svelte';
 import ModelPool from './routes/ModelPool.svelte';
 import Downloads from './routes/Downloads.svelte';
 import { getCurrentUser } from './lib/api.js';
+import { t, toggleLang, getLang } from './lib/i18n.js';
 
 let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
 let userInfo = $state(null);
@@ -32,27 +33,27 @@ let isAdmin = $derived(userInfo?.role === 'admin');
 
 const navSections = [
   {
-    label: 'Overview',
+    key: 'overview',
     items: [
-      { path: '/', label: 'Dashboard', icon: 'grid' },
+      { path: '/', key: 'dashboard', icon: 'grid' },
     ]
   },
   {
-    label: 'Manage',
+    key: 'manage',
     items: [
-      { path: '/services', label: 'Services', icon: 'box', adminOnly: true },
-      { path: '/clients', label: 'Clients', icon: 'users' },
+      { path: '/services', key: 'services', icon: 'box', adminOnly: true },
+      { path: '/clients', key: 'clients', icon: 'users' },
     ]
   },
   {
-    label: 'System',
+    key: 'system',
     items: [
-      { path: '/users', label: 'Users', icon: 'user-circle', adminOnly: true },
-      { path: '/security', label: 'Security', icon: 'shield', adminOnly: true },
-      { path: '/cliproxy', label: 'Cliproxy', icon: 'zap', adminOnly: true },
-      { path: '/settings', label: 'Settings', icon: 'settings', adminOnly: true },
-      { path: '/model-pool', label: 'Model Pool', icon: 'layers', adminOnly: true },
-      { path: '/downloads', label: 'Downloads', icon: 'download' },
+      { path: '/users', key: 'users', icon: 'user-circle', adminOnly: true },
+      { path: '/security', key: 'security', icon: 'shield', adminOnly: true },
+      { path: '/cliproxy', key: 'cliproxy', icon: 'zap', adminOnly: true },
+      { path: '/settings', key: 'settings', icon: 'settings', adminOnly: true },
+      { path: '/model-pool', key: 'modelPool', icon: 'layers', adminOnly: true },
+      { path: '/downloads', key: 'downloads', icon: 'download' },
     ]
   }
 ];
@@ -82,9 +83,9 @@ function getIcon(name) {
       </div>
       <div class="brand-text">
         <span class="brand-title">WorkWork</span>
-        <span class="brand-sub">Admin Panel</span>
+        <span class="brand-sub">{t("adminPanel")}</span>
       </div>
-      <button class="sidebar-toggle" onclick={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Expand' : 'Collapse'} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <button class="lang-toggle" onclick={toggleLang} title={getLang() === 'zh' ? 'Switch to English' : '切换到中文'}>{getLang() === 'zh' ? 'EN' : '中'}</button><button class="sidebar-toggle" onclick={() => sidebarCollapsed = !sidebarCollapsed} title={sidebarCollapsed ? 'Expand' : 'Collapse'} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           {#if sidebarCollapsed}
             <polyline points="9 18 15 12 9 6"/>
@@ -100,7 +101,7 @@ function getIcon(name) {
         {#if section.items.filter(item => !item.adminOnly || isAdmin).length > 0}
           <div class="nav-section">
             {#if !sidebarCollapsed}
-              <div class="nav-section-label">{section.label}</div>
+              <div class="nav-section-label">{t(section.key)}</div>
             {/if}
             {#each section.items as item}
               {#if !item.adminOnly || isAdmin}
@@ -108,11 +109,11 @@ function getIcon(name) {
                   class="nav-item"
                   class:active={currentPath === item.path}
                   onclick={() => navigate(item.path)}
-                  title={sidebarCollapsed ? item.label : ''}
+                  title={sidebarCollapsed ? t(item.key) : ''}
                 >
                   <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">{@html getIcon(item.icon)}</svg>
                   {#if !sidebarCollapsed}
-                    <span class="nav-label">{item.label}</span>
+                    <span class="nav-label">{t(item.key)}</span>
                   {/if}
                 </button>
               {/if}
@@ -265,6 +266,16 @@ function getIcon(name) {
   .sidebar-toggle svg { width: 16px; height: 16px; }
   .sidebar-toggle:hover { color: var(--c-text); background: var(--c-bg-hover); }
   .sidebar-toggle:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  .lang-toggle {
+    width: 28px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--c-bg-surface); border: 1px solid var(--c-border);
+    color: var(--c-text-muted); cursor: pointer; border-radius: var(--radius-sm);
+    font-size: 0.6rem; font-weight: 700; flex-shrink: 0;
+    transition: all var(--transition);
+  }
+  .lang-toggle:hover { color: var(--c-text); border-color: var(--c-border-strong); }
+  .collapsed .lang-toggle { display: none; }
   .collapsed .sidebar-toggle {
     position: static;
     transform: none;
