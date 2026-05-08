@@ -73,6 +73,9 @@ func main() {
 	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
 	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("viewer")(apiClaudeCodeServeDownload()))
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", requireRole("admin")(apiClaudeCodeDeleteDownload()))
+	// Rate limit management (admin only)
+	mux.HandleFunc("GET /api/admin/security/rate-limit", requireRole("admin")(apiRateLimitStatus()))
+	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", requireRole("admin")(apiRateLimitUnblock()))
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)
@@ -84,13 +87,14 @@ func main() {
 	mux.Handle("/favicon.svg", static)
 	mux.Handle("/icons.svg", static)
 
-	// Wrap all routes with IP block middleware
+	// Wrap all routes: rate limit → IP block → serve
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		rateLimitMiddleware(ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
-		})(w, r)
+		}))(w, r)
 	})
 
+	authRateLimiter.start()
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("Admin panel listening on %s", addr)
 	if err := http.ListenAndServe(addr, handler); err != nil {
