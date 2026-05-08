@@ -9,6 +9,7 @@
     cliproxyCodexLogin,
     setModelPoolUser,
   } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let instances = $state([]);
   let loading = $state(true);
@@ -208,9 +209,9 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Cliproxy</h1>
+    <h1 class="page-title">{t('cliproxy')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -220,7 +221,7 @@
   {#if selectedUser}
     <div class="card">
       <div class="card-header">
-        <div class="card-title">{selectedUser} — Configuration</div>
+        <div class="card-title">{selectedUser} — {t('config')}</div>
         <div class="card-actions" style="flex-wrap:wrap;">
           <button
             class="btn btn-sm"
@@ -229,15 +230,15 @@
             onclick={togglePoolAccess}
             disabled={poolToggling}
           >
-            {poolToggling ? '...' : selectedPoolAccess ? 'Pool ✓' : 'Pool ✗'}
+            {poolToggling ? '...' : selectedPoolAccess ? t('poolOn') : t('poolOff')}
           </button>
-          <button class="btn btn-success btn-sm" onclick={saveConfig}>Save</button>
+          <button class="btn btn-success btn-sm" onclick={saveConfig}>{t('save')}</button>
           <button
             class="btn btn-ghost btn-sm"
             onclick={() => {
               selectedUser = null;
               codexOutput = '';
-            }}>Cancel</button
+            }}>{t('cancel')}</button
           >
         </div>
       </div>
@@ -248,8 +249,8 @@
         <table style="margin-bottom:1rem;">
           <thead
             ><tr
-              ><th>Provider</th><th>Format</th><th>Models</th><th>Upstream URL</th><th
-                >Upstream Key</th
+              ><th>{t('provider')}</th><th>{t('format')}</th><th>Models</th><th>{t('upstreamURL')}</th><th
+                >{t('upstreamKey')}</th
               ><th></th></tr
             ></thead
           >
@@ -267,17 +268,13 @@
                 <td class="td-mono" style="color:var(--c-text-muted);">{p.api_key}</td>
                 <td
                   ><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}
-                    >Del</button
+                    >{t('del')}</button
                   ></td
                 >
               </tr>
             {/each}
             {#if providers.length === 0}
-              <tr
-                ><td colspan="5" class="empty-state" style="padding:1rem;"
-                  >No API providers configured.</td
-                ></tr
-              >
+              <tr><td colspan="5" class="empty-state" style="padding:1rem;">{t('noProviders')}</td></tr>
             {/if}
           </tbody>
         </table>
@@ -288,64 +285,64 @@
           <div
             style="font-size:0.7rem;color:var(--c-text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:0.5rem;"
           >
-            Add Provider
+            {t('addProvider')}
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label for="cp-provider">Provider</label>
+              <label for="cp-provider">{t('provider')}</label>
               <input
                 id="cp-provider"
                 type="text"
                 bind:value={newName}
-                placeholder="e.g. deepseek"
+                placeholder={t('providerName')}
                 style="width:100px;font-size:0.78rem;"
               />
             </div>
             <div class="form-group">
-              <label for="cp-type">Format</label>
+              <label for="cp-type">{t('format')}</label>
               <select id="cp-type" bind:value={newType} style="width:110px;">
-                <option value="openai">OpenAI Compat</option>
-                <option value="anthropic">Anthropic</option>
+                <option value="openai">{t('openAICompatOpt')}</option>
+                <option value="anthropic">{t('anthropic')}</option>
               </select>
             </div>
             <div class="form-group">
-              <label for="cp-alias">Alias</label>
+              <label for="cp-alias">{t('alias')}</label>
               <input
                 id="cp-alias"
                 type="text"
                 bind:value={newAlias}
-                placeholder="e.g. ds"
+                placeholder={t('alias')}
                 style="width:80px;font-size:0.78rem;"
               />
             </div>
             <div class="form-group form-group-grow">
-              <label for="cp-url">Upstream URL</label>
+              <label for="cp-url">{t('upstreamURL')}</label>
               <input
                 id="cp-url"
                 type="text"
                 bind:value={newURL}
-                placeholder="https://api.example.com/v1"
+                placeholder={t('upstreamURL')}
                 style="font-size:0.78rem;"
               />
             </div>
             <div class="form-group form-group-grow">
-              <label for="cp-key">Upstream Key</label>
+              <label for="cp-key">{t('upstreamKey')}</label>
               <input
                 id="cp-key"
                 type="text"
                 bind:value={newKey}
-                placeholder="sk-xxx"
+                placeholder={t('apiKey')}
                 style="font-size:0.78rem;"
               />
             </div>
-            <button class="btn btn-success btn-sm" onclick={addProvider}>Add</button>
+            <button class="btn btn-success btn-sm" onclick={addProvider}>{t('add')}</button>
           </div>
         </div>
 
         <div class="tool-row">
           <div class="tool-info">
-            <div class="tool-title">Codex OAuth</div>
-            <div class="tool-desc">Device code login</div>
+            <div class="tool-title">{t('codexOAuth')}</div>
+            <div class="tool-desc">{t('codexOAuthDesc')}</div>
           </div>
           <button
             class="btn btn-sm"
@@ -353,7 +350,7 @@
             onclick={() => codexLogin(selectedUser)}
             disabled={codexLoading}
           >
-            {codexLoading ? 'Starting...' : 'Login with Codex'}
+            {codexLoading ? t('starting') : t('loginWithCodex')}
           </button>
         </div>
         {#if codexOutput}
@@ -362,8 +359,8 @@
 
         <div class="tool-row">
           <div class="tool-info">
-            <div class="tool-title">OAuth Files</div>
-            <div class="tool-desc">Upload *_oauth.json from local machine</div>
+            <div class="tool-title">{t('oauthFiles')}</div>
+            <div class="tool-desc">{t('oauthFilesDesc')}</div>
           </div>
           <input
             type="file"
@@ -374,7 +371,7 @@
           />
           <button
             class="btn btn-sm btn-ghost"
-            onclick={() => document.getElementById('oauthFileInput').click()}>Upload .json</button
+            onclick={() => document.getElementById('oauthFileInput').click()}>{t('uploadJson')}</button
           >
         </div>
 
@@ -402,7 +399,7 @@
             /></svg
           >
         </div>
-        <div class="label">Instances</div>
+        <div class="label">{t('instances')}</div>
         <div class="value">{instances.length}</div>
       </div>
       <div class="stat">
@@ -415,7 +412,7 @@
             /></svg
           >
         </div>
-        <div class="label">Running</div>
+        <div class="label">{t('running')}</div>
         <div class="value">{runningCount}</div>
       </div>
     </div>
@@ -423,7 +420,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Instances
+          {t('userInstances')}
           {#if instances.length}<span class="card-title-count">{instances.length}</span>{/if}
         </div>
       </div>
@@ -432,7 +429,7 @@
       {:else if instances.length}
         <table>
           <thead
-            ><tr><th>User</th><th>Pool</th><th>Base URL</th><th>Status</th><th>Actions</th></tr
+            ><tr><th>User</th><th>Pool</th><th>Base URL</th><th>{t('status')}</th><th>{t('serviceActions')}</th></tr
             ></thead
           >
           <tbody>
@@ -454,7 +451,7 @@
                         class="btn btn-sm btn-ghost"
                         style="padding:0.15rem 0.35rem;font-size:0.65rem;"
                         onclick={() => copyUrl(ci.base_url)}
-                        title="Copy URL">Copy</button
+                        title={t('copyUrlTitle')}>Copy</button
                       >
                     {/if}
                   </div>
@@ -471,15 +468,15 @@
                     {:else}
                       {#if ci.running}
                         <button class="btn btn-danger btn-sm" onclick={() => doStop(ci.username)}
-                          >Stop</button
+                          >{t('stop')}</button
                         >
                       {:else}
                         <button class="btn btn-success btn-sm" onclick={() => doStart(ci.username)}
-                          >Start</button
+                          >{t('start')}</button
                         >
                       {/if}
                       <button class="btn btn-primary btn-sm" onclick={() => openConfig(ci.username)}
-                        >Config</button
+                        >{t('config')}</button
                       >
                     {/if}
                   </div>
@@ -489,7 +486,7 @@
           </tbody>
         </table>
       {:else}
-        <div class="empty-state">No instances.</div>
+        <div class="empty-state">{t('noInstances')}</div>
       {/if}
     </div>
   {/if}

@@ -8,6 +8,7 @@
     setUserRole,
     setModelPoolUser,
   } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let adminUsers = $state([]);
   let loading = $state(true);
@@ -107,7 +108,7 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Users</h1>
+    <h1 class="page-title">{t('users')}</h1>
   </div>
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
@@ -116,7 +117,7 @@
   <div class="card">
     <div class="card-header">
       <div class="card-title">
-        Admin Users
+        {t('adminUsers')}
         {#if adminUsers.length}<span class="card-title-count">{adminUsers.length}</span>{/if}
       </div>
     </div>
@@ -125,7 +126,7 @@
     {:else if adminUsers.length}
       <table>
         <thead
-          ><tr><th>Username</th><th>Role</th><th>Pool</th><th>Created</th><th>Actions</th></tr
+          ><tr><th>{t('username')}</th><th>{t('role')}</th><th>{t('pool')}</th><th>{t('created')}</th><th>{t('actions')}</th></tr
           ></thead
         >
         <tbody>
@@ -160,30 +161,30 @@
                   {#if u.role === 'admin'}
                     <button
                       class="btn btn-ghost btn-sm"
-                      onclick={() => changeRole(u.username, 'viewer')}>Set viewer</button
+                      onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
                     >
                   {:else}
                     <button
                       class="btn btn-primary btn-sm"
-                      onclick={() => changeRole(u.username, 'admin')}>Set admin</button
+                      onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
                     >
                   {/if}
                   {#if u.pool_access}
                     <button
                       class="btn btn-ghost btn-sm"
                       onclick={() => togglePool(u.username, false)}
-                      title="Revoke pool access">No Pool</button
+                      title={t('noPool')}>{t('noPool')}</button
                     >
                   {:else}
                     <button
                       class="btn btn-sm"
                       style="background:#7c3aed;color:#fff;"
                       onclick={() => togglePool(u.username, true)}
-                      title="Grant pool access">Grant Pool</button
+                      title={t('grantPool')}>{t('grantPool')}</button
                     >
                   {/if}
                   <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                    >Delete</button
+                    >{t('delete')}</button
                   >
                 </div>
               </td>
@@ -192,21 +193,21 @@
         </tbody>
       </table>
     {:else}
-      <div class="empty-state">No admin users.</div>
+      <div class="empty-state">{t('noUsers')}</div>
     {/if}
   </div>
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">Add User</div>
+      <div class="card-title">{t('addUser')}</div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label for="add-user">Username</label>
+        <label for="add-user">{t('username')}</label>
         <input id="add-user" type="text" bind:value={newUser} style="width:160px;" />
       </div>
       <div class="form-group" style="position:relative;">
-        <label for="add-pass">Password</label>
+        <label for="add-pass">{t('newPassword')}</label>
         <div style="position:relative;">
           <input
             id="add-pass"
@@ -217,34 +218,34 @@
           <button
             class="eye-btn"
             onclick={() => (showNewPass = !showNewPass)}
-            aria-label={showNewPass ? 'Hide password' : 'Show password'}
+            aria-label={showNewPass ? t('hidePassword') : t('showPassword')}
           >
             {@html EyeIcon({ open: showNewPass })}
           </button>
         </div>
       </div>
       <div class="form-group">
-        <label for="add-role">Role</label>
+        <label for="add-role">{t('role')}</label>
         <select id="add-role" bind:value={newRole}>
-          <option value="viewer">Viewer</option>
-          <option value="admin">Admin</option>
+          <option value="viewer">{t('Viewer')}</option>
+          <option value="admin">{t('Admin')}</option>
         </select>
       </div>
-      <button class="btn btn-success" onclick={addUser}>Add</button>
+      <button class="btn btn-success" onclick={addUser}>{t('add')}</button>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <div class="card-title">Change Password</div>
+      <div class="card-title">{t('changePassword')}</div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label for="pw-user">Username</label>
+        <label for="pw-user">{t('username')}</label>
         <input id="pw-user" type="text" bind:value={pwUser} style="width:180px;" />
       </div>
       <div class="form-group">
-        <label for="pw-pass">New Password</label>
+        <label for="pw-pass">{t('newPassword')}</label>
         <div style="position:relative;">
           <input
             id="pw-pass"
@@ -255,13 +256,13 @@
           <button
             class="eye-btn"
             onclick={() => (showPwPass = !showPwPass)}
-            aria-label={showPwPass ? 'Hide password' : 'Show password'}
+            aria-label={showPwPass ? t('hidePassword') : t('showPassword')}
           >
             {@html EyeIcon({ open: showPwPass })}
           </button>
         </div>
       </div>
-      <button class="btn btn-primary" onclick={changePw}>Change</button>
+      <button class="btn btn-primary" onclick={changePw}>{t('change')}</button>
     </div>
   </div>
 </div>

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let services = $state([]);
   let loading = $state(true);
@@ -38,7 +39,7 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Services</h1>
+    <h1 class="page-title">{t('services')}</h1>
   </div>
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
@@ -55,7 +56,7 @@
             /></svg
           >
         </div>
-        <div class="label">Total</div>
+        <div class="label">{t('total')}</div>
         <div class="value">{services.length}</div>
       </div>
       <div class="stat">
@@ -68,7 +69,7 @@
             /></svg
           >
         </div>
-        <div class="label">Running</div>
+        <div class="label">{t('running')}</div>
         <div class="value">{runningCount}</div>
       </div>
       <div class="stat">
@@ -81,21 +82,21 @@
             /></svg
           >
         </div>
-        <div class="label">Stopped</div>
+        <div class="label">{t('stopped')}</div>
         <div class="value">{services.length - runningCount}</div>
       </div>
     </div>
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">All Services</div>
+        <div class="card-title">{t('allServices')}</div>
       </div>
       {#if services.length}
         <table>
           <thead
             ><tr
-              ><th>Service</th><th>State</th><th>Ports</th><th>Image</th>{#if isAdmin}<th
-                  >Actions</th
+              ><th>{t('service')}</th><th>{t('state')}</th><th>{t('ports')}</th><th>{t('image')}</th>{#if isAdmin}<th
+                  >{t('serviceActions')}</th
                 >{/if}</tr
             ></thead
           >
@@ -118,16 +119,16 @@
                       {:else}
                         <button
                           class="btn btn-primary btn-sm"
-                          onclick={() => act(s.name, 'restart')}>Restart</button
+                          onclick={() => act(s.name, 'restart')}>{t('restart')}</button
                         >
                         {#if s.state === 'running'}
                           <button class="btn btn-danger btn-sm" onclick={() => act(s.name, 'stop')}
-                            >Stop</button
+                            >{t('stop')}</button
                           >
                         {:else}
                           <button
                             class="btn btn-success btn-sm"
-                            onclick={() => act(s.name, 'start')}>Start</button
+                            onclick={() => act(s.name, 'start')}>{t('start')}</button
                           >
                         {/if}
                       {/if}
@@ -139,7 +140,7 @@
           </tbody>
         </table>
       {:else}
-        <div class="empty-state">No services found.</div>
+        <div class="empty-state">{t('noServices')}</div>
       {/if}
     </div>
   {/if}
