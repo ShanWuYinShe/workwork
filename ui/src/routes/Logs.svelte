@@ -15,7 +15,7 @@ async function refresh() {
   error = '';
   try {
     const s = await getServices();
-    services = s || [];
+    services = s.services || [];
     if (services.length && !selectedService) selectedService = services[0].name;
     if (selectedService) await loadLogs();
   } catch(e) { error = e.message; }
