@@ -33,6 +33,10 @@ server {
     listen [__NGINX_IPV6__]:80;
     server_name _;
 
+    # Only accept Cloudflare IPs
+    include /etc/nginx/conf.d/cloudflare-allow.conf;
+    deny all;
+
     location / {
         return 404;
     }
@@ -123,6 +127,10 @@ server {
 server {
     listen [__NGINX_IPV6__]:443 ssl http2;
     server_name _;
+
+    # Only accept Cloudflare IPs
+    include /etc/nginx/conf.d/cloudflare-allow.conf;
+    deny all;
 
     ssl_certificate /etc/nginx/certs/server_cert.pem;
     ssl_certificate_key /etc/nginx/certs/server_cert.key;
