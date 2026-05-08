@@ -94,7 +94,9 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 
 func apiCliproxyStart(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username string `json:"username"` }
+		var body struct {
+			Username string `json:"username"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
 			writeError(w, "Username required", 400)
 			return
@@ -113,7 +115,9 @@ func apiCliproxyStart(cli *client.Client) http.HandlerFunc {
 
 func apiCliproxyStop(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username string `json:"username"` }
+		var body struct {
+			Username string `json:"username"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
 			writeError(w, "Username required", 400)
 			return
@@ -132,7 +136,9 @@ func apiCliproxyStop(cli *client.Client) http.HandlerFunc {
 
 func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username string `json:"username"` }
+		var body struct {
+			Username string `json:"username"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
 			writeError(w, "Username required", 400)
 			return
@@ -156,7 +162,9 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 		providers := []cliproxyProvider{}
 		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json" // config.yaml → .providers.json
 		if metaData, err := os.ReadFile(metaPath); err == nil {
-			var meta struct{ Providers []cliproxyProvider `json:"providers"` }
+			var meta struct {
+				Providers []cliproxyProvider `json:"providers"`
+			}
 			if json.Unmarshal(metaData, &meta) == nil {
 				for i := range meta.Providers {
 					meta.Providers[i].APIKey = maskKey(meta.Providers[i].APIKey)
@@ -177,24 +185,18 @@ type cliproxyModel struct {
 }
 
 type cliproxyProvider struct {
-	Name    string           `json:"name"`
-	BaseURL string           `json:"base_url"`
-	APIKey  string           `json:"api_key"`
-	Type    string           `json:"type"`   // "openai" or "anthropic"
-	Alias   string           `json:"alias"`  // legacy: single alias, auto-migrated to Models
-	Models  []cliproxyModel  `json:"models"` // per-model aliases
+	Name    string          `json:"name"`
+	BaseURL string          `json:"base_url"`
+	APIKey  string          `json:"api_key"`
+	Type    string          `json:"type"`   // "openai" or "anthropic"
+	Models  []cliproxyModel `json:"models"` // per-model name+alias
 }
 
 func (p cliproxyProvider) getModels() []cliproxyModel {
 	if len(p.Models) > 0 {
 		return p.Models
 	}
-	// Legacy: auto-migrate single alias
-	alias := p.Alias
-	if alias == "" {
-		alias = p.Name
-	}
-	return []cliproxyModel{{Name: "*", Alias: alias}}
+	return []cliproxyModel{{Name: "*", Alias: p.Name}}
 }
 
 func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
@@ -239,16 +241,12 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		if getUserPoolAccess(body.Username) {
 			pool := loadModelPool()
 			for _, pp := range pool.Providers {
-				alias := pp.Alias
-				if alias == "" {
-					alias = pp.Name
-				}
 				allProviders = append(allProviders, cliproxyProvider{
 					Name:    "[Pool] " + pp.Name,
 					BaseURL: pp.BaseURL,
 					APIKey:  pp.APIKey,
 					Type:    pp.Type,
-					Alias:   alias,
+					Models:  pp.Models,
 				})
 			}
 		}
@@ -316,7 +314,9 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 
 func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Username string `json:"username"` }
+		var body struct {
+			Username string `json:"username"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
 			writeError(w, "Username required", 400)
 			return

@@ -142,7 +142,9 @@ func apiBlockIP() http.HandlerFunc {
 
 func apiUnblockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ IP string `json:"ip"` }
+		var body struct {
+			IP string `json:"ip"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
 			writeError(w, "IP required", 400)
 			return

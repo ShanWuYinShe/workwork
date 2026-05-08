@@ -23,7 +23,7 @@ type rateLimiter struct {
 
 var authRateLimiter = &rateLimiter{
 	entries: make(map[string]*rateLimitEntry),
-	maxReqs: 20,              // 20 requests
+	maxReqs: 20,               // 20 requests
 	window:  10 * time.Second, // per 10 seconds
 	banTime: 30 * time.Minute, // ban for 30 minutes
 }
@@ -141,10 +141,10 @@ func apiRateLimitStatus() http.HandlerFunc {
 		for ip, e := range authRateLimiter.entries {
 			if !e.blockedAt.IsZero() && now.Sub(e.blockedAt) < authRateLimiter.banTime {
 				blocked = append(blocked, map[string]any{
-					"ip":        ip,
+					"ip":         ip,
 					"blocked_at": e.blockedAt.Format(time.RFC3339),
-					"until":     e.blockedAt.Add(authRateLimiter.banTime).Format(time.RFC3339),
-					"count":     len(e.timestamps),
+					"until":      e.blockedAt.Add(authRateLimiter.banTime).Format(time.RFC3339),
+					"count":      len(e.timestamps),
 				})
 			}
 		}
@@ -154,7 +154,9 @@ func apiRateLimitStatus() http.HandlerFunc {
 
 func apiRateLimitUnblock() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ IP string `json:"ip"` }
+		var body struct {
+			IP string `json:"ip"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
 			writeError(w, "IP required", 400)
 			return
