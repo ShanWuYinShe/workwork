@@ -17,6 +17,7 @@ services:
       - ./logs/nginx:/var/log/nginx
       - ./services/nginx/config/fail2ban:/etc/fail2ban/custom:ro
       - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
+      - ./.wework/.internal-token:/etc/fail2ban/.internal-token:ro
     cap_add:
       - NET_ADMIN
     depends_on:
@@ -64,6 +65,7 @@ services:
     environment:
       - HTPASSWD_FILE=/app/htpasswd
       - CF_API_TOKEN=${CF_API_TOKEN:-}
+      - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
       - PROJECT_DIR=${PWD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

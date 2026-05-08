@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -131,24 +130,9 @@ func getOrCreateCliproxyToken(username string) (string, error) {
 	return info.CliproxyToken, nil
 }
 
-// isInternalRequest returns true if the request comes from the Docker internal bridge network.
-// Internal services (fail2ban, etc.) on the Docker network bypass htpasswd check.
-func isInternalRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return false
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	// Docker bridge networks: 172.16.0.0/12 (includes 172.20.x.x used by internal_docker)
-	_, dockerBridge, _ := net.ParseCIDR("172.16.0.0/12")
-	return dockerBridge.Contains(ip)
-}
-
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
+	internalToken := os.Getenv("INTERNAL_TOKEN")
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -160,8 +144,8 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 
 			var info *UserInfo
 			var err error
-			// Internal Docker services (fail2ban, etc.) bypass htpasswd check
-			if isInternalRequest(r) {
+			// Internal services (fail2ban) use shared secret token
+			if internalToken != "" && r.Header.Get("X-Internal-Token") == internalToken {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 			} else {
 				info, err = ensureUserMeta(username)
