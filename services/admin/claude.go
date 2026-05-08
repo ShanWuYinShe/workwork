@@ -105,6 +105,32 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 	}
 }
 
+// GET /api/admin/claude-code/platforms/{version} — real available platforms for a version
+func apiClaudeCodePlatforms() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		version := r.PathValue("version")
+		if version == "" {
+			writeError(w, "Version required", 400)
+			return
+		}
+		manifest, err := fetchManifest(version)
+		if err != nil {
+			writeJSON(w, map[string]any{"version": version, "platforms": []string{}})
+			return
+		}
+		var available []map[string]string
+		for _, p := range claudePlatforms {
+			if _, ok := manifest.Platforms[p.Plat]; ok {
+				available = append(available, map[string]string{
+					"label": p.Label,
+					"plat":  p.Plat,
+				})
+			}
+		}
+		writeJSON(w, map[string]any{"version": version, "platforms": available})
+	}
+}
+
 // GET /api/admin/claude-code/stored — viewer+ can see downloaded binaries
 func apiClaudeCodeStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

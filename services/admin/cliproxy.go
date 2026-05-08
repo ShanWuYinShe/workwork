@@ -62,9 +62,9 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			htSet[u] = true
 		}
 		var instances []cliproxyInstance
-		// Per-user (only actual htpasswd users)
+		// Per-user (only actual htpasswd users, skip admins)
 		for username, info := range doc.Users {
-			if !htSet[username] {
+			if !htSet[username] || info.Role == "admin" {
 				continue
 			}
 			tok := info.CliproxyToken

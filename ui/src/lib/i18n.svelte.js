@@ -239,6 +239,9 @@ const zh = {
   downloadConfiguration: '下载配置',
   hidePassword: '隐藏密码',
   showPassword: '显示密码',
+  loadPlatforms: '加载平台',
+  check: '查看',
+  noPlatforms: '无可用平台',
   downloadToLocal: '下载到本地机器',
   copyUrlTitle: '复制 URL',
   // Missing keys from system test
@@ -522,6 +525,9 @@ const en = {
   downloadConfiguration: 'Download configuration',
   hidePassword: 'Hide password',
   showPassword: 'Show password',
+  loadPlatforms: 'Load Platforms',
+  check: 'Check',
+  noPlatforms: 'No platforms available',
   downloadToLocal: 'Download to local machine',
   copyUrlTitle: 'Copy URL',
   // Missing keys from system test
