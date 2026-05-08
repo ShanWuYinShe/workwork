@@ -2,6 +2,7 @@ FROM nginx:1.30-alpine
 
 RUN apk add --no-cache fail2ban iptables supervisor curl
 
+COPY config/cloudflare-allow.conf /etc/nginx/conf.d/cloudflare-allow.conf
 COPY config/fail2ban/jail.local /etc/fail2ban/jail.local
 COPY config/fail2ban/filter.d/nginx-auth.conf /etc/fail2ban/filter.d/nginx-auth.conf
 COPY config/fail2ban/action.d/iptables-allports.conf /etc/fail2ban/action.d/iptables-allports.conf
