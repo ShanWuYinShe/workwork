@@ -39,7 +39,7 @@
     message = '';
     try {
       await addAdminUser(newUser, newPass, newRole);
-      message = `User ${newUser} added.`;
+      message = t('userAdded', { user: newUser });
       newUser = '';
       newPass = '';
       newRole = 'viewer';
@@ -51,7 +51,7 @@
   }
 
   async function deleteUser(username) {
-    if (!confirm(`Delete user "${username}"?`)) return;
+    if (!confirm(t('confirmDeleteUser', { username }))) return;
     error = '';
     try {
       await deleteAdminUser(username);
@@ -68,7 +68,7 @@
     message = '';
     try {
       await changePassword(pwUser, pwPass);
-      message = `Password changed for ${pwUser}.`;
+      message = t('passwordChanged', { user: pwUser });
       pwPass = '';
     } catch (e) {
       error = e.message;
@@ -80,7 +80,7 @@
     message = '';
     try {
       await setUserRole(username, role);
-      message = `Role for ${username} set to ${role}.`;
+      message = t('roleSetTo', { user: username, role });
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
@@ -93,7 +93,7 @@
     message = '';
     try {
       await setModelPoolUser(username, granted);
-      message = granted ? `${username} granted pool access.` : `${username} removed from pool.`;
+      message = granted ? t('poolAccessGranted', { user: username }) : t('poolAccessRevoked', { user: username });
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {

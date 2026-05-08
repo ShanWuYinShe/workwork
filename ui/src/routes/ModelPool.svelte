@@ -106,7 +106,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Pool Providers
+          {t('cardPoolProviders')}
           {#if pool.providers.length}<span class="card-title-count">{pool.providers.length}</span
             >{/if}
         </div>
@@ -135,7 +135,7 @@
                 <td style="font-weight:500;">{p.name}</td>
                 <td>
                   <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}"
-                    >{p.type === 'anthropic' ? 'Anthropic' : 'OpenAI'}</span
+                    >{p.type === 'anthropic' ? t('anthropic') : t('openAICompatOpt')}</span
                   >
                 </td>
                 <td class="td-mono">{p.alias || p.name}/*</td>
@@ -218,7 +218,7 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          User Access
+          {t('cardUserAccess')}
           {#if pool.authorized_users.length}<span class="card-title-count"
               >{pool.authorized_users.length}</span
             >{/if}
@@ -228,7 +228,7 @@
         {#each pool.authorized_users as u}
           <div class="user-chip active">
             <span class="user-chip-name">{u}</span>
-            <button class="chip-remove" onclick={() => toggleUser(u, false)} title="Revoke access"
+            <button class="chip-remove" onclick={() => toggleUser(u, false)} title={t('revokeAccess')}
               >×</button
             >
           </div>
