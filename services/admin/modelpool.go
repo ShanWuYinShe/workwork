@@ -18,19 +18,14 @@ type modelPoolProvider struct {
 	BaseURL string          `json:"base_url"`
 	APIKey  string          `json:"api_key"`
 	Type    string          `json:"type"`   // "openai" or "anthropic"
-	Alias   string          `json:"alias"`  // legacy, auto-migrated
-	Models  []cliproxyModel `json:"models"` // per-model aliases
+	Models  []cliproxyModel `json:"models"` // per-model name+alias
 }
 
 func (p modelPoolProvider) getModels() []cliproxyModel {
 	if len(p.Models) > 0 {
 		return p.Models
 	}
-	alias := p.Alias
-	if alias == "" {
-		alias = p.Name
-	}
-	return []cliproxyModel{{Name: "*", Alias: alias}}
+	return []cliproxyModel{{Name: "*", Alias: p.Name}}
 }
 
 type modelPoolConfig struct {
@@ -187,7 +182,9 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	cfgPath := cliproxyConfigPath(tok)
 	metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
 	if metaData, err := os.ReadFile(metaPath); err == nil {
-		var meta struct{ Providers []cliproxyProvider `json:"providers"` }
+		var meta struct {
+			Providers []cliproxyProvider `json:"providers"`
+		}
 		if json.Unmarshal(metaData, &meta) == nil {
 			userProviders = meta.Providers
 		}
@@ -216,7 +213,6 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 			APIKey:  pp.APIKey,
 			Type:    pp.Type,
 			Models:  pp.Models,
-			Alias:   pp.Alias,
 		})
 	}
 
@@ -226,10 +222,6 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	for _, p := range allProviders {
 		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
 			continue
-		}
-		alias := p.Alias
-		if alias == "" {
-			alias = p.Name
 		}
 		t := p.Type
 		if t == "" {
@@ -242,16 +234,20 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 				fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", p.BaseURL)
 			}
 			fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
-			fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"*\"\n")
-			fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", alias)
+			for _, m := range p.getModels() {
+				fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", m.Name)
+				fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", m.Alias)
+			}
 		} else {
 			fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", p.Name)
 			fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", p.BaseURL)
 			fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
 			fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", p.APIKey)
 			fmt.Fprintf(&openAICompatYAML, "    models:\n")
-			fmt.Fprintf(&openAICompatYAML, "      - name: \"*\"\n")
-			fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", alias)
+			for _, m := range p.getModels() {
+				fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", m.Name)
+				fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", m.Alias)
+			}
 		}
 	}
 

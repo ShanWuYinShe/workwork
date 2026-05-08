@@ -100,13 +100,13 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		{"inbounds", []any{
 			map[string]any{
 				"tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
-				"settings":  map[string]any{"udp": true},
-				"sniffing":  map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+				"settings": map[string]any{"udp": true},
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
 			},
 			map[string]any{
 				"tag": "http", "port": 10809, "listen": "127.0.0.1", "protocol": "http",
-				"settings":  map[string]any{},
-				"sniffing":  map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+				"settings": map[string]any{},
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
 			},
 		}},
 		{"outbounds", []any{
@@ -152,7 +152,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		{"routing", map[string]any{
 			"domainStrategy": "IPIfNonMatch",
 			"balancers": []any{map[string]any{
-				"tag": "proxy",
+				"tag":      "proxy",
 				"selector": []string{"reality", "xhttp"},
 				"strategy": map[string]any{"type": "leastPing"},
 			}},

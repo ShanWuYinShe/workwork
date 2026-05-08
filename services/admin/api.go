@@ -278,7 +278,9 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, username := getUserFromContext(r)
 
-		var body struct{ UUID string `json:"uuid"` }
+		var body struct {
+			UUID string `json:"uuid"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
 			writeError(w, "UUID required", 400)
 			return
@@ -324,7 +326,9 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
 
-		var body struct{ UUID string `json:"uuid"` }
+		var body struct {
+			UUID string `json:"uuid"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
 			writeError(w, "UUID required", 400)
 			return
@@ -621,7 +625,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 			if ip != nil && len(ip) == 16 {
 				parts := make([]string, 4)
 				for i := 0; i < 4; i++ {
-					parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2 : i*2+2]))
+					parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
 				}
 				prefix = strings.Join(parts, ":") + ":"
 				staticRange = prefix + "1::/80"
@@ -631,10 +635,10 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 
 		// CF DNS records
 		type dnsInfo struct {
-			Domain  string        `json:"domain"`
-			Record  *cfDNSRecord  `json:"record"`
-			Error   string        `json:"error,omitempty"`
-			Synced  bool          `json:"synced"`
+			Domain string       `json:"domain"`
+			Record *cfDNSRecord `json:"record"`
+			Error  string       `json:"error,omitempty"`
+			Synced bool         `json:"synced"`
 		}
 		var dnsReality, dnsNginx *dnsInfo
 		if cfOK {
@@ -760,8 +764,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		saveRotatingState(rotatingIPState{CurrentIP: newIP})
 
 		writeJSON(w, map[string]any{
-			"new_ip":  newIP,
-			"domain":  domain,
+			"new_ip": newIP,
+			"domain": domain,
 		})
 	}
 }
