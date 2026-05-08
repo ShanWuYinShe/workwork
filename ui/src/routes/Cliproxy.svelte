@@ -13,6 +13,8 @@ let configLoading = $state(false);
 let codexOutput = $state('');
 let codexLoading = $state(false);
 let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai'), newAlias = $state('');
+let newModelName = $state('*'), newModelAlias = $state('');
+let tempModels = $state([]); // models being added to current new provider
 let actingUser = $state('');
 let selectedPoolAccess = $state(false);
 let poolToggling = $state(false);
@@ -68,8 +70,10 @@ async function openConfig(username) {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, alias: newAlias || newName }];
+  let models = tempModels.length > 0 ? tempModels : [{ name: '*', alias: newAlias || newName }];
+  providers = [...providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, models }];
   newName = ''; newURL = ''; newKey = ''; newType = 'openai'; newAlias = '';
+  newModelName = '*'; newModelAlias = ''; tempModels = [];
 }
 
 function removeProvider(idx) {
@@ -126,6 +130,13 @@ async function togglePoolAccess() {
   finally { poolToggling = false; }
 }
 
+
+function addModel() {
+  if (!newModelAlias) return;
+  tempModels = [...tempModels, { name: newModelName || '*', alias: newModelAlias }];
+  newModelName = '*'; newModelAlias = '';
+}
+function removeModel(idx) { tempModels = tempModels.filter((_, i) => i !== idx); }
 async function copyUrl(url) {
   try { await navigator.clipboard.writeText(url); } catch {}
 }
@@ -161,7 +172,7 @@ let runningCount = $derived(instances.filter(i => i.running).length);
         <div class="loading-skeleton" style="height:120px;"></div>
       {:else}
         <table style="margin-bottom:1rem;">
-          <thead><tr><th>Provider</th><th>Format</th><th>Alias</th><th>Upstream URL</th><th>Upstream Key</th><th></th></tr></thead>
+          <thead><tr><th>Provider</th><th>Format</th><th>Models</th><th>Upstream URL</th><th>Upstream Key</th><th></th></tr></thead>
           <tbody>
             {#each providers as p, i}
             <tr>
