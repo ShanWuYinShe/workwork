@@ -11,7 +11,7 @@ import ModelPool from './routes/ModelPool.svelte';
 import Downloads from './routes/Downloads.svelte';
 import Logs from './routes/Logs.svelte';
 import { getCurrentUser } from './lib/api.js';
-import { t, toggleLang, getLang } from './lib/i18n.js';
+import { t, toggleLang, getLang } from './lib/i18n.svelte.js';
 
 let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
 let userInfo = $state(null);
