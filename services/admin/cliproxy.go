@@ -171,12 +171,30 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 	}
 }
 
+type cliproxyModel struct {
+	Name  string `json:"name"`
+	Alias string `json:"alias"`
+}
+
 type cliproxyProvider struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
-	Type    string `json:"type"`  // "openai" or "anthropic"
-	Alias   string `json:"alias"` // model alias prefix, e.g. "deepseek"
+	Name    string           `json:"name"`
+	BaseURL string           `json:"base_url"`
+	APIKey  string           `json:"api_key"`
+	Type    string           `json:"type"`   // "openai" or "anthropic"
+	Alias   string           `json:"alias"`  // legacy: single alias, auto-migrated to Models
+	Models  []cliproxyModel  `json:"models"` // per-model aliases
+}
+
+func (p cliproxyProvider) getModels() []cliproxyModel {
+	if len(p.Models) > 0 {
+		return p.Models
+	}
+	// Legacy: auto-migrate single alias
+	alias := p.Alias
+	if alias == "" {
+		alias = p.Name
+	}
+	return []cliproxyModel{{Name: "*", Alias: alias}}
 }
 
 func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
@@ -242,10 +260,6 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
 				continue
 			}
-			alias := p.Alias
-			if alias == "" {
-				alias = p.Name
-			}
 			t := p.Type
 			if t == "" {
 				t = "openai"
@@ -258,8 +272,10 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 					fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", p.BaseURL)
 				}
 				fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
-				fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"*\"\n")
-				fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", alias)
+				for _, m := range p.getModels() {
+					fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", m.Name)
+					fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", m.Alias)
+				}
 			} else {
 				// openai-compatibility section format
 				fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", p.Name)
@@ -267,8 +283,10 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 				fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
 				fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", p.APIKey)
 				fmt.Fprintf(&openAICompatYAML, "    models:\n")
-				fmt.Fprintf(&openAICompatYAML, "      - name: \"*\"\n")
-				fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", alias)
+				for _, m := range p.getModels() {
+					fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", m.Name)
+					fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", m.Alias)
+				}
 			}
 		}
 
