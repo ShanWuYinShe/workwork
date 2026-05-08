@@ -83,7 +83,7 @@
 
       {#if selectedService}
         <div class="card-header" style="margin-top:0;">
-          <div class="card-title">{selectedService} — Logs</div>
+          <div class="card-title">{selectedService} — {t('logs')}</div>
           <div class="card-subtitle">{t('lastLines', { n: parsed.length })}</div>
         </div>
         <div class="log-container">

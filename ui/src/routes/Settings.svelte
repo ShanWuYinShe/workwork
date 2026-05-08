@@ -32,23 +32,23 @@
   }
 
   async function doSyncDNS() {
-    syncMsg = 'Syncing...';
+    syncMsg = t('syncing');
     try {
       const d = await syncDNS();
       syncMsg = d.results.join('; ');
       await refresh();
     } catch (e) {
-      syncMsg = 'Sync failed: ' + e.message;
+      syncMsg = t('syncFailed', { error: e.message });
     }
   }
 
   async function doRotate() {
-    if (!confirm('Rotate Reality IPv6? Clients using xray.yinghuoren.com will follow.')) return;
+    if (!confirm(t('rotateConfirm'))) return;
     rotating = true;
     result = { ok: false, msg: '' };
     try {
       const d = await rotateIPv6();
-      result = { ok: true, msg: `New IP: ${d.new_ip}` };
+      result = { ok: true, msg: t('newIp', { ip: d.new_ip }) };
       await refresh();
     } catch (e) {
       result = { ok: false, msg: e.message };
@@ -120,7 +120,7 @@
         <div class="card-subtitle">{net.subnet}</div>
       </div>
       <table>
-        <thead><tr><th>{t('range')}</th><th>Prefix</th><th>Usage</th></tr></thead>
+        <thead><tr><th>{t('range')}</th><th>{t('tablePrefix')}</th><th>{t('tableUsage')}</th></tr></thead>
         <tbody>
           <tr>
             <td><span class="badge badge-green">{t('staticRange')}</span></td>

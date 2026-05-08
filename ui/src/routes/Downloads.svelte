@@ -74,9 +74,9 @@
     try {
       const d = await downloadClaudeVersion(version, plat);
       if (d.status === 'already_exists') {
-        message = `Claude Code ${version} (${plat}) already downloaded.`;
+        message = `${version} (${plat}) 已下载。`;
       } else {
-        message = `Downloaded ${d.filename} (${formatSize(d.size)}) — SHA256: ${(d.checksum || '').slice(0, 16)}...`;
+        message = `已下载 ${d.filename}（${formatSize(d.size)}）— SHA256: ${(d.checksum || '').slice(0, 16)}...`;
       }
       await refresh();
     } catch (e) {
@@ -93,7 +93,7 @@
     message = '';
     try {
       await deleteClaudeDownload(filename);
-      message = `Deleted ${filename}.`;
+      message = `已删除 ${filename}。`;
       await refresh();
     } catch (e) {
       error = e.message;
@@ -243,7 +243,7 @@
                 <td class="td-muted">{formatDate(rel.date)}</td>
                 <td>
                   {#if alreadyDownloaded.has(key)}
-                    <span class="badge badge-green"><span class="badge-dot"></span>downloaded</span>
+                    <span class="badge badge-green"><span class="badge-dot"></span>{t('downloadedStatus')}</span>
                   {:else}
                     <span class="badge badge-gray">—</span>
                   {/if}

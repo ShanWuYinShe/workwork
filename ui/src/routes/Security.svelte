@@ -42,7 +42,7 @@
   }
 
   async function doUnblock(ip) {
-    if (!confirm(`Unblock ${ip}?`)) return;
+    if (!confirm(t('confirmUnblock', { ip }))) return;
     error = '';
     message = '';
     try {
@@ -70,7 +70,7 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label for="block-ip">IP Address</label>
+        <label for="block-ip">{t('labelIPAddress')}</label>
         <input
           id="block-ip"
           type="text"

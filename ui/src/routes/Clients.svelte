@@ -40,7 +40,7 @@
   }
 
   async function deleteClient(uuid) {
-    if (!confirm('Delete client ' + uuid.slice(0, 8) + '...?')) return;
+    if (!confirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) }))) return;
     deletingId = uuid;
     error = '';
     try {
@@ -70,7 +70,7 @@
         copied = true;
         setTimeout(() => (copied = false), 2000);
       } catch {
-        error = 'Copy failed — select and copy manually';
+        error = t('copyFailedManual');
       }
       document.body.removeChild(ta);
     }
@@ -122,7 +122,7 @@
         <table>
           <thead
             ><tr
-              ><th>UUID</th>{#if isAdmin}<th>{t('owner')}</th>{/if}<th>{t('protocols')}</th><th>{t('actions')}</th></tr
+              ><th>{t('uuid')}</th>{#if isAdmin}<th>{t('owner')}</th>{/if}<th>{t('protocols')}</th><th>{t('actions')}</th></tr
             ></thead
           >
           <tbody>
@@ -133,8 +133,8 @@
                   <td class="td-muted">{c.owner || '—'}</td>
                 {/if}
                 <td>
-                  <span class="badge badge-green"><span class="badge-dot"></span>reality</span>
-                  <span class="badge badge-blue">xhttp</span>
+                  <span class="badge badge-green"><span class="badge-dot"></span>{t('protocolReality')}</span>
+                  <span class="badge badge-blue">{t('protocolXhttp')}</span>
                 </td>
                 <td>
                   {#if deletingId === c.id}
@@ -181,7 +181,7 @@
       <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
         <span class="badge badge-gray">{t('socks5')}:10808</span>
         <span class="badge badge-gray">{t('http')}:10809</span>
-        <span class="badge badge-gray">{t('balancer')}: reality + xhttp</span>
+        <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
       </div>
       <textarea rows="16" readonly>{generatedJSON}</textarea>
       {#if copied}
