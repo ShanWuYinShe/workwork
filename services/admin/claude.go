@@ -56,13 +56,35 @@ type claudeManifest struct {
 }
 
 var (
-	claudeDownloadsDir = "/app/data/claude-code"
-	claudeCache        struct {
+	claudeDownloadsDir  = "/app/data/claude-code"
+	claudeManifestPath  = "/app/data/claude-code/downloads.json"
+	claudeCache         struct {
 		releases  []claudeRelease
 		checkedAt time.Time
 	}
 	claudeCacheMu sync.Mutex
 )
+
+// claude downloads manifest — persisted across restarts
+type claudeDownloadsManifest struct {
+	Downloads []claudeStoredDownload `json:"downloads"`
+}
+
+func loadDownloadsManifest() claudeDownloadsManifest {
+	var m claudeDownloadsManifest
+	data, err := os.ReadFile(claudeManifestPath)
+	if err != nil {
+		return m
+	}
+	json.Unmarshal(data, &m)
+	return m
+}
+
+func saveDownloadsManifest(m claudeDownloadsManifest) {
+	os.MkdirAll(claudeDownloadsDir, 0755)
+	data, _ := json.MarshalIndent(m, "", "  ")
+	os.WriteFile(claudeManifestPath, data, 0644)
+}
 
 // GET /api/admin/claude-code/releases
 func apiClaudeCodeReleases() http.HandlerFunc {
@@ -185,6 +207,16 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			writeError(w, err.Error(), 500)
 			return
 		}
+		// Update manifest
+		m := loadDownloadsManifest()
+		var kept []claudeStoredDownload
+		for _, d := range m.Downloads {
+			if d.Filename != body.Filename {
+				kept = append(kept, d)
+			}
+		}
+		m.Downloads = kept
+		saveDownloadsManifest(m)
 		writeJSON(w, map[string]any{"status": "ok"})
 	}
 }
@@ -251,40 +283,8 @@ func fetchManifest(version string) (*claudeManifest, error) {
 }
 
 func listStoredDownloads() []claudeStoredDownload {
-	os.MkdirAll(claudeDownloadsDir, 0755)
-	entries, err := os.ReadDir(claudeDownloadsDir)
-	if err != nil {
-		return nil
-	}
-	var result []claudeStoredDownload
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "claude-code-") {
-			continue
-		}
-		info, _ := e.Info()
-		version, plat, platName := parseStoredFilename(e.Name())
-		modTime := ""
-		if info != nil {
-			modTime = info.ModTime().UTC().Format(time.RFC3339)
-		}
-		checksum := ""
-		result = append(result, claudeStoredDownload{
-			Version:      version,
-			Plat:         plat,
-			PlatformName: platName,
-			Filename:     e.Name(),
-			Size:         info.Size(),
-			Checksum:     checksum,
-			DownloadedAt: modTime,
-		})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Version != result[j].Version {
-			return compareVersions(result[i].Version, result[j].Version) > 0
-		}
-		return result[i].Plat < result[j].Plat
-	})
-	return result
+	m := loadDownloadsManifest()
+	return m.Downloads
 }
 
 func parseStoredFilename(name string) (version, plat, platName string) {
@@ -351,17 +351,39 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 		return 0, err
 	}
 
+	// Persist metadata
+	m := loadDownloadsManifest()
+	_, platName := "", ""
+	for _, p := range claudePlatforms {
+		if p.Plat == plat {
+			platName = p.Label
+			break
+		}
+	}
+	m.Downloads = append(m.Downloads, claudeStoredDownload{
+		Version:      version,
+		Plat:         plat,
+		PlatformName: platName,
+		Filename:     filename,
+		Size:         written,
+		Checksum:     actual,
+		DownloadedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	saveDownloadsManifest(m)
+
 	return written, nil
 }
 
 func cleanupOldDownloads(maxKeep int) {
-	downloads := listStoredDownloads()
-	if len(downloads) <= maxKeep {
+	m := loadDownloadsManifest()
+	if len(m.Downloads) <= maxKeep {
 		return
 	}
-	for _, d := range downloads[maxKeep:] {
+	for _, d := range m.Downloads[maxKeep:] {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
 	}
+	m.Downloads = m.Downloads[:maxKeep]
+	saveDownloadsManifest(m)
 }
 
 func compareVersions(a, b string) int {
