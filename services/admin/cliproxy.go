@@ -480,7 +480,7 @@ func startCliproxy(ctx context.Context, cli *client.Client, username string) err
 		projectDir = "/home/workuser/service"
 	}
 
-	containerName := fmt.Sprintf("cliproxy-%s", tok)
+	containerName := fmt.Sprintf("cliproxy-%s-%s", username, tok[:8])
 	hostConfig := &container.HostConfig{
 		Mounts: []mount.Mount{
 			{

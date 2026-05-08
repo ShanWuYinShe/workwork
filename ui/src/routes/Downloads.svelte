@@ -20,6 +20,7 @@
   let refreshing = $state(false);
   let downloading = $state(false);
   let downloadKey = $state('');
+  let downloadProgress = $state(null);
   let deletingFile = $state('');
   let selectedPlat = $state('');
 
@@ -84,10 +85,13 @@
     const key = version + '-' + plat;
     downloadKey = key;
     downloading = true;
+    downloadProgress = null;
     error = '';
     message = '';
     try {
-      const d = await downloadClaudeVersion(version, plat);
+      const d = await downloadClaudeVersion(version, plat, (p) => {
+        downloadProgress = p;
+      });
       if (d.status === 'already_exists') {
         message = `${version} (${plat}) 已下载。`;
       } else {
@@ -99,6 +103,7 @@
     } finally {
       downloading = false;
       downloadKey = '';
+      downloadProgress = null;
     }
   }
 
@@ -142,7 +147,6 @@
           {t('refreshVersions')}
         </button>
       {/if}
-      <button class="btn btn-sm btn-ghost" onclick={reloadPageData}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -270,7 +274,16 @@
                   {/if}
                 </td>
                 <td>
-                  {#if downloadKey === key}
+                  {#if downloadKey === key && downloadProgress}
+                    <div style="min-width:120px;">
+                      <div class="progress-bar">
+                        <div class="progress-fill" style="width:{downloadProgress.percent || 0}%;"></div>
+                      </div>
+                      <div style="font-size:0.65rem;color:var(--c-text-muted);margin-top:2px;">
+                        {formatSize(downloadProgress.bytes)}{downloadProgress.total ? ' / ' + formatSize(downloadProgress.total) : ''} · {downloadProgress.percent || 0}%
+                      </div>
+                    </div>
+                  {:else if downloadKey === key}
                     <span class="spinner"></span>
                   {:else if alreadyDownloaded.has(key)}
                     <button class="btn btn-ghost btn-sm" disabled>{t('downloadedStatus')}</button>
@@ -300,3 +313,18 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .progress-bar {
+    height: 6px;
+    background: var(--c-border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--c-accent, #3b82f6);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+  }
+</style>

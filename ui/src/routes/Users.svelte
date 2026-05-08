@@ -157,36 +157,33 @@
               </td>
               <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
               <td>
-                <div class="td-actions">
-                  {#if u.role === 'admin'}
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
-                    >
-                  {:else}
+                {#if u.role !== 'admin'}
+                  <div class="td-actions">
                     <button
                       class="btn btn-primary btn-sm"
                       onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
                     >
-                  {/if}
-                  {#if u.pool_access}
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      onclick={() => togglePool(u.username, false)}
-                      title={t('noPool')}>{t('noPool')}</button
+                    {#if u.pool_access}
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        onclick={() => togglePool(u.username, false)}
+                        title={t('noPool')}>{t('noPool')}</button
+                      >
+                    {:else}
+                      <button
+                        class="btn btn-sm"
+                        style="background:#7c3aed;color:#fff;"
+                        onclick={() => togglePool(u.username, true)}
+                        title={t('grantPool')}>{t('grantPool')}</button
+                      >
+                    {/if}
+                    <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                      >{t('delete')}</button
                     >
-                  {:else}
-                    <button
-                      class="btn btn-sm"
-                      style="background:#7c3aed;color:#fff;"
-                      onclick={() => togglePool(u.username, true)}
-                      title={t('grantPool')}>{t('grantPool')}</button
-                    >
-                  {/if}
-                  <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                    >{t('delete')}</button
-                  >
-                </div>
+                  </div>
+                {:else}
+                  <span style="color:var(--c-text-muted);font-size:0.78rem;">—</span>
+                {/if}
               </td>
             </tr>
           {/each}

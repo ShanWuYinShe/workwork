@@ -133,7 +133,7 @@ func apiClaudeCodeRefresh() http.HandlerFunc {
 	}
 }
 
-// POST /api/admin/claude-code/download
+// POST /api/admin/claude-code/download — streams NDJSON progress
 func apiClaudeCodeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -145,7 +145,6 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		// Validate platform
 		valid := false
 		for _, p := range claudePlatforms {
 			if p.Plat == body.Plat {
@@ -158,7 +157,6 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		// Check if already downloaded
 		filename := fmt.Sprintf("claude-code-%s-%s", body.Version, body.Plat)
 		for _, s := range listStoredDownloads() {
 			if s.Filename == filename {
@@ -167,7 +165,6 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			}
 		}
 
-		// Fetch manifest for checksum
 		manifest, err := fetchManifest(body.Version)
 		if err != nil {
 			writeError(w, "Failed to fetch manifest: "+err.Error(), 500)
@@ -179,16 +176,34 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		// Download binary
-		size, err := downloadClaudeBinary(body.Version, body.Plat, filename, platInfo.Checksum)
+		// Stream progress as NDJSON
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Cache-Control", "no-cache")
+		flusher := w.(http.Flusher)
+
+		sendEvent := func(data map[string]any) {
+			b, _ := json.Marshal(data)
+			w.Write(b)
+			w.Write([]byte("\n"))
+			flusher.Flush()
+		}
+
+		sendEvent(map[string]any{"type": "start", "filename": filename})
+
+		size, err := downloadClaudeBinary(body.Version, body.Plat, filename, platInfo.Checksum, func(bytes, total int64) {
+			pct := int64(0)
+			if total > 0 {
+				pct = bytes * 100 / total
+			}
+			sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct})
+		})
 		if err != nil {
-			writeError(w, "Download failed: "+err.Error(), 500)
+			sendEvent(map[string]any{"type": "error", "error": err.Error()})
 			return
 		}
 
 		cleanupOldDownloads(10)
-
-		writeJSON(w, map[string]any{"status": "ok", "filename": filename, "size": size, "checksum": platInfo.Checksum})
+		sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": platInfo.Checksum})
 	}
 }
 
@@ -330,7 +345,7 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int64, error) {
+func downloadClaudeBinary(version, plat, filename, expectedChecksum string, onProgress func(bytes, total int64)) (int64, error) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 
 	url := fmt.Sprintf("%s/%s/%s/claude", claudeCodeBaseURL, version, plat)
@@ -345,6 +360,7 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 		return 0, fmt.Errorf("HTTP %d for %s/%s", resp.StatusCode, version, plat)
 	}
 
+	total := resp.ContentLength
 	path := filepath.Join(claudeDownloadsDir, filename)
 	tmpPath := path + ".tmp"
 	f, err := os.Create(tmpPath)
@@ -353,12 +369,28 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 	}
 
 	hasher := sha256.New()
-	written, err := io.Copy(io.MultiWriter(f, hasher), resp.Body)
-	f.Close()
-	if err != nil {
-		os.Remove(tmpPath)
-		return 0, err
+	buf := make([]byte, 32*1024)
+	var written int64
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			f.Write(buf[:n])
+			hasher.Write(buf[:n])
+			written += int64(n)
+			if onProgress != nil {
+				onProgress(written, total)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			f.Close()
+			os.Remove(tmpPath)
+			return 0, readErr
+		}
 	}
+	f.Close()
 
 	// Verify SHA256 checksum
 	actual := hex.EncodeToString(hasher.Sum(nil))
