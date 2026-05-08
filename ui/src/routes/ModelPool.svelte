@@ -8,7 +8,7 @@ let error = $state('');
 let message = $state('');
 let saving = $state(false);
 
-let newName = '', newURL = '', newKey = '', newType = 'openai', newAlias = '', newModelName = '*', newModelAlias = '', tempModels = $state([]);
+let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai'), newAlias = $state(''), newModelName = $state('*'), newModelAlias = $state(''), tempModels = $state([]);
 
 onMount(refresh);
 
