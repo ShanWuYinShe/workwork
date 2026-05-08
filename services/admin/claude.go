@@ -54,6 +54,8 @@ type claudeStoredDownload struct {
 type claudeManifest struct {
 	Platforms map[string]struct {
 		Checksum string `json:"checksum"`
+		Binary   string `json:"binary"`
+		Size     int64  `json:"size"`
 	} `json:"platforms"`
 }
 
@@ -216,7 +218,7 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 
 		sendEvent(map[string]any{"type": "start", "filename": filename})
 
-		size, err := downloadClaudeBinary(body.Version, body.Plat, filename, platInfo.Checksum, func(bytes, total int64) {
+		size, err := downloadClaudeBinary(body.Version, body.Plat, filename, platInfo.Checksum, platInfo.Binary, func(bytes, total int64) {
 			pct := int64(0)
 			if total > 0 {
 				pct = bytes * 100 / total
@@ -371,10 +373,13 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeBinary(version, plat, filename, expectedChecksum string, onProgress func(bytes, total int64)) (int64, error) {
+func downloadClaudeBinary(version, plat, filename, expectedChecksum, binary string, onProgress func(bytes, total int64)) (int64, error) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 
-	url := fmt.Sprintf("%s/%s/%s/claude", claudeCodeBaseURL, version, plat)
+	if binary == "" {
+		binary = "claude"
+	}
+	url := fmt.Sprintf("%s/%s/%s/%s", claudeCodeBaseURL, version, plat, binary)
 
 	resp, err := githubClient.Get(url)
 	if err != nil {
