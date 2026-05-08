@@ -4,6 +4,7 @@
     getCurrentUser,
     getClaudeReleases,
     getClaudeStored,
+    getClaudePlatforms,
     downloadClaudeVersion,
     deleteClaudeDownload,
     refreshClaudeVersions,
@@ -22,7 +23,7 @@
   let downloadKey = $state('');
   let downloadProgress = $state(null);
   let deletingFile = $state('');
-  let selectedPlat = $state('');
+  let versionPlatforms = $state({}); // version -> [{label, plat}]
 
   onMount(async () => {
     try {
@@ -33,7 +34,6 @@
         releases = d.releases || [];
         platforms = d.platforms || [];
         stored = d.stored || [];
-        if (platforms.length && !selectedPlat) selectedPlat = platforms[0].plat;
       } else {
         const s = await getClaudeStored();
         stored = s.stored || [];
@@ -54,7 +54,6 @@
         releases = d.releases || [];
         platforms = d.platforms || [];
         stored = d.stored || [];
-        if (platforms.length && !selectedPlat) selectedPlat = platforms[0].plat;
       } else {
         const s = await getClaudeStored();
         stored = s.stored || [];
@@ -78,6 +77,16 @@
       error = e.message;
     } finally {
       refreshing = false;
+    }
+  }
+
+  async function loadPlatforms(version) {
+    if (versionPlatforms[version]) return;
+    try {
+      const d = await getClaudePlatforms(version);
+      versionPlatforms[version] = d.platforms || [];
+    } catch {
+      versionPlatforms[version] = [];
     }
   }
 
@@ -248,53 +257,60 @@
       {#if loading}
         <div class="loading-skeleton" style="height:200px;"></div>
       {:else}
-        <div
-          style="padding:0.75rem 0;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.75rem;"
-        >
-          <label for="plat-select" style="margin-bottom:0;white-space:nowrap;">{t('platformLabel')}</label>
-          <select id="plat-select" bind:value={selectedPlat} style="max-width:220px;">
-            {#each platforms as p}
-              <option value={p.plat}>{p.label}</option>
-            {/each}
-          </select>
-        </div>
         <table>
-          <thead><tr><th>{t('version')}</th><th>{t('created')}</th><th>{t('status')}</th><th></th></tr></thead>
+          <thead><tr><th>{t('version')}</th><th>{t('created')}</th><th>{t('platform')}</th><th></th></tr></thead>
           <tbody>
             {#each latestReleases as rel}
-              {@const key = rel.version + '-' + selectedPlat}
+              {@const vPlats = versionPlatforms[rel.version]}
               <tr>
-                <td style="font-weight:500;">{rel.version}</td>
+                <td style="font-weight:500;">
+                  {rel.version}
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    style="margin-left:0.35rem;font-size:0.7rem;padding:0.15rem 0.4rem;"
+                    onclick={() => loadPlatforms(rel.version)}
+                    disabled={vPlats}
+                    title={t('loadPlatforms')}
+                  >{vPlats ? '✓' : t('check') }</button>
+                </td>
                 <td class="td-muted">{formatDate(rel.date)}</td>
                 <td>
-                  {#if alreadyDownloaded.has(key)}
-                    <span class="badge badge-green"><span class="badge-dot"></span>{t('downloadedStatus')}</span>
-                  {:else}
+                  {#if vPlats === undefined}
                     <span class="badge badge-gray">—</span>
+                  {:else if vPlats.length === 0}
+                    <span class="badge badge-red">{t('noPlatforms')}</span>
+                  {:else}
+                    <div style="display:flex;flex-wrap:wrap;gap:0.25rem;">
+                      {#each vPlats as p}
+                        {@const key = rel.version + '-' + p.plat}
+                        {#if alreadyDownloaded.has(key)}
+                          <span class="badge badge-green" style="cursor:default;">{p.label}</span>
+                        {:else if downloadKey === key && downloadProgress}
+                          <span class="badge badge-blue" style="min-width:60px;">
+                            {downloadProgress.percent || 0}%
+                          </span>
+                        {:else if downloadKey === key}
+                          <span class="badge badge-blue"><span class="spinner" style="width:10px;height:10px;"></span></span>
+                        {:else}
+                          <button
+                            class="badge badge-blue"
+                            style="cursor:pointer;border:none;"
+                            onclick={() => doDownload(rel.version, p.plat)}
+                            disabled={downloading}
+                          >{p.label}</button>
+                        {/if}
+                      {/each}
+                    </div>
                   {/if}
                 </td>
                 <td>
-                  {#if downloadKey === key && downloadProgress}
-                    <div style="min-width:120px;">
-                      <div class="progress-bar">
-                        <div class="progress-fill" style="width:{downloadProgress.percent || 0}%;"></div>
-                      </div>
-                      <div style="font-size:0.65rem;color:var(--c-text-muted);margin-top:2px;">
-                        {formatSize(downloadProgress.bytes)}{downloadProgress.total ? ' / ' + formatSize(downloadProgress.total) : ''} · {downloadProgress.percent || 0}%
-                      </div>
+                  {#if downloadKey.startsWith(rel.version) && downloadProgress}
+                    <div class="progress-bar" style="width:80px;">
+                      <div class="progress-fill" style="width:{downloadProgress.percent || 0}%;"></div>
                     </div>
-                  {:else if downloadKey === key}
-                    <span class="spinner"></span>
-                  {:else if alreadyDownloaded.has(key)}
-                    <button class="btn btn-ghost btn-sm" disabled>{t('downloadedStatus')}</button>
-                  {:else}
-                    <button
-                      class="btn btn-primary btn-sm"
-                      onclick={() => doDownload(rel.version, selectedPlat)}
-                      disabled={downloading}
-                    >
-                      {t('download')}
-                    </button>
+                    <div style="font-size:0.6rem;color:var(--c-text-muted);margin-top:1px;">
+                      {formatSize(downloadProgress.bytes)} / {downloadProgress.total ? formatSize(downloadProgress.total) : '?'}
+                    </div>
                   {/if}
                 </td>
               </tr>

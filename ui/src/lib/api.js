@@ -145,6 +145,10 @@ export async function getClaudeStored() {
   return req('/claude-code/stored');
 }
 
+export async function getClaudePlatforms(version) {
+  return req(`/claude-code/platforms/${version}`);
+}
+
 export async function downloadClaudeVersion(version, plat, onProgress) {
   const r = await fetch(BASE + '/claude-code/download', {
     credentials: 'same-origin',
