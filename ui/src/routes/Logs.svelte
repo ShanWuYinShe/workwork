@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getServices, getServiceLogs } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let services = $state([]);
   let selectedService = $state('');
@@ -46,9 +47,9 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Service Logs</h1>
+    <h1 class="page-title">{t('serviceLogs')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={loadLogs}>Refresh</button>
+      <button class="btn btn-sm btn-ghost" onclick={loadLogs}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -59,7 +60,7 @@
   {:else}
     <div class="card">
       <div class="card-header">
-        <div class="card-title">Services</div>
+        <div class="card-title">{t('service')}</div>
       </div>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
         {#each services as s}
@@ -83,11 +84,11 @@
       {#if selectedService}
         <div class="card-header" style="margin-top:0;">
           <div class="card-title">{selectedService} — Logs</div>
-          <div class="card-subtitle">Last {parsed.length} lines</div>
+          <div class="card-subtitle">{t('lastLines', { n: parsed.length })}</div>
         </div>
         <div class="log-container">
           {#if parsed.length === 0}
-            <span style="color:var(--c-text-muted);">No log entries.</span>
+            <span style="color:var(--c-text-muted);">{t('noLogEntries')}</span>
           {:else}
             {#each parsed as line}
               <div class="log-line">{line}</div>

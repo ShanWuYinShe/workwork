@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getModelPool, setModelPool, setModelPoolUser } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let pool = $state({ providers: [], authorized_users: [] });
   let loading = $state(true);
@@ -89,9 +90,9 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Model Pool</h1>
+    <h1 class="page-title">{t('modelPool')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -111,21 +112,20 @@
         </div>
         <div class="card-actions">
           <button class="btn btn-success btn-sm" onclick={savePool} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Pool'}
+            {saving ? t('saving') : t('savePool')}
           </button>
         </div>
       </div>
       <p style="color:var(--c-text-secondary);font-size:0.75rem;margin-bottom:1rem;">
-        Configure AI API providers shared in the public model pool. They'll be injected into
-        authorized users' cliproxy configs.
+        {t('poolDesc')}
       </p>
 
       {#if pool.providers.length}
         <table style="margin-bottom:1rem;">
           <thead
             ><tr
-              ><th>Provider</th><th>Format</th><th>Alias</th><th>Upstream URL</th><th
-                >Upstream Key</th
+              ><th>{t('provider')}</th><th>{t('format')}</th><th>{t('alias')}</th><th>{t('upstreamURL')}</th><th
+                >{t('upstreamKey')}</th
               ><th></th></tr
             ></thead
           >
@@ -143,7 +143,7 @@
                 <td class="td-mono" style="color:var(--c-text-muted);">{maskKey(p.api_key)}</td>
                 <td
                   ><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}
-                    >Del</button
+                    >{t('del')}</button
                   ></td
                 >
               </tr>
@@ -151,7 +151,7 @@
           </tbody>
         </table>
       {:else}
-        <div class="empty-state">No pool providers configured.</div>
+        <div class="empty-state">{t('noPoolProviders')}</div>
       {/if}
 
       <div
@@ -160,57 +160,57 @@
         <div
           style="font-size:0.7rem;color:var(--c-text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:0.5rem;"
         >
-          Add Provider
+          {t('addProviderTitle')}
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label for="mp-name">Provider</label>
+            <label for="mp-name">{t('provider')}</label>
             <input
               id="mp-name"
               type="text"
               bind:value={newName}
-              placeholder="e.g. openai"
+              placeholder={t('providerName')}
               style="width:100px;font-size:0.78rem;"
             />
           </div>
           <div class="form-group">
-            <label for="mp-type">Format</label>
+            <label for="mp-type">{t('format')}</label>
             <select id="mp-type" bind:value={newType} style="width:110px;">
-              <option value="openai">OpenAI Compat</option>
-              <option value="anthropic">Anthropic</option>
+              <option value="openai">{t('openAICompatOpt')}</option>
+              <option value="anthropic">{t('anthropic')}</option>
             </select>
           </div>
           <div class="form-group">
-            <label for="mp-alias">Alias</label>
+            <label for="mp-alias">{t('alias')}</label>
             <input
               id="mp-alias"
               type="text"
               bind:value={newAlias}
-              placeholder="e.g. gpt"
+              placeholder={t('alias')}
               style="width:80px;font-size:0.78rem;"
             />
           </div>
           <div class="form-group form-group-grow">
-            <label for="mp-url">Upstream URL</label>
+            <label for="mp-url">{t('upstreamURL')}</label>
             <input
               id="mp-url"
               type="text"
               bind:value={newURL}
-              placeholder="https://api.openai.com/v1"
+              placeholder={t('upstreamURL')}
               style="font-size:0.78rem;"
             />
           </div>
           <div class="form-group form-group-grow">
-            <label for="mp-key">Upstream Key</label>
+            <label for="mp-key">{t('upstreamKey')}</label>
             <input
               id="mp-key"
               type="text"
               bind:value={newKey}
-              placeholder="sk-xxx"
+              placeholder={t('apiKey')}
               style="font-size:0.78rem;"
             />
           </div>
-          <button class="btn btn-success btn-sm" onclick={addProvider}>Add</button>
+          <button class="btn btn-success btn-sm" onclick={addProvider}>{t('add')}</button>
         </div>
       </div>
     </div>
@@ -234,7 +234,7 @@
           </div>
         {/each}
         {#if pool.authorized_users.length === 0}
-          <div class="empty-state">No users authorized. Use the Cliproxy page to grant access.</div>
+          <div class="empty-state">{t('noUsersAuthorizedDesc')}</div>
         {/if}
       </div>
     </div>

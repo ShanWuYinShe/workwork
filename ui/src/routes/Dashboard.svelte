@@ -107,7 +107,7 @@
             /></svg
           >
         </div>
-        <div class="label">Services</div>
+        <div class="label">{t('servicesCount')}</div>
         <div class="value">{stats.services}</div>
       </div>
       <div class="stat">
@@ -120,7 +120,7 @@
             /></svg
           >
         </div>
-        <div class="label">Running</div>
+        <div class="label">{t('running')}</div>
         <div class="value">{stats.running}</div>
       </div>
       <div class="stat">
@@ -133,7 +133,7 @@
             /></svg
           >
         </div>
-        <div class="label">Docker Engine</div>
+        <div class="label">{t('dockerEngine')}</div>
         <div class="value" style="font-size:0.9rem">{stats.dockerVersion}</div>
       </div>
       <div class="stat">
@@ -146,7 +146,7 @@
             /></svg
           >
         </div>
-        <div class="label">CPU / Memory</div>
+        <div class="label">{t('cpuMemory')}</div>
         <div class="value" style="font-size:0.85rem">{stats.cpu} / {stats.memory}</div>
       </div>
     </div>
@@ -154,13 +154,13 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Services
+          {t('servicesCount')}
           {#if services.length}<span class="card-title-count">{services.length}</span>{/if}
         </div>
       </div>
       {#if services.length}
         <table>
-          <thead><tr><th>Service</th><th>State</th><th>Image</th></tr></thead>
+          <thead><tr><th>{t('service')}</th><th>{t('state')}</th><th>{t('image')}</th></tr></thead>
           <tbody>
             {#each services as s}
               <tr>
@@ -176,7 +176,7 @@
           </tbody>
         </table>
       {:else}
-        <div class="empty-state">No services found.</div>
+        <div class="empty-state">{t('noServices')}</div>
       {/if}
     </div>
   {:else}
@@ -184,8 +184,8 @@
     <div class="welcome-card">
       <div class="welcome-avatar">{username[0].toUpperCase()}</div>
       <div>
-        <div class="welcome-title">Welcome back, {username}</div>
-        <div class="welcome-sub">Manage your proxy clients and configuration below.</div>
+        <div class="welcome-title">{t('welcomeTitle', { username })}</div>
+        <div class="welcome-sub">{t('welcomeSubTitle')}</div>
       </div>
     </div>
 
@@ -200,7 +200,7 @@
             /></svg
           >
         </div>
-        <div class="label">My Clients</div>
+        <div class="label">{t('myClients')}</div>
         <div class="value">{myClients.length}</div>
       </div>
     </div>
@@ -209,12 +209,12 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title">
-            My Clients
+            {t('myClients')}
             <span class="card-title-count">{myClients.length}</span>
           </div>
         </div>
         <table>
-          <thead><tr><th>UUID</th><th>Protocols</th></tr></thead>
+          <thead><tr><th>UUID</th><th>{t('protocols')}</th></tr></thead>
           <tbody>
             {#each myClients as c}
               <tr>
@@ -231,38 +231,38 @@
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Client Configuration</div>
+          <div class="card-title">{t('clientConfig')}</div>
           <div class="card-actions">
             <button
               class="btn btn-sm btn-primary"
               onclick={copyConfig}
-              aria-label="Copy configuration"
+              aria-label={t('copyConfiguration')}
             >
-              {#if copied}Copied{:else}Copy{/if}
+              {#if copied}{t('copied')}{:else}{t('copy')}{/if}
             </button>
             <button
               class="btn btn-sm btn-ghost"
               onclick={downloadConfig}
-              aria-label="Download configuration">Download</button
+              aria-label={t('downloadConfiguration')}>{t('download')}</button
             >
           </div>
         </div>
         <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
-          <span class="badge badge-gray">SOCKS5 :10808</span>
-          <span class="badge badge-gray">HTTP :10809</span>
-          <span class="badge badge-gray">Balancer: reality + xhttp</span>
+          <span class="badge badge-gray">{t('socks5')} :10808</span>
+          <span class="badge badge-gray">{t('http')} :10809</span>
+          <span class="badge badge-gray">{t('balancer')}: reality + xhttp</span>
         </div>
         <textarea rows="16" readonly>{generatedJSON}</textarea>
         {#if copied}
-          <div class="toast toast-success" style="margin-top:0.75rem;">Copied to clipboard</div>
+          <div class="toast toast-success" style="margin-top:0.75rem;">{t('configCopied')}</div>
         {/if}
       </div>
     {:else}
       <div class="card">
         <div class="empty-state">
-          <p style="margin-bottom:0.5rem;">You don't have any proxy clients yet.</p>
+          <p style="margin-bottom:0.5rem;">{t('noProxyClientsYet')}</p>
           <p style="font-size:0.78rem;">
-            Go to <strong>Clients</strong> to create your first proxy configuration.
+            {t('goToClients')}
           </p>
         </div>
       </div>

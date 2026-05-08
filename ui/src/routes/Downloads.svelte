@@ -7,6 +7,7 @@
     downloadClaudeVersion,
     deleteClaudeDownload,
   } from '../lib/api.js';
+  import { t } from '../lib/i18n.svelte.js';
 
   let releases = $state([]);
   let platforms = $state([]);
@@ -118,9 +119,9 @@
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Downloads</h1>
+    <h1 class="page-title">{t('downloads')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>Refresh</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
 
@@ -138,7 +139,7 @@
           /></svg
         >
       </div>
-      <div class="label">Stored</div>
+      <div class="label">{t('stored')}</div>
       <div class="value">{stored.length}</div>
     </div>
     {#if isAdmin}
@@ -152,7 +153,7 @@
             /></svg
           >
         </div>
-        <div class="label">Available</div>
+        <div class="label">{t('available')}</div>
         <div class="value">{releases.length}</div>
       </div>
     {/if}
@@ -162,14 +163,14 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Stored Downloads
+          {t('storedDownloads')}
           <span class="card-title-count">{stored.length}</span>
         </div>
-        <div class="card-subtitle">Official Claude Code binaries from claude.ai CDN</div>
+        <div class="card-subtitle">{t('officialBinaries')}</div>
       </div>
       <table>
         <thead
-          ><tr><th>Version</th><th>Platform</th><th>Size</th><th>Checksum</th><th></th></tr></thead
+          ><tr><th>{t('version')}</th><th>{t('platform')}</th><th>{t('size')}</th><th>{t('checksum')}</th><th></th></tr></thead
         >
         <tbody>
           {#each stored as s}
@@ -178,7 +179,7 @@
                 <a
                   href="/api/admin/claude-code/downloads/{s.filename}"
                   style="color:#93c5fd;text-decoration:none;"
-                  title="Download to local machine"
+                  title={t('downloadToLocal')}
                 >
                   {s.version}
                 </a>
@@ -198,7 +199,7 @@
                     <span class="spinner"></span>
                   {:else}
                     <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}
-                      >Delete</button
+                      >{t('delete')}</button
                     >
                   {/if}
                 {/if}
@@ -214,10 +215,10 @@
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          Available Versions
+          {t('availableVersions')}
           <span class="card-title-count">{latestReleases.length}</span>
         </div>
-        <div class="card-subtitle">From GitHub releases. Max 3 stored — old ones auto-removed.</div>
+        <div class="card-subtitle">{t('fromGH')}</div>
       </div>
       {#if loading}
         <div class="loading-skeleton" style="height:200px;"></div>
@@ -225,7 +226,7 @@
         <div
           style="padding:0.75rem 0;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.75rem;"
         >
-          <label for="plat-select" style="margin-bottom:0;white-space:nowrap;">Platform:</label>
+          <label for="plat-select" style="margin-bottom:0;white-space:nowrap;">{t('platformLabel')}</label>
           <select id="plat-select" bind:value={selectedPlat} style="max-width:220px;">
             {#each platforms as p}
               <option value={p.plat}>{p.label}</option>
@@ -233,7 +234,7 @@
           </select>
         </div>
         <table>
-          <thead><tr><th>Version</th><th>Date</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>{t('version')}</th><th>{t('created')}</th><th>{t('status')}</th><th></th></tr></thead>
           <tbody>
             {#each latestReleases as rel}
               {@const key = rel.version + '-' + selectedPlat}
@@ -251,14 +252,14 @@
                   {#if downloadKey === key}
                     <span class="spinner"></span>
                   {:else if alreadyDownloaded.has(key)}
-                    <button class="btn btn-ghost btn-sm" disabled>Downloaded</button>
+                    <button class="btn btn-ghost btn-sm" disabled>{t('downloadedStatus')}</button>
                   {:else}
                     <button
                       class="btn btn-primary btn-sm"
                       onclick={() => doDownload(rel.version, selectedPlat)}
                       disabled={downloading}
                     >
-                      Download
+                      {t('download')}
                     </button>
                   {/if}
                 </td>
@@ -273,7 +274,7 @@
   {#if !loading && !isAdmin && stored.length === 0}
     <div class="card">
       <div class="empty-state">
-        No Claude Code binaries available yet. Ask an admin to download them.
+        {t('noClaudeCodeAskAdmin')}
       </div>
     </div>
   {/if}
