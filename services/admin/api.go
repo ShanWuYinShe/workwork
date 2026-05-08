@@ -886,3 +886,41 @@ func containerExec(ctx context.Context, cli *client.Client, containerID string, 
 	}
 	return nil
 }
+
+// GET /api/admin/services/{name}/logs?tail=100
+func apiServiceLogs(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		tail := r.URL.Query().Get("tail")
+		if tail == "" {
+			tail = "100"
+		}
+		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+			All: true,
+			Filters: filters.NewArgs(filters.KeyValuePair{
+				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
+			}),
+		})
+		if err != nil || len(containers) == 0 {
+			writeError(w, "Service not found", 404)
+			return
+		}
+		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
+			ShowStdout: true, ShowStderr: true,
+			Tail: tail, Timestamps: true,
+		})
+		if err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		defer logs.Close()
+		var buf bytes.Buffer
+		stdcopy.StdCopy(&buf, &buf, logs)
+		s := buf.String()
+		// Keep last 128KB max
+		if len(s) > 128*1024 {
+			s = s[len(s)-128*1024:]
+		}
+		writeJSON(w, map[string]any{"logs": s})
+	}
+}

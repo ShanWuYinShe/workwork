@@ -1,6 +1,7 @@
 const zh = {
   overview: '概览', manage: '管理', system: '系统',
   dashboard: '仪表盘', services: '服务', clients: '客户端',
+  logs: '日志',
   users: '用户管理', security: '安全', cliproxy: 'Cliproxy',
   settings: '设置', modelPool: '模型池', downloads: '下载',
   adminPanel: '管理面板',
@@ -29,6 +30,7 @@ const zh = {
 const en = {
   overview: 'Overview', manage: 'Manage', system: 'System',
   dashboard: 'Dashboard', services: 'Services', clients: 'Clients',
+  logs: 'Logs',
   users: 'Users', security: 'Security', cliproxy: 'Cliproxy',
   settings: 'Settings', modelPool: 'Model Pool', downloads: 'Downloads',
   adminPanel: 'Admin Panel',

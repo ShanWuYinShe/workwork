@@ -35,6 +35,10 @@ export async function serviceAction(name, action) {
   return json.data;
 }
 
+export async function getServiceLogs(name, tail = 100) {
+  return req(`/services/${name}/logs?tail=${tail}`);
+}
+
 export async function getUsers() {
   return req('/users');
 }
