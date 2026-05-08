@@ -267,11 +267,7 @@ func listStoredDownloads() []claudeStoredDownload {
 		if info != nil {
 			modTime = info.ModTime().UTC().Format(time.RFC3339)
 		}
-		// Try to read checksum from accompanying file
 		checksum := ""
-		if csData, err := os.ReadFile(filepath.Join(claudeDownloadsDir, e.Name()+".sha256")); err == nil {
-			checksum = strings.TrimSpace(string(csData))
-		}
 		result = append(result, claudeStoredDownload{
 			Version:      version,
 			Plat:         plat,
@@ -355,9 +351,6 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 		return 0, err
 	}
 
-	// Save checksum alongside for later reference
-	os.WriteFile(path+".sha256", []byte(actual), 0644)
-
 	return written, nil
 }
 
@@ -368,7 +361,6 @@ func cleanupOldDownloads(maxKeep int) {
 	}
 	for _, d := range downloads[maxKeep:] {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
-		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename+".sha256"))
 	}
 }
 
