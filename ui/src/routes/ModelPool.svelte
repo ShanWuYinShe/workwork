@@ -8,7 +8,7 @@ let error = $state('');
 let message = $state('');
 let saving = $state(false);
 
-let newName = $state(''), newURL = $state(''), newKey = $state(''), newType = $state('openai'), newAlias = $state('');
+let newName = '', newURL = '', newKey = '', newType = 'openai', newAlias = '', newModelName = '*', newModelAlias = '', tempModels = $state([]);
 
 onMount(refresh);
 
@@ -24,7 +24,7 @@ async function refresh() {
 
 function addProvider() {
   if (!newName || !newURL || !newKey) return;
-  pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, alias: newAlias || newName }];
+  let models = tempModels.length > 0 ? tempModels : [{ name: '*', alias: newAlias || newName }]; pool.providers = [...pool.providers, { name: newName, base_url: newURL, api_key: newKey, type: newType, models }];
   newName = ''; newURL = ''; newKey = ''; newType = 'openai'; newAlias = '';
 }
 

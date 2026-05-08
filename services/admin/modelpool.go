@@ -14,11 +14,23 @@ import (
 )
 
 type modelPoolProvider struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
-	Type    string `json:"type"`  // "openai" or "anthropic"
-	Alias   string `json:"alias"` // model alias prefix
+	Name    string          `json:"name"`
+	BaseURL string          `json:"base_url"`
+	APIKey  string          `json:"api_key"`
+	Type    string          `json:"type"`   // "openai" or "anthropic"
+	Alias   string          `json:"alias"`  // legacy, auto-migrated
+	Models  []cliproxyModel `json:"models"` // per-model aliases
+}
+
+func (p modelPoolProvider) getModels() []cliproxyModel {
+	if len(p.Models) > 0 {
+		return p.Models
+	}
+	alias := p.Alias
+	if alias == "" {
+		alias = p.Name
+	}
+	return []cliproxyModel{{Name: "*", Alias: alias}}
 }
 
 type modelPoolConfig struct {
@@ -198,16 +210,13 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	var allProviders []cliproxyProvider
 	allProviders = append(allProviders, userProviders...)
 	for _, pp := range poolProviders {
-		alias := pp.Alias
-		if alias == "" {
-			alias = pp.Name
-		}
 		allProviders = append(allProviders, cliproxyProvider{
 			Name:    "[Pool] " + pp.Name,
 			BaseURL: pp.BaseURL,
 			APIKey:  pp.APIKey,
 			Type:    pp.Type,
-			Alias:   alias,
+			Models:  pp.Models,
+			Alias:   pp.Alias,
 		})
 	}
 
