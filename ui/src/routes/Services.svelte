@@ -22,7 +22,7 @@
   });
 
   async function act(name, action) {
-    if (!confirm(`${action} service "${name}"?`)) return;
+    if (!confirm(t('confirm' + action.charAt(0).toUpperCase() + action.slice(1) + 'Service', { name }))) return;
     actingService = name;
     try {
       const d = await serviceAction(name, action);

@@ -54,7 +54,7 @@
     message = '';
     try {
       await cliproxyStart(username);
-      message = `Started cliproxy for ${username}.`;
+      message = `${selectedUser} 的 cliproxy 已启动。`;
       await refresh();
     } catch (e) {
       error = e.message;
@@ -64,13 +64,13 @@
   }
 
   async function doStop(username) {
-    if (!confirm(`Stop cliproxy for ${username}?`)) return;
+    if (!confirm(t('confirmStopCliproxy', { username }))) return;
     actingUser = username;
     error = '';
     message = '';
     try {
       await cliproxyStop(username);
-      message = `Stopped cliproxy for ${username}.`;
+      message = `${selectedUser} 的 cliproxy 已停止。`;
       await refresh();
     } catch (e) {
       error = e.message;
@@ -123,7 +123,7 @@
     message = '';
     try {
       await cliproxySetConfig(selectedUser, providers);
-      message = `Config saved for ${selectedUser}.`;
+      message = `${selectedUser} 的配置已保存。`;
       selectedUser = null;
     } catch (e) {
       error = e.message;
@@ -136,7 +136,7 @@
     error = '';
     try {
       const d = await cliproxyCodexLogin(username);
-      codexOutput = d.output || 'Login started. Check container logs.';
+      codexOutput = d.output || t('codexLoginStarted');
     } catch (e) {
       error = e.message;
     } finally {
@@ -159,7 +159,7 @@
         credentials: 'same-origin',
       });
       const json = await r.json();
-      if (!json.success) throw new Error(json.error || 'Upload failed');
+      if (!json.success) throw new Error(t('uploadFailed'));
       message = `OAuth file "${json.data.file}" uploaded.`;
     } catch (e) {
       error = e.message;
@@ -260,7 +260,7 @@
                 <td style="font-weight:500;">{p.name}</td>
                 <td>
                   <span class="badge badge-{p.type === 'anthropic' ? 'purple' : 'blue'}"
-                    >{p.type === 'anthropic' ? 'Anthropic' : 'OpenAI'}</span
+                    >{p.type === 'anthropic' ? t('anthropic') : t('openAICompatOpt')}</span
                   >
                 </td>
                 <td class="td-mono">{p.alias || p.name}/*</td>
@@ -429,7 +429,7 @@
       {:else if instances.length}
         <table>
           <thead
-            ><tr><th>User</th><th>Pool</th><th>Base URL</th><th>{t('status')}</th><th>{t('serviceActions')}</th></tr
+            ><tr><th>{t('tableUser')}</th><th>Pool</th><th>{t('tableBaseURL')}</th><th>{t('status')}</th><th>{t('serviceActions')}</th></tr
             ></thead
           >
           <tbody>
@@ -438,7 +438,7 @@
                 <td style="font-weight:500;">{ci.username}</td>
                 <td>
                   {#if ci.pool_access}
-                    <span class="badge badge-purple"><span class="badge-dot"></span>pool</span>
+                    <span class="badge badge-purple"><span class="badge-dot"></span>{t('pool')}</span>
                   {:else}
                     <span class="badge badge-gray">—</span>
                   {/if}

@@ -66,7 +66,7 @@
         copied = true;
         setTimeout(() => (copied = false), 2000);
       } catch {
-        error = 'Copy failed';
+        error = t('copyFailed');
       }
       document.body.removeChild(ta);
     }
@@ -214,14 +214,14 @@
           </div>
         </div>
         <table>
-          <thead><tr><th>UUID</th><th>{t('protocols')}</th></tr></thead>
+          <thead><tr><th>{t('uuid')}</th><th>{t('protocols')}</th></tr></thead>
           <tbody>
             {#each myClients as c}
               <tr>
                 <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
                 <td>
-                  <span class="badge badge-green"><span class="badge-dot"></span>reality</span>
-                  <span class="badge badge-blue">xhttp</span>
+                  <span class="badge badge-green"><span class="badge-dot"></span>{t('protocolReality')}</span>
+                  <span class="badge badge-blue">{t('protocolXhttp')}</span>
                 </td>
               </tr>
             {/each}
@@ -250,7 +250,7 @@
         <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
           <span class="badge badge-gray">{t('socks5')} :10808</span>
           <span class="badge badge-gray">{t('http')} :10809</span>
-          <span class="badge badge-gray">{t('balancer')}: reality + xhttp</span>
+          <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
         </div>
         <textarea rows="16" readonly>{generatedJSON}</textarea>
         {#if copied}
