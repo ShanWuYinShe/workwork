@@ -1,6 +1,7 @@
 <script>
 import { onMount } from 'svelte';
 import { getDashboard, getCurrentUser } from '../lib/api.js';
+import { t } from '../lib/i18n.svelte.js';
 
 let stats = $state({ services: '-', running: '-', dockerVersion: '-', cpu: '-', memory: '-', os: '-', arch: '-' });
 let services = $state([]);
@@ -65,7 +66,7 @@ function downloadConfig() {
 
 <div class="page">
   <div class="page-header">
-    <h1 class="page-title">Dashboard</h1>
+    <h1 class="page-title">{t('dashboard')}</h1>
   </div>
 
   {#if error}<div class="toast toast-error">{error}</div>{/if}
