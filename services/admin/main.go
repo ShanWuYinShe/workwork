@@ -69,6 +69,7 @@ func main() {
 	mux.HandleFunc("POST /api/admin/model-pool/users", requireRole("admin")(apiModelPoolUsers(cli)))
 	// Claude Code downloads — admin manages, viewer can see + download stored
 	mux.HandleFunc("GET /api/admin/claude-code/releases", requireRole("admin")(apiClaudeCodeReleases()))
+	mux.HandleFunc("POST /api/admin/claude-code/refresh", requireRole("admin")(apiClaudeCodeRefresh()))
 	mux.HandleFunc("GET /api/admin/claude-code/stored", requireRole("viewer")(apiClaudeCodeStored()))
 	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
 	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("viewer")(apiClaudeCodeServeDownload()))

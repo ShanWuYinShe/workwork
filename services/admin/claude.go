@@ -12,21 +12,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Official Claude Code download base URL (from install.sh)
 const claudeCodeBaseURL = "https://downloads.claude.ai/claude-code-releases"
-
-// releases manifest — stores versions discovered from downloads on disk
-type claudeReleasesManifest struct {
-	Versions []claudeRelease `json:"versions"`
-}
-
-type claudeRelease struct {
-	Version string `json:"version"`
-	Date    string `json:"date"`
-}
 
 var githubClient = &http.Client{Timeout: 15 * time.Second}
 
@@ -43,6 +34,11 @@ var claudePlatforms = []struct {
 	{"macOS Intel", "darwin-x64"},
 	{"Windows x64", "win32-x64"},
 	{"Windows ARM64", "win32-arm64"},
+}
+
+type claudeRelease struct {
+	Version string `json:"version"`
+	Date    string `json:"date"`
 }
 
 type claudeStoredDownload struct {
@@ -62,14 +58,24 @@ type claudeManifest struct {
 }
 
 var (
-	claudeDownloadsDir   = "/app/data/claude-code"
-	claudeManifestPath   = "/app/data/claude-code/downloads.json"
-	claudeReleasesPath   = "/app/data/claude-code/releases.json"
+	claudeDownloadsDir = "/app/data/claude-code"
+	claudeManifestPath = "/app/data/claude-code/downloads.json"
+	claudeReleasesPath = "/app/data/claude-code/releases.json"
+	claudeCache        struct {
+		releases  []claudeRelease
+		checkedAt time.Time
+	}
+	claudeCacheMu sync.Mutex
 )
 
 // claude downloads manifest — persisted across restarts
 type claudeDownloadsManifest struct {
 	Downloads []claudeStoredDownload `json:"downloads"`
+}
+
+// releases manifest — cached list from GitHub
+type claudeReleasesManifest struct {
+	Versions []claudeRelease `json:"versions"`
 }
 
 func loadDownloadsManifest() claudeDownloadsManifest {
@@ -104,27 +110,11 @@ func saveReleasesManifest(m claudeReleasesManifest) {
 	os.WriteFile(claudeReleasesPath, data, 0644)
 }
 
-func buildReleasesFromDownloads() []claudeRelease {
-	m := loadDownloadsManifest()
-	seen := make(map[string]bool)
-	var releases []claudeRelease
-	for _, d := range m.Downloads {
-		if seen[d.Version] {
-			continue
-		}
-		seen[d.Version] = true
-		releases = append(releases, claudeRelease{Version: d.Version, Date: d.DownloadedAt})
-	}
-	sort.Slice(releases, func(i, j int) bool {
-		return compareVersions(releases[i].Version, releases[j].Version) > 0
-	})
-	return releases
-}
-
-// GET /api/admin/claude-code/releases — versions derived from files on disk (no GitHub)
+// GET /api/admin/claude-code/releases — admin gets full version list from GitHub (cached)
+// GET /api/admin/claude-code/stored — viewer gets available versions from files on disk
 func apiClaudeCodeReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		releases := buildReleasesFromDownloads()
+		releases := fetchCachedReleases()
 		stored := listStoredDownloads()
 		writeJSON(w, map[string]any{
 			"releases":  releases,
@@ -142,6 +132,83 @@ func apiClaudeCodeStored() http.HandlerFunc {
 			stored = []claudeStoredDownload{}
 		}
 		writeJSON(w, map[string]any{"stored": stored})
+	}
+}
+
+// fetchCachedReleases returns cached releases from file, refreshing from GitHub if stale (>30 min)
+func fetchCachedReleases() []claudeRelease {
+	claudeCacheMu.Lock()
+	if time.Since(claudeCache.checkedAt) < 30*time.Minute && len(claudeCache.releases) > 0 {
+		r := claudeCache.releases
+		claudeCacheMu.Unlock()
+		return r
+	}
+	claudeCacheMu.Unlock()
+
+	// Try file first
+	m := loadReleasesManifest()
+	if len(m.Versions) > 0 {
+		claudeCacheMu.Lock()
+		claudeCache.releases = m.Versions
+		claudeCache.checkedAt = time.Now()
+		claudeCacheMu.Unlock()
+		return m.Versions
+	}
+
+	// Fetch from GitHub
+	releases, _ := fetchReleasesFromGitHub()
+	if len(releases) > 0 {
+		saveReleasesManifest(claudeReleasesManifest{Versions: releases})
+	}
+	return releases
+}
+
+// fetchReleasesFromGitHub calls GitHub API for all claude-code releases
+func fetchReleasesFromGitHub() ([]claudeRelease, error) {
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/anthropics/claude-code/releases?per_page=30", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "workwork-admin")
+
+	resp, err := githubClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("github api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var ghReleases []struct {
+		TagName     string `json:"tag_name"`
+		PublishedAt string `json:"published_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ghReleases); err != nil {
+		return nil, fmt.Errorf("parse releases: %w", err)
+	}
+
+	var releases []claudeRelease
+	for _, r := range ghReleases {
+		v := strings.TrimPrefix(r.TagName, "v")
+		releases = append(releases, claudeRelease{Version: v, Date: r.PublishedAt})
+	}
+	sort.Slice(releases, func(i, j int) bool {
+		return compareVersions(releases[i].Version, releases[j].Version) > 0
+	})
+
+	claudeCacheMu.Lock()
+	claudeCache.releases = releases
+	claudeCache.checkedAt = time.Now()
+	claudeCacheMu.Unlock()
+
+	return releases, nil
+}
+
+// POST /api/admin/claude-code/refresh — force-refresh version list from GitHub
+func apiClaudeCodeRefresh() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		releases, err := fetchReleasesFromGitHub()
+		if err != nil {
+			writeError(w, "Failed to refresh: "+err.Error(), 500)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
 	}
 }
 
@@ -198,7 +265,7 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		cleanupOldDownloads(3)
+		cleanupOldDownloads(10)
 
 		writeJSON(w, map[string]any{"status": "ok", "filename": filename, "size": size, "checksum": platInfo.Checksum})
 	}
@@ -277,7 +344,6 @@ func listStoredDownloads() []claudeStoredDownload {
 
 func parseStoredFilename(name string) (version, plat, platName string) {
 	rest := strings.TrimPrefix(name, "claude-code-")
-	// Try to match platform suffix (longest first to avoid partial matches)
 	plats := make([]struct{ Label, Plat string }, len(claudePlatforms))
 	for i, p := range claudePlatforms {
 		plats[i] = struct{ Label, Plat string }{p.Label, p.Plat}
@@ -327,7 +393,6 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 		return 0, err
 	}
 
-	// Verify SHA256 checksum
 	actual := hex.EncodeToString(hasher.Sum(nil))
 	if actual != expectedChecksum {
 		os.Remove(tmpPath)
@@ -341,7 +406,7 @@ func downloadClaudeBinary(version, plat, filename, expectedChecksum string) (int
 
 	// Persist metadata
 	m := loadDownloadsManifest()
-	_, platName := "", ""
+	platName := ""
 	for _, p := range claudePlatforms {
 		if p.Plat == plat {
 			platName = p.Label
