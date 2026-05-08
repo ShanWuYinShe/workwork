@@ -1,5 +1,5 @@
 const zh = {
-  overview: '概览', manage: '管理', system: '系统',
+  overview: '概览', proxy: '代理', ai: 'AI 服务', system: '系统',
   dashboard: '仪表盘', services: '服务', clients: '客户端',
   logs: '日志',
   users: '用户管理', security: '安全', cliproxy: 'Cliproxy',
@@ -85,7 +85,7 @@ const zh = {
 };
 
 const en = {
-  overview: 'Overview', manage: 'Manage', system: 'System',
+  overview: 'Overview', proxy: 'Proxy', ai: 'AI', system: 'System',
   dashboard: 'Dashboard', services: 'Services', clients: 'Clients',
   logs: 'Logs',
   users: 'Users', security: 'Security', cliproxy: 'Cliproxy',

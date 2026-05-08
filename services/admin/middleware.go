@@ -81,6 +81,10 @@ func ensureUserMeta(username string) (*UserInfo, error) {
 	return &info, nil
 }
 
+func isProtectedAdmin(username string) bool {
+	return username == os.Getenv("AUTH_USER")
+}
+
 func updateUserMeta(username string, info UserInfo) error {
 	doc, err := readUsersMeta()
 	if err != nil {
