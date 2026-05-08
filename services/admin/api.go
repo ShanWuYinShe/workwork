@@ -522,6 +522,12 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
+		// Protected admin account cannot be demoted
+		if isProtectedAdmin(body.Username) && body.Role != "admin" {
+			writeError(w, "Cannot demote the default admin account", 403)
+			return
+		}
+
 		// Prevent demoting the last admin
 		if body.Role != "admin" {
 			doc, _ := readUsersMeta()
