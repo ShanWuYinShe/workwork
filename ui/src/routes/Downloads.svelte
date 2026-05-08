@@ -6,6 +6,7 @@
     getClaudeStored,
     downloadClaudeVersion,
     deleteClaudeDownload,
+    refreshClaudeVersions,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
 
@@ -16,6 +17,7 @@
   let error = $state('');
   let message = $state('');
   let isAdmin = $state(false);
+  let refreshing = $state(false);
   let downloading = $state(false);
   let downloadKey = $state('');
   let deletingFile = $state('');
@@ -23,11 +25,10 @@
 
   onMount(async () => {
     try {
-      const [user, d] = await Promise.all([
-        getCurrentUser(),
-        isAdmin ? getClaudeReleases() : Promise.resolve({ releases: [], platforms: [], stored: [] }),
-      ]);
+      const user = await getCurrentUser();
+      isAdmin = user.role === 'admin';
       if (isAdmin) {
+        const d = await getClaudeReleases();
         releases = d.releases || [];
         platforms = d.platforms || [];
         stored = d.stored || [];
@@ -43,7 +44,7 @@
     }
   });
 
-  async function refresh() {
+  async function reloadPageData() {
     loading = true;
     error = '';
     try {
@@ -64,6 +65,21 @@
     }
   }
 
+  async function doRefreshVersions() {
+    refreshing = true;
+    error = '';
+    message = '';
+    try {
+      const d = await refreshClaudeVersions();
+      message = `已刷新 ${d.count} 个版本。`;
+      await reloadPageData();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      refreshing = false;
+    }
+  }
+
   async function doDownload(version, plat) {
     const key = version + '-' + plat;
     downloadKey = key;
@@ -77,7 +93,7 @@
       } else {
         message = `已下载 ${d.filename}（${formatSize(d.size)}）— SHA256: ${(d.checksum || '').slice(0, 16)}...`;
       }
-      await refresh();
+      await reloadPageData();
     } catch (e) {
       error = e.message;
     } finally {
@@ -93,7 +109,7 @@
     try {
       await deleteClaudeDownload(filename);
       message = `已删除 ${filename}。`;
-      await refresh();
+      await reloadPageData();
     } catch (e) {
       error = e.message;
     } finally {
@@ -120,7 +136,13 @@
   <div class="page-header">
     <h1 class="page-title">{t('downloads')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
+      {#if isAdmin}
+        <button class="btn btn-sm btn-ghost" onclick={doRefreshVersions} disabled={refreshing}>
+          {#if refreshing}<span class="spinner" style="margin-right:0.25rem;"></span>{/if}
+          {t('refreshVersions')}
+        </button>
+      {/if}
+      <button class="btn btn-sm btn-ghost" onclick={reloadPageData}>{t('refresh')}</button>
     </div>
   </div>
 

@@ -184,6 +184,7 @@ const zh = {
   // Downloads
   storedDownloads: '已存储下载',
   availableVersions: '可用版本',
+  refreshVersions: '刷新版本列表',
   platform: '平台',
   stored: '已存储',
   available: '可用',
@@ -466,6 +467,7 @@ const en = {
   // Downloads
   storedDownloads: 'Stored Downloads',
   availableVersions: 'Available Versions',
+  refreshVersions: 'Refresh Version List',
   platform: 'Platform',
   stored: 'Stored',
   available: 'Available',

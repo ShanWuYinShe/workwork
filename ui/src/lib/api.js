@@ -133,6 +133,10 @@ export async function setModelPoolUser(username, granted) {
   return req('/model-pool/users', { method: 'POST', body: JSON.stringify({ username, granted }) });
 }
 
+export async function refreshClaudeVersions() {
+  return req('/claude-code/refresh', { method: 'POST' });
+}
+
 export async function getClaudeReleases() {
   return req('/claude-code/releases');
 }
