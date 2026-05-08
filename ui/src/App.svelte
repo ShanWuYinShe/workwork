@@ -623,7 +623,7 @@ function getIcon(name) {
     padding: 0.6rem 1rem;
     border-radius: var(--radius);
     font-size: 0.8rem; font-weight: 500;
-    animation: toastIn 0.25s ease;
+    animation: toastIn 0.25s ease, toastOut 0.3s ease 5s forwards;
     pointer-events: auto;
     max-width: 400px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.4);
@@ -631,6 +631,7 @@ function getIcon(name) {
   :global(.toast-error) { background: #7f1d1d; color: #fca5a5; border: 1px solid rgba(239,68,68,0.2); }
   :global(.toast-success) { background: #064e3b; color: #6ee7b7; border: 1px solid rgba(34,197,94,0.2); }
   @keyframes toastIn { from { opacity: 0; transform: translateY(-8px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+	  @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); pointer-events: none; } }
 
   /* ── Loading ── */
   :global(.loading-skeleton) {
