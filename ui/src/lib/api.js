@@ -145,8 +145,49 @@ export async function getClaudeStored() {
   return req('/claude-code/stored');
 }
 
-export async function downloadClaudeVersion(version, plat) {
-  return req('/claude-code/download', { method: 'POST', body: JSON.stringify({ version, plat }) });
+export async function downloadClaudeVersion(version, plat, onProgress) {
+  const r = await fetch(BASE + '/claude-code/download', {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    body: JSON.stringify({ version, plat }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let result = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const data = JSON.parse(line);
+      if (data.type === 'progress' && onProgress) onProgress(data);
+      if (data.type === 'error') throw new Error(data.error);
+      if (data.type === 'done') result = data;
+      if (data.type === 'start' && onProgress) onProgress({ bytes: 0, total: 0, percent: 0 });
+    }
+  }
+  // Handle remaining buffer
+  if (buf.trim()) {
+    const data = JSON.parse(buf);
+    if (data.type === 'error') throw new Error(data.error);
+    if (data.type === 'done') result = data;
+  }
+
+  // Non-streaming fallback (already_exists etc.)
+  if (!result) {
+    const json = await r.json();
+    if (!json.success) throw new Error(json.error || 'API error');
+    return json.data;
+  }
+  return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
 }
 
 export async function deleteClaudeDownload(filename) {
