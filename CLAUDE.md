@@ -142,12 +142,14 @@ claude-api-key:              # Anthropic API format providers
 
 4 services: nginx, xray, cliproxy-public, admin. Networks: `ipvlan_docker` (external, IPv6 L3) + `internal_docker` (bridge, 172.20.0.0/16). Admin build context is project root (builds both Go + UI in multi-stage Dockerfile).
 
-## Security — Multi-layer brute force protection
+## Security — Multi-layer defense
 
-1. **Go rate limiter** (`ratelimit.go`): 20 requests/10s per real IP (X-Real-IP from CF-Connecting-IP) → 429 → auto-ban 30min
-2. **Go IP blocker** (`ipblocker.go`): Persistent blocklist → 403
-3. **fail2ban in nginx** → calls admin API with shared `INTERNAL_TOKEN` → admin adds real IP to blocklist
-4. **Cloudflare DDoS/WAF** at the edge
+1. **Cloudflare Authenticated Origin Pulls (mTLS)**: Only CF servers with the Origin Pull certificate can establish TLS. Setup: download certificate from Cloudflare Dashboard → SSL/TLS → Origin Server → Authenticated Origin Pulls, save as `cert/cloudflare-origin-pull.pem`.
+2. **Go rate limiter** (`ratelimit.go`): 20 requests/10s per real IP (X-Real-IP from CF-Connecting-IP) → 429 → auto-ban 30min
+3. **Go IP blocker** (`ipblocker.go`): Persistent blocklist → 403
+4. **fail2ban in nginx** → calls admin API with shared `INTERNAL_TOKEN` → admin adds real IP to blocklist
+5. **Cloudflare DDoS/WAF** at the edge
+6. **htpasswd bcrypt** (`$2y$`): All passwords hashed with bcrypt
 
 ## Key Conventions
 
