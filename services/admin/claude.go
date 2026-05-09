@@ -65,7 +65,8 @@ var (
 		releases  []claudeRelease
 		checkedAt time.Time
 	}
-	claudeCacheMu sync.Mutex
+	claudeCacheMu    sync.Mutex
+	claudeDownloadMu sync.Mutex
 )
 
 // claude downloads manifest — persisted across restarts
@@ -74,6 +75,12 @@ type claudeDownloadsManifest struct {
 }
 
 func loadDownloadsManifest() claudeDownloadsManifest {
+	claudeDownloadMu.Lock()
+	defer claudeDownloadMu.Unlock()
+	return readDownloadsManifestLocked()
+}
+
+func readDownloadsManifestLocked() claudeDownloadsManifest {
 	var m claudeDownloadsManifest
 	data, err := os.ReadFile(claudeManifestPath)
 	if err != nil {
@@ -83,7 +90,7 @@ func loadDownloadsManifest() claudeDownloadsManifest {
 	return m
 }
 
-func saveDownloadsManifest(m claudeDownloadsManifest) {
+func saveDownloadsManifestLocked(m claudeDownloadsManifest) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
 	os.WriteFile(claudeManifestPath, data, 0644)
@@ -293,7 +300,8 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			writeError(w, err.Error(), 500)
 			return
 		}
-		m := loadDownloadsManifest()
+		claudeDownloadMu.Lock()
+		m := readDownloadsManifestLocked()
 		var kept []claudeStoredDownload
 		for _, d := range m.Downloads {
 			if d.Filename != body.Filename {
@@ -301,7 +309,8 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			}
 		}
 		m.Downloads = kept
-		saveDownloadsManifest(m)
+		saveDownloadsManifestLocked(m)
+		claudeDownloadMu.Unlock()
 		writeJSON(w, map[string]any{"status": "ok"})
 	}
 }
@@ -511,8 +520,9 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 	// Parse version and plat from stored filename
 	version, plat, platName := parseStoredFilename(filename)
 
-	// Persist metadata
-	m := loadDownloadsManifest()
+	// Persist metadata (atomic)
+	claudeDownloadMu.Lock()
+	m := readDownloadsManifestLocked()
 	m.Downloads = append(m.Downloads, claudeStoredDownload{
 		Version:      version,
 		Plat:         plat,
@@ -522,7 +532,8 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 		Checksum:     checksum,
 		DownloadedAt: time.Now().UTC().Format(time.RFC3339),
 	})
-	saveDownloadsManifest(m)
+	saveDownloadsManifestLocked(m)
+	claudeDownloadMu.Unlock()
 
 	return binarySize, checksum, nil
 }
@@ -608,7 +619,9 @@ func extractZip(archivePath, outputPath string) (int64, error) {
 }
 
 func cleanupOldDownloads(maxKeep int) {
-	m := loadDownloadsManifest()
+	claudeDownloadMu.Lock()
+	defer claudeDownloadMu.Unlock()
+	m := readDownloadsManifestLocked()
 	if len(m.Downloads) <= maxKeep {
 		return
 	}
@@ -616,7 +629,7 @@ func cleanupOldDownloads(maxKeep int) {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
 	}
 	m.Downloads = m.Downloads[:maxKeep]
-	saveDownloadsManifest(m)
+	saveDownloadsManifestLocked(m)
 }
 
 func compareVersions(a, b string) int {
