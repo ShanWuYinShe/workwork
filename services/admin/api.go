@@ -514,6 +514,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 		htpasswdMu.Unlock()
 		deleteUserMeta(body.Username)
+		cleanupCliproxyForUser(r.Context(), cli, body.Username)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
