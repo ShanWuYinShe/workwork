@@ -358,8 +358,8 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 		defer attachResp.Close()
 
 		var outBuf strings.Builder
-		// Read first ~500 bytes and return immediately
-		buf := make([]byte, 512)
+		// Read first ~4KB of output for immediate feedback
+		buf := make([]byte, 4096)
 		n, _ := attachResp.Reader.Read(buf)
 		outBuf.Write(buf[:n])
 
@@ -543,6 +543,29 @@ func stopCliproxy(ctx context.Context, cli *client.Client, username string) erro
 	}
 	timeout := 10
 	return cli.ContainerStop(ctx, conts[0].ID, container.StopOptions{Timeout: &timeout})
+}
+
+func cleanupCliproxyForUser(ctx context.Context, cli *client.Client, username string) {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return
+	}
+	info, ok := doc.Users[username]
+	if !ok || info.CliproxyToken == "" {
+		return
+	}
+	tok := info.CliproxyToken
+	conts, err := cli.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.KeyValuePair{Key: "label", Value: "app=cliproxy"},
+			filters.KeyValuePair{Key: "label", Value: "cliproxy.token=" + tok},
+		),
+	})
+	if err == nil && len(conts) > 0 {
+		cli.ContainerRemove(ctx, conts[0].ID, container.RemoveOptions{Force: true})
+	}
+	os.RemoveAll(fmt.Sprintf("/app/cliproxy-data/%s", tok))
 }
 
 func cliproxyConfigPath(token string) string {
