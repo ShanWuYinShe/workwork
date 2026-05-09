@@ -54,7 +54,7 @@
     message = '';
     try {
       await cliproxyStart(username);
-      message = `${selectedUser} 的 cliproxy 已启动。`;
+      message = `${username} 的 cliproxy 已启动。`;
       await refresh();
     } catch (e) {
       error = e.message;
@@ -70,7 +70,7 @@
     message = '';
     try {
       await cliproxyStop(username);
-      message = `${selectedUser} 的 cliproxy 已停止。`;
+      message = `${username} 的 cliproxy 已停止。`;
       await refresh();
     } catch (e) {
       error = e.message;
