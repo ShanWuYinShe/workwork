@@ -372,6 +372,10 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 
 func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			writeError(w, "File too large (max 10MB)", 400)
+			return
+		}
 		username := r.FormValue("username")
 		if username == "" {
 			writeError(w, "Username required", 400)
@@ -406,7 +410,7 @@ func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		defer out.Close()
-		if _, err := io.Copy(out, file); err != nil {
+		if _, err := io.Copy(out, io.LimitReader(file, 10<<20)); err != nil {
 			writeError(w, err.Error(), 500)
 			return
 		}

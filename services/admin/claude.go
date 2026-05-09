@@ -270,7 +270,8 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 func apiClaudeCodeServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
-		if !strings.HasPrefix(filename, "claude-code-") {
+		if !strings.HasPrefix(filename, "claude-code-") ||
+			strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}
@@ -379,7 +380,8 @@ func findCachedRelease(version string) *claudeRelease {
 	defer claudeCacheMu.Unlock()
 	for i := range claudeCache.releases {
 		if claudeCache.releases[i].Version == version {
-			return &claudeCache.releases[i]
+			cp := claudeCache.releases[i]
+			return &cp
 		}
 	}
 	return nil
@@ -652,6 +654,7 @@ func parseVersionParts(v string) []int {
 			if idx := strings.IndexAny(p, "-+"); idx > 0 {
 				if n2, err2 := strconv.Atoi(p[:idx]); err2 == nil {
 					nums = append(nums, n2)
+					continue
 				}
 			}
 			nums = append(nums, 0)
