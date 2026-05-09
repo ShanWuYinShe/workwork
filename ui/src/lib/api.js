@@ -1,10 +1,15 @@
 const BASE = '/api/admin';
 
 async function req(path, opts = {}) {
+  const hasBody = opts.body !== undefined;
+  const headers = { ...opts.headers };
+  if (hasBody && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   const r = await fetch(BASE + path, {
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
     ...opts,
+    headers,
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   const json = await r.json();

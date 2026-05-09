@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -911,6 +912,9 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		name := r.PathValue("name")
 		tail := r.URL.Query().Get("tail")
 		if tail == "" {
+			tail = "100"
+		}
+		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
 			tail = "100"
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
