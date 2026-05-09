@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -149,7 +150,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			var info *UserInfo
 			var err error
 			// Internal services (fail2ban) use shared secret token
-			if internalToken != "" && r.Header.Get("X-Internal-Token") == internalToken {
+			if internalToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 			} else {
 				info, err = ensureUserMeta(username)

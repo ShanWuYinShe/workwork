@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -387,7 +388,7 @@ func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		name := header.Filename
+		name := filepath.Base(header.Filename)
 		if !strings.HasSuffix(name, ".json") {
 			writeError(w, "Only .json OAuth files supported", 400)
 			return

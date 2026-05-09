@@ -93,7 +93,7 @@ func main() {
 
 	// Wrap all routes: rate limit → IP block → serve
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rateLimitMiddleware(ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		ipBlockMiddleware(rateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		}))(w, r)
 	})
