@@ -309,6 +309,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
 		os.WriteFile(metaPath, metaData, 0644)
 
+		restartCliproxyIfRunning(body.Username, cli)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -499,7 +500,9 @@ func startCliproxy(ctx context.Context, cli *client.Client, username string) err
 	}
 	netConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			"workwork_internal_docker": {},
+			"workwork_internal_docker": {
+				Aliases: []string{"cliproxy-" + tok},
+			},
 		},
 	}
 
