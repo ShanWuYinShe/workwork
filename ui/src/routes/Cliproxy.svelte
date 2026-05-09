@@ -158,6 +158,7 @@
         body: fd,
         credentials: 'same-origin',
       });
+      if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
       const json = await r.json();
       if (!json.success) throw new Error(t('uploadFailed'));
       message = `OAuth file "${json.data.file}" uploaded.`;
@@ -265,7 +266,7 @@
                 </td>
                 <td class="td-mono">{p.alias || p.name}/*</td>
                 <td class="td-mono" style="color:#93c5fd;">{p.base_url}</td>
-                <td class="td-mono" style="color:var(--c-text-muted);">{p.api_key}</td>
+                <td class="td-mono" style="color:var(--c-text-muted);">{p.api_key ? p.api_key.slice(0,4) + '****' + p.api_key.slice(-4) : ''}</td>
                 <td
                   ><button class="btn btn-danger btn-sm" onclick={() => removeProvider(i)}
                     >{t('del')}</button
