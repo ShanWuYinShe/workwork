@@ -27,7 +27,7 @@ logpath = /var/log/nginx/admin-access.log
 action = admin-api
 bantime = 86400
 findtime = 60
-maxretry = 100
+maxretry = 20
 
 [sshd]
 enabled = false
