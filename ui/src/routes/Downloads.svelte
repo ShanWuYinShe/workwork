@@ -71,7 +71,7 @@
     message = '';
     try {
       const d = await refreshClaudeVersions();
-      message = `已刷新 ${d.count} 个版本。`;
+      message = t('versionsRefreshed', { count: d.count });
       await reloadPageData();
     } catch (e) {
       error = e.message;
@@ -102,9 +102,9 @@
         downloadProgress = p;
       });
       if (d.status === 'already_exists') {
-        message = `${version} (${plat}) 已下载。`;
+        message = t('alreadyDownloaded', { version, plat });
       } else {
-        message = `已下载 ${d.filename}（${formatSize(d.size)}）— SHA256: ${(d.checksum || '').slice(0, 16)}...`;
+        message = t('downloadSuccess', { filename: d.filename, size: formatSize(d.size), checksum: (d.checksum || '').slice(0, 16) });
       }
       await reloadPageData();
     } catch (e) {
