@@ -54,7 +54,7 @@
     message = '';
     try {
       await cliproxyStart(username);
-      message = `${username} 的 cliproxy 已启动。`;
+      message = t('cliproxyStarted', { username });
       await refresh();
     } catch (e) {
       error = e.message;
@@ -70,7 +70,7 @@
     message = '';
     try {
       await cliproxyStop(username);
-      message = `${username} 的 cliproxy 已停止。`;
+      message = t('cliproxyStopped', { username });
       await refresh();
     } catch (e) {
       error = e.message;
@@ -123,7 +123,7 @@
     message = '';
     try {
       await cliproxySetConfig(selectedUser, providers);
-      message = `${selectedUser} 的配置已保存。`;
+      message = t('configSaved', { user: selectedUser });
       selectedUser = null;
     } catch (e) {
       error = e.message;

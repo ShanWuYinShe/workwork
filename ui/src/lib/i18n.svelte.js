@@ -242,6 +242,7 @@ const zh = {
   loadPlatforms: '加载平台',
   check: '查看',
   noPlatforms: '无可用平台',
+  versionsRefreshed: '已刷新 {count} 个版本。',
   downloadToLocal: '下载到本地机器',
   copyUrlTitle: '复制 URL',
   // Missing keys from system test
@@ -528,6 +529,7 @@ const en = {
   loadPlatforms: 'Load Platforms',
   check: 'Check',
   noPlatforms: 'No platforms available',
+  versionsRefreshed: 'Refreshed {count} versions.',
   downloadToLocal: 'Download to local machine',
   copyUrlTitle: 'Copy URL',
   // Missing keys from system test

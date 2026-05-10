@@ -28,12 +28,22 @@
     }
   });
 
+  async function loadData() {
+    const d = await getUsers();
+    const user = await getCurrentUser();
+    const allClients = d.xrayClients || [];
+    generatedJSON = d.generatedJSON || '';
+    isAdmin = user.role === 'admin';
+    currentUser = user.username;
+    clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
+  }
+
   async function generateAndAdd() {
     error = '';
     const uuid = crypto.randomUUID();
     try {
       await addXrayClient(uuid);
-      location.reload();
+      await loadData();
     } catch (e) {
       error = e.message;
     }
@@ -45,7 +55,7 @@
     error = '';
     try {
       await deleteXrayClient(uuid);
-      location.reload();
+      await loadData();
     } catch (e) {
       error = e.message;
     } finally {
