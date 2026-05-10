@@ -26,6 +26,7 @@
       const ns = await getNetworkStatus();
       net = { ...net, ...ns };
     } catch (e) {
+      result = { ok: false, msg: e.message };
     } finally {
       loading = false;
     }

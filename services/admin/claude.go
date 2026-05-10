@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -462,7 +463,14 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 		return 0, "", err
 	}
 
-	resp, err := githubClient.Get(assetURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", assetURL, nil)
+	if err != nil {
+		f.Close()
+		return 0, "", fmt.Errorf("download request: %w", err)
+	}
+	resp, err := githubClient.Do(req)
 	if err != nil {
 		f.Close()
 		return 0, "", fmt.Errorf("download: %w", err)
