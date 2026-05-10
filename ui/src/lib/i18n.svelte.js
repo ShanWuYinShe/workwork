@@ -6,7 +6,6 @@ const zh = {
   dashboard: '仪表盘',
   services: '服务',
   clients: '客户端',
-  logs: '日志',
   users: '用户管理',
   security: '安全',
   cliproxy: 'Cliproxy',
@@ -69,7 +68,6 @@ const zh = {
   anthropic: 'Anthropic',
   save: '保存',
   cancel: '取消',
-  delete: '删除',
   config: '配置',
   start: '启动',
   stop: '停止',
@@ -77,8 +75,6 @@ const zh = {
   userInstances: '用户实例',
   instances: '实例',
   // Cliproxy page specific
-  add: '添加',
-  del: '删',
   openAICompatOpt: 'OpenAI 兼容',
   codexOAuth: 'Codex OAuth',
   codexOAuthDesc: '设备码登录',
@@ -202,7 +198,6 @@ const zh = {
   downloadSuccess: '已下载 {filename}（{size}）— SHA256: {checksum}...',
   deleted: '已删除 {filename}。',
   delete: '删除',
-  download: '下载',
   downloadedStatus: '已下载',
   platformLabel: '平台：',
   // Logs
@@ -223,9 +218,6 @@ const zh = {
   // State badges
   stateRunning: '运行中',
   stateStopped: '已停止',
-  // Actions
-  delete: '删除',
-  del: '删',
   // misc
   fetching: '获取中...',
   poolOn: '池 ✓',
@@ -292,7 +284,6 @@ const en = {
   dashboard: 'Dashboard',
   services: 'Services',
   clients: 'Clients',
-  logs: 'Logs',
   users: 'Users',
   security: 'Security',
   cliproxy: 'Cliproxy',
@@ -363,8 +354,6 @@ const en = {
   userInstances: 'User Instances',
   instances: 'Instances',
   // Cliproxy page specific
-  add: 'Add',
-  del: 'Del',
   openAICompatOpt: 'OpenAI Compat',
   codexOAuth: 'Codex OAuth',
   codexOAuthDesc: 'Device code login',
@@ -488,8 +477,6 @@ const en = {
   alreadyDownloaded: 'Claude Code {version} ({plat}) already downloaded.',
   downloadSuccess: 'Downloaded {filename} ({size}) — SHA256: {checksum}...',
   deleted: 'Deleted {filename}.',
-  delete: 'Delete',
-  download: 'Download',
   downloadedStatus: 'Downloaded',
   platformLabel: 'Platform:',
   // Logs
@@ -510,9 +497,6 @@ const en = {
   // State badges
   stateRunning: 'Running',
   stateStopped: 'Stopped',
-  // Actions
-  delete: 'Delete',
-  del: 'Del',
   // misc
   fetching: 'Fetching...',
   poolOn: 'Pool ✓',
