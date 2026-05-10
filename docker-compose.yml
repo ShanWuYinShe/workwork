@@ -21,7 +21,13 @@ services:
     cap_add:
       - NET_ADMIN
     depends_on:
-      - xray
+      xray:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "pgrep", "-q", "nginx"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   xray:
     build:
@@ -40,6 +46,11 @@ services:
     volumes:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./services/xray/config.json:/etc/xray/config.json:ro
+    healthcheck:
+      test: ["CMD", "pgrep", "-q", "xray"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   cliproxy-public:
     build:
@@ -83,6 +94,11 @@ services:
       - ./cliproxy-data:/app/cliproxy-data
     depends_on:
       - nginx
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8318/api/admin/auth/me"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 networks:
   ipvlan_docker:
