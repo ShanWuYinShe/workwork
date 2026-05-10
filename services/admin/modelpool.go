@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -40,7 +41,7 @@ func loadModelPool() modelPoolConfig {
 	if err != nil {
 		return cfg
 	}
-	json.Unmarshal(data, &cfg)
+	_ = json.Unmarshal(data, &cfg)
 	return cfg
 }
 
@@ -269,7 +270,9 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	// Save merged providers metadata
 	metaPath = cfgPath[:len(cfgPath)-5] + ".providers.json"
 	metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
-	os.WriteFile(metaPath, metaData, 0644)
+	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
+		log.Printf("WARNING: failed to write providers metadata %s: %v", metaPath, err)
+	}
 
 	// Restart cliproxy if it's running
 	restartCliproxyIfRunning(username, cli)
