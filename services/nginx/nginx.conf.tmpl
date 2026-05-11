@@ -90,6 +90,9 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-User $remote_user;
+        proxy_buffering on;
+        proxy_buffers 16 256k;
+        proxy_buffer_size 256k;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
