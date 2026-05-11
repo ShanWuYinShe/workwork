@@ -57,7 +57,9 @@
     message = '';
     try {
       const d = await setModelPool(pool.providers);
-      message = `Pool saved${d.regenerated ? ' + configs regenerated for: ' + d.regenerated.join(', ') : ''}.`;
+      message = d.regenerated
+        ? t('poolSavedRegen', { users: d.regenerated.join(', ') })
+        : t('poolSaved');
     } catch (e) {
       error = e.message;
     } finally {
@@ -72,8 +74,8 @@
       const d = await setModelPoolUser(username, granted);
       pool.authorized_users = d.authorized_users || [];
       message = granted
-        ? `${username} granted pool access${d.regenerated ? ' — config regenerated' : ''}.`
-        : `${username} removed from pool.`;
+        ? t('poolAccessGrantedRegen', { user: username })
+        : t('poolAccessRevoked', { user: username });
     } catch (e) {
       error = e.message;
     }

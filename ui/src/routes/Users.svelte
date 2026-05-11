@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import {
+    getCurrentUser,
     getUsers,
     addAdminUser,
     deleteAdminUser,
