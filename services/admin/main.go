@@ -75,7 +75,6 @@ func main() {
 	mux.HandleFunc("GET /api/admin/claude-code/stored", requireRole("viewer")(apiClaudeCodeStored()))
 	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
 	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("viewer")(apiClaudeCodeServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 	// Service logs
 	mux.HandleFunc("GET /api/admin/services/{name}/logs", requireRole("admin")(apiServiceLogs(cli)))
