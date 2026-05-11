@@ -287,7 +287,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 
 func apiAddXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, username := getUserFromContext(r)
+		userInfo, username := getUserFromContext(r)
 
 		var body struct {
 			UUID string `json:"uuid"`
@@ -296,6 +296,18 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+
+		// Regular users can only create one client
+		if userInfo != nil && userInfo.Role != "admin" {
+			allClients, _ := handlers.ReadXrayClients()
+			for _, c := range allClients {
+				if c["owner"] == username {
+					writeError(w, "You can only create one client. Delete the existing one first.", 400)
+					return
+				}
+			}
+		}
+
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 
@@ -386,6 +398,48 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		atomicWriteFile("/app/configs/xray.json", out, 0644)
 		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
+	}
+}
+
+// GET /api/admin/users/xray/config/{uuid} — generate config for a specific client
+func apiXrayClientConfig() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userInfo, username := getUserFromContext(r)
+		uuid := r.PathValue("uuid")
+		if uuid == "" {
+			writeError(w, "UUID required", 400)
+			return
+		}
+
+		allClients, _ := handlers.ReadXrayClients()
+		var client map[string]string
+		for _, c := range allClients {
+			if c["id"] == uuid {
+				client = c
+				break
+			}
+		}
+		if client == nil {
+			writeError(w, "Client not found", 404)
+			return
+		}
+
+		// Regular users can only view their own client
+		if userInfo != nil && userInfo.Role != "admin" && client["owner"] != username {
+			writeError(w, "Forbidden", 403)
+			return
+		}
+
+		genJSON := handlers.GenerateClientConfig([]map[string]string{client}, handlers.ClientConfig{
+			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
+			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+		})
+		writeJSON(w, map[string]any{
+			"config": genJSON, "uuid": uuid, "owner": client["owner"],
+		})
 	}
 }
 

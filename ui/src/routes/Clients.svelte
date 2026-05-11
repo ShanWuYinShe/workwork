@@ -1,26 +1,31 @@
 <script>
   import { onMount } from 'svelte';
-  import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient } from '../lib/api.js';
+  import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient, getXrayClientConfig } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
 
   let clients = $state([]);
   let generatedJSON = $state('');
-  let newUUID = $state('');
   let loading = $state(true);
   let error = $state('');
   let copied = $state(false);
   let isAdmin = $state(false);
   let currentUser = $state('');
   let deletingId = $state('');
+  let selectedUUID = $state('');
+  let configLoading = $state(false);
 
   onMount(async () => {
     try {
       const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
       const allClients = d.xrayClients || [];
-      generatedJSON = d.generatedJSON || '';
       isAdmin = user.role === 'admin';
       currentUser = user.username;
       clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
+
+      if (!isAdmin && clients.length === 1) {
+        selectedUUID = clients[0].id;
+        await loadConfig(selectedUUID);
+      }
     } catch (e) {
       error = e.message;
     } finally {
@@ -32,10 +37,29 @@
     const d = await getUsers();
     const user = await getCurrentUser();
     const allClients = d.xrayClients || [];
-    generatedJSON = d.generatedJSON || '';
     isAdmin = user.role === 'admin';
     currentUser = user.username;
     clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
+
+    // Reset selected if it no longer exists
+    if (selectedUUID && !clients.find((c) => c.id === selectedUUID)) {
+      selectedUUID = '';
+      generatedJSON = '';
+    }
+  }
+
+  async function loadConfig(uuid) {
+    configLoading = true;
+    error = '';
+    try {
+      const d = await getXrayClientConfig(uuid);
+      generatedJSON = d.config || '';
+      selectedUUID = uuid;
+    } catch (e) {
+      error = e.message;
+    } finally {
+      configLoading = false;
+    }
   }
 
   async function generateAndAdd() {
@@ -44,6 +68,8 @@
     try {
       await addXrayClient(uuid);
       await loadData();
+      selectedUUID = uuid;
+      await loadConfig(uuid);
     } catch (e) {
       error = e.message;
     }
@@ -55,6 +81,10 @@
     error = '';
     try {
       await deleteXrayClient(uuid);
+      if (selectedUUID === uuid) {
+        selectedUUID = '';
+        generatedJSON = '';
+      }
       await loadData();
     } catch (e) {
       error = e.message;
@@ -95,6 +125,8 @@
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  let hasOwnClient = $derived(!isAdmin && clients.length >= 1);
 </script>
 
 <div class="page">
@@ -110,12 +142,14 @@
         <div class="card-title">{t('generateClient')}</div>
       </div>
       <div style="display:flex;align-items:center;gap:0.75rem;">
-        <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
-          {loading ? t('generating') : t('generateAndAdd')}
-        </button>
-        <span style="font-size:0.75rem;color:var(--c-text-muted);"
-          >{t('generateDesc')}</span
-        >
+        {#if hasOwnClient}
+          <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('oneClientLimit')}</span>
+        {:else}
+          <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
+            {loading ? t('generating') : t('generateAndAdd')}
+          </button>
+          <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('generateDesc')}</span>
+        {/if}
       </div>
     </div>
   {/if}
@@ -132,14 +166,21 @@
       </div>
       {#if clients.length}
         <table>
-          <thead
-            ><tr
-              ><th>{t('uuid')}</th>{#if isAdmin}<th>{t('owner')}</th>{/if}<th>{t('protocols')}</th><th>{t('actions')}</th></tr
-            ></thead
-          >
+          <thead>
+            <tr>
+              <th>{t('uuid')}</th>
+              {#if isAdmin}<th>{t('owner')}</th>{/if}
+              <th>{t('protocols')}</th>
+              <th>{t('actions')}</th>
+            </tr>
+          </thead>
           <tbody>
             {#each clients as c}
-              <tr>
+              <tr
+                class="clickable-row"
+                class:selected={selectedUUID === c.id}
+                onclick={() => loadConfig(c.id)}
+              >
                 <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
                 {#if isAdmin}
                   <td class="td-muted">{c.owner || '—'}</td>
@@ -152,9 +193,10 @@
                   {#if deletingId === c.id}
                     <span class="spinner"></span>
                   {:else}
-                    <button class="btn btn-danger btn-sm" onclick={() => deleteClient(c.id)}
-                      >{t('delete')}</button
-                    >
+                    <button
+                      class="btn btn-danger btn-sm"
+                      onclick={(e) => { e.stopPropagation(); deleteClient(c.id); }}
+                    >{t('delete')}</button>
                   {/if}
                 </td>
               </tr>
@@ -163,31 +205,31 @@
         </table>
       {:else}
         <div class="empty-state">
-          {isAdmin
-            ? t('noProxyClients')
-            : t('noClientsYet')}
+          {isAdmin ? t('noProxyClients') : t('noClientsYet')}
         </div>
       {/if}
     </div>
   {/if}
 
-  {#if clients.length}
+  {#if generatedJSON}
     <div class="card">
       <div class="card-header">
-        <div class="card-title">{t('clientConfig')}</div>
+        <div class="card-title">
+          {t('clientConfig')}
+          {#if selectedUUID}
+            <span class="badge badge-gray" style="margin-left:0.5rem;font-family:monospace;font-size:0.65rem;">
+              {selectedUUID.slice(0, 8)}...
+            </span>
+          {/if}
+          {#if configLoading}<span class="spinner" style="margin-left:0.5rem;"></span>{/if}
+        </div>
         <div class="card-actions">
-          <button
-            class="btn btn-sm btn-primary"
-            onclick={copyConfig}
-            aria-label={t('copyConfiguration')}
-          >
-            {#if copied}{t('copied')}{:else}{t('copyConfig')}{/if}
+          <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label={t('copyConfiguration')}>
+            {copied ? t('copied') : t('copyConfig')}
           </button>
-          <button
-            class="btn btn-sm btn-ghost"
-            onclick={downloadConfig}
-            aria-label={t('downloadConfiguration')}>{t('download')}</button
-          >
+          <button class="btn btn-sm btn-ghost" onclick={downloadConfig} aria-label={t('downloadConfiguration')}>
+            {t('download')}
+          </button>
         </div>
       </div>
       <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
@@ -200,5 +242,23 @@
         <div class="toast toast-success" style="margin-top:0.75rem;">{t('configCopied')}</div>
       {/if}
     </div>
+  {:else if clients.length && !configLoading}
+    <div class="card">
+      <div class="empty-state">
+        {isAdmin ? t('clickClientToView') : t('noProxyClients')}
+      </div>
+    </div>
   {/if}
 </div>
+
+<style>
+  .clickable-row {
+    cursor: pointer;
+  }
+  .clickable-row:hover {
+    background: var(--c-bg-hover, rgba(255,255,255,0.03));
+  }
+  .clickable-row.selected {
+    background: var(--c-accent-bg, rgba(59,130,246,0.1));
+  }
+</style>

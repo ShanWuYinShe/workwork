@@ -43,6 +43,7 @@ func main() {
 	// Xray client management — viewers can manage their own clients
 	mux.HandleFunc("POST /api/admin/users/xray/add", requireRole("viewer")(apiAddXray(cli)))
 	mux.HandleFunc("POST /api/admin/users/xray/delete", requireRole("viewer")(apiDeleteXray(cli)))
+	mux.HandleFunc("GET /api/admin/users/xray/config/{uuid}", requireRole("viewer")(apiXrayClientConfig()))
 	mux.HandleFunc("POST /api/admin/users/admin/add", requireRole("admin")(apiAddAdmin(cli)))
 	mux.HandleFunc("POST /api/admin/users/admin/delete", requireRole("admin")(apiDeleteAdmin(cli)))
 	mux.HandleFunc("POST /api/admin/users/roles/set", requireRole("admin")(apiSetRole(cli)))
