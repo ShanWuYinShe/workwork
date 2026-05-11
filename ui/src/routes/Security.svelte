@@ -32,7 +32,7 @@
     message = '';
     try {
       await blockIP(newIP, newReason, parseInt(newDuration));
-      message = `IP ${newIP} blocked.`;
+      message = t('ipBlocked', { ip: newIP });
       newIP = '';
       newReason = '';
       await refresh();
@@ -47,7 +47,7 @@
     message = '';
     try {
       await unblockIP(ip);
-      message = `IP ${ip} unblocked.`;
+      message = t('ipUnblocked', { ip });
       await refresh();
     } catch (e) {
       error = e.message;

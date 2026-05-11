@@ -274,6 +274,8 @@ const zh = {
   logsSuffix: '日志',
   noClientsYetDesc: '你还没有代理客户端。在上面添加一个。',
   confirmUnblock: '解封 {ip}？',
+  ipBlocked: 'IP {ip} 已封禁。',
+  ipUnblocked: 'IP {ip} 已解封。',
   resultMsg: '{msg}',
 };
 
@@ -554,6 +556,8 @@ const en = {
   logsSuffix: 'Logs',
   noClientsYetDesc: 'You have no proxy clients yet. Add one above.',
   confirmUnblock: 'Unblock {ip}?',
+  ipBlocked: 'IP {ip} blocked.',
+  ipUnblocked: 'IP {ip} unblocked.',
   resultMsg: '{msg}',
 };
 

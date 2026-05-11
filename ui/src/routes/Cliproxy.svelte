@@ -181,8 +181,8 @@
       const idx = instances.findIndex((i) => i.username === selectedUser);
       if (idx >= 0) instances[idx].pool_access = granted;
       message = granted
-        ? `${selectedUser} granted pool access.`
-        : `${selectedUser} removed from pool.`;
+        ? t('poolAccessGranted', { user: selectedUser })
+        : t('poolAccessRevoked', { user: selectedUser });
     } catch (e) {
       error = e.message;
     } finally {
