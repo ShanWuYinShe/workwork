@@ -56,6 +56,10 @@ export async function deleteXrayClient(uuid) {
   return req('/users/xray/delete', { method: 'POST', body: JSON.stringify({ uuid }) });
 }
 
+export async function getXrayClientConfig(uuid) {
+  return req(`/users/xray/config/${uuid}`);
+}
+
 export async function changePassword(username, oldPassword, password) {
   return req('/users/password', { method: 'POST', body: JSON.stringify({ username, old_password: oldPassword, password }) });
 }
