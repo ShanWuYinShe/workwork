@@ -250,12 +250,16 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 
 		sendEvent(map[string]any{"type": "start", "filename": filename})
 
+		var lastPct int64 = -1
 		size, checksum, err := downloadClaudeBinary(filename, assetURL, assetSize, func(bytes, total int64) {
-			pct := int64(0)
-			if total > 0 {
-				pct = bytes * 100 / total
+			if total <= 0 {
+				return
 			}
-			sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct})
+			pct := bytes * 100 / total
+			if pct >= lastPct+5 || bytes >= total {
+				lastPct = pct
+				sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct})
+			}
 		})
 		if err != nil {
 			sendEvent(map[string]any{"type": "error", "error": err.Error()})
@@ -483,7 +487,7 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 	}
 
 	total := resp.ContentLength
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, 128*1024)
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buf)

@@ -212,6 +212,7 @@
               <td style="font-weight:500;">
                 <a
                   href="/api/admin/claude-code/downloads/{s.filename}"
+                  download={s.filename}
                   style="color:#93c5fd;text-decoration:none;"
                   title={t('downloadToLocal')}
                 >
