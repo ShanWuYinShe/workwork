@@ -281,8 +281,11 @@ func apiClaudeCodeServeDownload() http.HandlerFunc {
 			return
 		}
 		path := filepath.Join(claudeDownloadsDir, filename)
+		// Prevent Cloudflare/proxies from buffering the entire response
+		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, path)
 	}
 }
