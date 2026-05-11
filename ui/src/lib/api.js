@@ -192,9 +192,7 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
 
   // Non-streaming fallback (already_exists etc.)
   if (!result) {
-    const json = await r.json();
-    if (!json.success) throw new Error(json.error || 'API error');
-    return json.data;
+    throw new Error('Download completed but no result received');
   }
   return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
 }

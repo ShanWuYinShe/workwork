@@ -122,7 +122,7 @@
     message = '';
     try {
       await deleteClaudeDownload(filename);
-      message = `已删除 ${filename}。`;
+      message = t('deleted', { filename });
       await reloadPageData();
     } catch (e) {
       error = e.message;
