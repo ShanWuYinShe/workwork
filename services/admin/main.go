@@ -91,7 +91,7 @@ func main() {
 	mux.Handle("/favicon.svg", static)
 	mux.Handle("/icons.svg", static)
 
-	// Wrap all routes: security headers -> rate limit -> IP block -> serve
+	// Wrap all routes: security headers -> IP block -> rate limit -> serve
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")

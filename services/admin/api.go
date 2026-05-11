@@ -419,7 +419,13 @@ func htpasswdAddUser(username, password string) error {
 	if !replaced {
 		lines = append(lines, newLine)
 	}
-	return os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+	// Atomic write via temp file + rename
+	content := strings.Join(lines, "\n") + "\n"
+	tmp := htpasswdFile + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, htpasswdFile)
 }
 
 func apiChangePassword(cli *client.Client) http.HandlerFunc {
@@ -541,7 +547,10 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				lines = append(lines, line)
 			}
 		}
-		os.WriteFile(htpasswdFile, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+		content := strings.Join(lines, "\n") + "\n"
+		tmp := htpasswdFile + ".tmp"
+		os.WriteFile(tmp, []byte(content), 0644)
+		os.Rename(tmp, htpasswdFile)
 		htpasswdMu.Unlock()
 		deleteUserMeta(body.Username)
 		cleanupCliproxyForUser(r.Context(), cli, body.Username)
