@@ -97,7 +97,7 @@ func main() {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
-		rateLimitMiddleware(ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		ipBlockMiddleware(rateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		}))(w, r)
 	})
