@@ -14,18 +14,23 @@
   let loading = $state(true);
   let error = $state('');
   let message = $state('');
+  let isAdmin = $state(false);
   let newUser = $state(''),
     newPass = $state(''),
     newRole = $state('viewer');
   let pwUser = $state(''),
+    oldPass = $state(''),
     pwPass = $state('');
   let showNewPass = $state(false);
+  let showOldPass = $state(false);
   let showPwPass = $state(false);
 
   onMount(async () => {
     try {
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
+      const me = await getCurrentUser();
+      isAdmin = me?.role === 'admin';
     } catch (e) {
       error = e.message;
     } finally {
@@ -67,8 +72,9 @@
     error = '';
     message = '';
     try {
-      await changePassword(pwUser, pwPass);
+      await changePassword(pwUser, oldPass, pwPass);
       message = t('passwordChanged', { user: pwUser });
+      oldPass = '';
       pwPass = '';
     } catch (e) {
       error = e.message;
@@ -241,6 +247,26 @@
         <label for="pw-user">{t('username')}</label>
         <input id="pw-user" type="text" bind:value={pwUser} style="width:180px;" />
       </div>
+      {#if !isAdmin}
+      <div class="form-group">
+        <label for="pw-old">{t('oldPassword')}</label>
+        <div style="position:relative;">
+          <input
+            id="pw-old"
+            type={showOldPass ? 'text' : 'password'}
+            bind:value={oldPass}
+            style="width:180px;padding-right:32px;"
+          />
+          <button
+            class="eye-btn"
+            onclick={() => (showOldPass = !showOldPass)}
+            aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
+          >
+            {@html EyeIcon({ open: showOldPass })}
+          </button>
+        </div>
+      </div>
+      {/if}
       <div class="form-group">
         <label for="pw-pass">{t('newPassword')}</label>
         <div style="position:relative;">

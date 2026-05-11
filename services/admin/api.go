@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -382,8 +383,16 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 var htpasswdFile = "/app/htpasswd"
 var xrayConfigMu sync.Mutex
 var htpasswdMu sync.Mutex
+var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func isValidUsername(username string) bool {
+	return username != "" && validUsername.MatchString(username) && len(username) <= 64
+}
 
 func htpasswdAddUser(username, password string) error {
+	if !isValidUsername(username) {
+		return fmt.Errorf("invalid username")
+	}
 	htpasswdMu.Lock()
 	defer htpasswdMu.Unlock()
 
@@ -416,7 +425,11 @@ func htpasswdAddUser(username, password string) error {
 func apiChangePassword(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
-		var body struct{ Username, Password string }
+		var body struct {
+			Username    string `json:"username"`
+			OldPassword string `json:"old_password"`
+			Password    string `json:"password"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
 			return
@@ -426,8 +439,20 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Forbidden: can only change your own password", 403)
 			return
 		}
+		// Verify old password for non-admin users
+		if userInfo == nil || userInfo.Role != "admin" {
+			if body.OldPassword == "" {
+				writeError(w, "Old password required", 400)
+				return
+			}
+			out, err := exec.Command("htpasswd", "-v", "-b", htpasswdFile, body.Username, body.OldPassword).Output()
+			if err != nil || !strings.Contains(string(out), "login succeeded") {
+				writeError(w, "Invalid old password", 401)
+				return
+			}
+		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
-			writeError(w, err.Error(), 500)
+			writeError(w, "Failed to update password", 500)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -443,6 +468,10 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
+			return
+		}
+		if !isValidUsername(body.Username) {
+			writeError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
 			return
 		}
 		if body.Role == "" {

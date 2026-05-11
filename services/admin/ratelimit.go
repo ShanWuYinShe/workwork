@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -159,6 +160,10 @@ func apiRateLimitUnblock() http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
 			writeError(w, "IP required", 400)
+			return
+		}
+		if net.ParseIP(body.IP) == nil {
+			writeError(w, "Invalid IP address", 400)
 			return
 		}
 		authRateLimiter.mu.Lock()
