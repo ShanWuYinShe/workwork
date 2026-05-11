@@ -39,7 +39,10 @@ func (s *ipBlockStore) save() {
 	defer s.mu.Unlock()
 	b, _ := json.MarshalIndent(s, "", "  ")
 	os.MkdirAll("/app/data", 0755)
-	os.WriteFile(s.path, b, 0644)
+	// Atomic write: write to temp file then rename
+	tmp := s.path + ".tmp"
+	os.WriteFile(tmp, b, 0600)
+	os.Rename(tmp, s.path)
 }
 
 func (s *ipBlockStore) isBlocked(ip string) bool {
@@ -133,6 +136,10 @@ func apiBlockIP() http.HandlerFunc {
 			writeError(w, "IP required", 400)
 			return
 		}
+		if net.ParseIP(body.IP) == nil {
+			writeError(w, "Invalid IP address", 400)
+			return
+		}
 		dur := time.Duration(body.Duration) * time.Second
 		ipBlocker.add(body.IP, body.Reason, dur)
 		ipBlocker.save()
@@ -147,6 +154,10 @@ func apiUnblockIP() http.HandlerFunc {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
 			writeError(w, "IP required", 400)
+			return
+		}
+		if net.ParseIP(body.IP) == nil {
+			writeError(w, "Invalid IP address", 400)
 			return
 		}
 		ipBlocker.remove(body.IP)

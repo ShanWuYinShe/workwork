@@ -56,8 +56,8 @@ export async function deleteXrayClient(uuid) {
   return req('/users/xray/delete', { method: 'POST', body: JSON.stringify({ uuid }) });
 }
 
-export async function changePassword(username, password) {
-  return req('/users/password', { method: 'POST', body: JSON.stringify({ username, password }) });
+export async function changePassword(username, oldPassword, password) {
+  return req('/users/password', { method: 'POST', body: JSON.stringify({ username, old_password: oldPassword, password }) });
 }
 
 export async function addAdminUser(username, password, role = 'viewer') {

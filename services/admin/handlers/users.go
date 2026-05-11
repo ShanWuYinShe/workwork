@@ -74,25 +74,9 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		uuid = clients[0]["id"]
 	}
 
-	realityAddr := cfg.RealityDomain
-	if realityAddr == "" {
-		realityAddr = "xray.yinghuoren.com"
-	}
-	sni := cfg.RealityServerName
-	if sni == "" {
-		sni = "www.microsoft.com"
-	}
-	pubKey := cfg.RealityPublicKey
-	if pubKey == "" {
-		pubKey = "FCgB02VAjngf517UBQ-LWUWh6ZrvdHMWVUmHHkyirhM"
-	}
-	shortID := cfg.RealityShortID
-	if shortID == "" {
-		shortID = "abcdef"
-	}
-	domain := cfg.XHTTPDomain
-	if domain == "" {
-		domain = "yinghuoren.com"
+	// Refuse to generate config with missing/incomplete required settings
+	if cfg.RealityDomain == "" || cfg.RealityPublicKey == "" || cfg.XHTTPDomain == "" {
+		return "{\"error\": \"Server configuration incomplete\"}"
 	}
 
 	return orderedJSON([]jsonField{
@@ -114,7 +98,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"tag": "reality", "protocol": "vless",
 				"settings": map[string]any{
 					"vnext": []any{map[string]any{
-						"address": realityAddr, "port": 443,
+						"address": cfg.RealityDomain, "port": 443,
 						"users": []any{map[string]any{
 							"id": uuid, "email": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
 						}},
@@ -123,8 +107,8 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"streamSettings": map[string]any{
 					"network": "tcp", "security": "reality",
 					"realitySettings": map[string]any{
-						"serverName": sni, "fingerprint": "chrome",
-						"publicKey": pubKey, "shortId": shortID,
+						"serverName": cfg.RealityServerName, "fingerprint": "chrome",
+						"publicKey": cfg.RealityPublicKey, "shortId": cfg.RealityShortID,
 					},
 					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
@@ -133,7 +117,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"tag": "xhttp", "protocol": "vless",
 				"settings": map[string]any{
 					"vnext": []any{map[string]any{
-						"address": domain, "port": 443,
+						"address": cfg.XHTTPDomain, "port": 443,
 						"users": []any{map[string]any{
 							"id": uuid, "email": uuid, "encryption": "none",
 						}},
@@ -141,7 +125,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				},
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
-					"tlsSettings":   map[string]any{"serverName": domain, "fingerprint": "chrome"},
+					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome"},
 					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "auto"},
 					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
