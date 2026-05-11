@@ -44,6 +44,15 @@ func writeError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(jsonResp{Success: false, Error: msg})
 }
 
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+
 func apiDashboard(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
@@ -318,7 +327,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			settings["decryption"] = "none"
 		}
 		out, _ := json.MarshalIndent(full, "", "  ")
-		os.WriteFile("/app/configs/xray.json", out, 0644)
+		atomicWriteFile("/app/configs/xray.json", out, 0644)
 		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
@@ -374,7 +383,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			settings["clients"] = kept
 		}
 		out, _ := json.MarshalIndent(full, "", "  ")
-		os.WriteFile("/app/configs/xray.json", out, 0644)
+		atomicWriteFile("/app/configs/xray.json", out, 0644)
 		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}

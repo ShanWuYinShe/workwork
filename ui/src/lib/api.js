@@ -176,7 +176,8 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
     buf = lines.pop();
     for (const line of lines) {
       if (!line.trim()) continue;
-      const data = JSON.parse(line);
+      let data;
+      try { data = JSON.parse(line); } catch { continue; }
       if (data.type === 'progress' && onProgress) onProgress(data);
       if (data.type === 'error') throw new Error(data.error);
       if (data.type === 'done') result = data;
@@ -185,9 +186,12 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
   }
   // Handle remaining buffer
   if (buf.trim()) {
-    const data = JSON.parse(buf);
-    if (data.type === 'error') throw new Error(data.error);
-    if (data.type === 'done') result = data;
+    let data;
+    try { data = JSON.parse(buf); } catch { /* ignore partial */ }
+    if (data) {
+      if (data.type === 'error') throw new Error(data.error);
+      if (data.type === 'done') result = data;
+    }
   }
 
   // Non-streaming fallback (already_exists etc.)
