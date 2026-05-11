@@ -362,7 +362,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 				if id == body.UUID {
 					// Check ownership
 					owner, _ := cm["owner"].(string)
-					if owner != "" && userInfo != nil && userInfo.Role != "admin" && owner != username {
+					if userInfo != nil && userInfo.Role != "admin" && owner != username {
 						writeError(w, "Forbidden: not your client", 403)
 						return
 					}

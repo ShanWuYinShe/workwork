@@ -141,18 +141,21 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			username := r.Header.Get("X-Forwarded-User")
-			if username == "" {
-				writeError(w, "Unauthorized", 401)
-				return
-			}
-
 			var info *UserInfo
-			var err error
-			// Internal services (fail2ban) use shared secret token
+			var username string
+
+			// Internal services (fail2ban) authenticate via shared secret
 			if internalToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+				username = "internal"
 			} else {
+				// External requests: must come through nginx (X-Forwarded-User set by basic auth)
+				username = r.Header.Get("X-Forwarded-User")
+				if username == "" {
+					writeError(w, "Unauthorized", 401)
+					return
+				}
+				var err error
 				info, err = ensureUserMeta(username)
 				if err != nil {
 					writeError(w, "Internal error", 500)

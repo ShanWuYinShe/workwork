@@ -218,7 +218,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		}
 		tmpl, err := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
 		if err != nil {
-			writeError(w, "Template not found: "+err.Error(), 500)
+			writeError(w, "Template not found", 500)
 			return
 		}
 
@@ -229,12 +229,12 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			for _, k := range strings.Split(userKeys, ",") {
 				k = strings.TrimSpace(k)
 				if k != "" {
-					fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", k)
+					fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", sanitizeYAML(k))
 				}
 			}
 		}
 		// Also add per-user dedicated key
-		fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", tok)
+		fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", sanitizeYAML(tok))
 
 		// Merge: personal providers + pool providers
 		var allProviders []cliproxyProvider
@@ -266,25 +266,25 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 
 			if t == "anthropic" {
 				// claude-api-key section format
-				fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", p.APIKey)
+				fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
 				if p.BaseURL != "https://api.anthropic.com/v1" {
-					fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", p.BaseURL)
+					fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
 				}
 				fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
 				for _, m := range p.getModels() {
-					fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", m.Name)
-					fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", m.Alias)
+					fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+					fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", sanitizeYAML(m.Alias))
 				}
 			} else {
 				// openai-compatibility section format
-				fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", p.Name)
-				fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", p.BaseURL)
+				fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", sanitizeYAML(p.Name))
+				fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
 				fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
-				fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", p.APIKey)
+				fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
 				fmt.Fprintf(&openAICompatYAML, "    models:\n")
 				for _, m := range p.getModels() {
-					fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", m.Name)
-					fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", m.Alias)
+					fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+					fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", sanitizeYAML(m.Alias))
 				}
 			}
 		}
@@ -297,11 +297,11 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		cfgPath := cliproxyConfigPath(tok)
 		dir := cfgPath[:strings.LastIndex(cfgPath, "/")]
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			writeError(w, err.Error(), 500)
+			writeError(w, "Failed to create config directory", 500)
 			return
 		}
 		if err := os.WriteFile(cfgPath, []byte(out), 0644); err != nil {
-			writeError(w, err.Error(), 500)
+			writeError(w, "Failed to write config", 500)
 			return
 		}
 		// Save merged providers metadata alongside config
@@ -441,7 +441,7 @@ func apiCliproxyPublicConfig(cli *client.Client) http.HandlerFunc {
 			for _, k := range body.APIKeys {
 				k = strings.TrimSpace(k)
 				if k != "" {
-					fmt.Fprintf(&keysYAML, "  - \"%s\"\n", k)
+					fmt.Fprintf(&keysYAML, "  - \"%s\"\n", sanitizeYAML(k))
 				}
 			}
 			out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
@@ -585,4 +585,11 @@ func maskKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "****" + key[len(key)-4:]
+}
+
+func sanitizeYAML(s string) string {
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
 }

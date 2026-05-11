@@ -45,6 +45,8 @@ server {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
 
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
     # Cloudflare Authenticated Origin Pulls (mTLS)
     ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull.pem;
     ssl_verify_client on;
@@ -116,7 +118,7 @@ server {
         proxy_set_header Host $host;
     }
 
-    location ~ ^/api/cliproxy/user/([^/]+)(/.*)?$ {
+    location ~ ^/api/cliproxy/user/([a-f0-9]+)(/.*)?$ {
         set $cp_user $1;
         set $cp_path $2;
         if ($cp_path = '') {
