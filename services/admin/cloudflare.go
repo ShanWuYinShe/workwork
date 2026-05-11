@@ -42,6 +42,19 @@ var (
 	cfZoneCacheMu sync.Mutex
 )
 
+var cfClient *http.Client
+
+func init() {
+	cfClient = &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			IdleConnTimeout:      90 * time.Second,
+			TLSHandshakeTimeout:  10 * time.Second,
+		},
+		Timeout: 30 * time.Second,
+	}
+}
+
 func cfToken() string { return getEnv("CF_API_TOKEN") }
 
 func cfResolveZoneID(domain string) (string, error) {
@@ -85,7 +98,6 @@ func cfRequest(method, path string, body any) (*cfResponse, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+cfToken())
 	req.Header.Set("Content-Type", "application/json")
-	cfClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := cfClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("cf request failed: %w", err)
