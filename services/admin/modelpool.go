@@ -230,24 +230,24 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 		}
 
 		if t == "anthropic" {
-			fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", p.APIKey)
+			fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
 			if p.BaseURL != "https://api.anthropic.com/v1" {
-				fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", p.BaseURL)
+				fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
 			}
 			fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
 			for _, m := range p.getModels() {
-				fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", m.Name)
-				fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", m.Alias)
+				fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+				fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", sanitizeYAML(m.Alias))
 			}
 		} else {
-			fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", p.Name)
-			fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", p.BaseURL)
+			fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", sanitizeYAML(p.Name))
+			fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
 			fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
-			fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", p.APIKey)
+			fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
 			fmt.Fprintf(&openAICompatYAML, "    models:\n")
 			for _, m := range p.getModels() {
-				fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", m.Name)
-				fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", m.Alias)
+				fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+				fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", sanitizeYAML(m.Alias))
 			}
 		}
 	}

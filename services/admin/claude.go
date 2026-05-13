@@ -495,7 +495,10 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
-			f.Write(buf[:n])
+			if _, err := f.Write(buf[:n]); err != nil {
+				f.Close()
+				return 0, "", fmt.Errorf("write: %w", err)
+			}
 			written += int64(n)
 			if onProgress != nil {
 				onProgress(written, total)
@@ -509,7 +512,9 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 			return 0, "", readErr
 		}
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return 0, "", fmt.Errorf("close: %w", err)
+	}
 
 	// Extract binary from archive
 	binaryPath := filepath.Join(claudeDownloadsDir, filename)
