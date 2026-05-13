@@ -121,7 +121,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
-// rateLimitMiddleware should be placed BEFORE ipBlockMiddleware
+// rateLimitMiddleware should be placed AFTER ipBlockMiddleware
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)

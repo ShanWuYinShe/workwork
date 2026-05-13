@@ -48,7 +48,7 @@ server {
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
     # Cloudflare Authenticated Origin Pulls (mTLS)
-    ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull.pem;
+    ssl_client_certificate /etc/nginx/cloudflare-origin-pull.pem;
     ssl_verify_client on;
 
     location /proxy/query {
