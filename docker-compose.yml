@@ -24,7 +24,7 @@ services:
       xray:
         condition: service_started
     healthcheck:
-      test: ["CMD", "pgrep", "-q", "nginx"]
+      test: ["CMD", "pgrep", "nginx"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -47,7 +47,7 @@ services:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./services/xray/config.json:/etc/xray/config.json:ro
     healthcheck:
-      test: ["CMD", "pgrep", "-q", "xray"]
+      test: ["CMD", "pgrep", "xray"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -95,7 +95,7 @@ services:
     depends_on:
       - nginx
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8318/api/admin/auth/me"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8318/api/admin/health"]
       interval: 30s
       timeout: 5s
       retries: 3
