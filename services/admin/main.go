@@ -64,6 +64,11 @@ func main() {
 	mux.HandleFunc("GET /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
 	mux.HandleFunc("POST /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
 
+	// Health check (no auth required)
+	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]string{"status": "ok"})
+	})
+
 	// Model pool management
 	mux.HandleFunc("GET /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
 	mux.HandleFunc("POST /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
