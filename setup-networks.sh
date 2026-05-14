@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
 
-PARENT_IFACE="${PARENT_IFACE:-eth0}"
+# Auto-detect default network interface, fallback to eth0
+DEFAULT_IFACE=$(ip -o -4 route show default | awk '{print $5}' | head -1)
+PARENT_IFACE="${PARENT_IFACE:-${DEFAULT_IFACE:-eth0}}"
 
 create_network() {
   local name=$1; shift

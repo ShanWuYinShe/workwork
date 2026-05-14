@@ -28,6 +28,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
   xray:
     build:
@@ -51,6 +56,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
   cliproxy-public:
     build:
@@ -65,6 +75,16 @@ services:
     volumes:
       - ./services/cliproxy/config.yaml:/CLIProxyAPI/config.yaml:ro
       - ./cliproxy-data/public:/root/.cli-proxy-api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8317/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 64M
 
   admin:
     build:
@@ -77,7 +97,6 @@ services:
       - HTPASSWD_FILE=/app/htpasswd
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
-      - PROJECT_DIR=${PWD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:ro
@@ -88,7 +107,6 @@ services:
       - ./.wework:/app/data
       - ./services/xray/config.json:/app/configs/xray.json:rw
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
-      - ./services:/app/services:ro
       - ./services/cliproxy/config.yaml:/app/configs/cliproxy.yaml:rw
       - ./services/cliproxy/config.yaml.tmpl:/app/configs/cliproxy.yaml.tmpl:ro
       - ./cliproxy-data:/app/cliproxy-data
@@ -99,6 +117,11 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
 networks:
   ipvlan_docker:

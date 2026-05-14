@@ -161,7 +161,7 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 		}
 		// Read providers from companion JSON file
 		providers := []cliproxyProvider{}
-		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json" // config.yaml → .providers.json
+		metaPath := strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 		if metaData, err := os.ReadFile(metaPath); err == nil {
 			var meta struct {
 				Providers []cliproxyProvider `json:"providers"`
@@ -253,46 +253,12 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Generate separate YAML per provider type
-		var openAICompatYAML strings.Builder
-		var claudeAPIKeyYAML strings.Builder
-		for _, p := range allProviders {
-			if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
-				continue
-			}
-			t := p.Type
-			if t == "" {
-				t = "openai"
-			}
-
-			if t == "anthropic" {
-				// claude-api-key section format
-				fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
-				if p.BaseURL != "https://api.anthropic.com/v1" {
-					fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
-				}
-				fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
-				for _, m := range p.getModels() {
-					fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
-					fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", sanitizeYAML(m.Alias))
-				}
-			} else {
-				// openai-compatibility section format
-				fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", sanitizeYAML(p.Name))
-				fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
-				fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
-				fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
-				fmt.Fprintf(&openAICompatYAML, "    models:\n")
-				for _, m := range p.getModels() {
-					fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
-					fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", sanitizeYAML(m.Alias))
-				}
-			}
-		}
+		openAICompatYAML, claudeAPIKeyYAML := renderProvidersYAML(allProviders)
 
 		out := string(tmpl)
 		out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", apiKeysYAML.String())
-		out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", openAICompatYAML.String())
-		out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", claudeAPIKeyYAML.String())
+		out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", openAICompatYAML)
+		out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", claudeAPIKeyYAML)
 
 		cfgPath := cliproxyConfigPath(tok)
 		dir := cfgPath[:strings.LastIndex(cfgPath, "/")]
@@ -305,9 +271,11 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		// Save merged providers metadata alongside config
-		metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
-		metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
-		os.WriteFile(metaPath, metaData, 0644)
+		metaPath := strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
+		metaData, err := json.Marshal(map[string]any{"providers": allProviders})
+		if err == nil {
+			os.WriteFile(metaPath, metaData, 0644)
+		}
 
 		restartCliproxyIfRunning(body.Username, cli)
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -580,6 +548,41 @@ func cliproxyTokenForUser(username string) (string, error) {
 	return getOrCreateCliproxyToken(username)
 }
 
+func renderProvidersYAML(providers []cliproxyProvider) (openAICompat, claudeAPIKey string) {
+	var openBuf, claudeBuf strings.Builder
+	for _, p := range providers {
+		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
+			continue
+		}
+		t := p.Type
+		if t == "" {
+			t = "openai"
+		}
+		if t == "anthropic" {
+			fmt.Fprintf(&claudeBuf, "  - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
+			if p.BaseURL != "https://api.anthropic.com/v1" {
+				fmt.Fprintf(&claudeBuf, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
+			}
+			fmt.Fprintf(&claudeBuf, "    models:\n")
+			for _, m := range p.getModels() {
+				fmt.Fprintf(&claudeBuf, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+				fmt.Fprintf(&claudeBuf, "        alias: \"%s\"\n", sanitizeYAML(m.Alias))
+			}
+		} else {
+			fmt.Fprintf(&openBuf, "  - name: \"%s\"\n", sanitizeYAML(p.Name))
+			fmt.Fprintf(&openBuf, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
+			fmt.Fprintf(&openBuf, "    api-key-entries:\n")
+			fmt.Fprintf(&openBuf, "      - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
+			fmt.Fprintf(&openBuf, "    models:\n")
+			for _, m := range p.getModels() {
+				fmt.Fprintf(&openBuf, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
+				fmt.Fprintf(&openBuf, "        alias: \"%s/*\"\n", sanitizeYAML(m.Alias))
+			}
+		}
+	}
+	return openBuf.String(), claudeBuf.String()
+}
+
 func maskKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
@@ -588,6 +591,7 @@ func maskKey(key string) string {
 }
 
 func sanitizeYAML(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, "\n", "")
 	s = strings.ReplaceAll(s, "\r", "")
