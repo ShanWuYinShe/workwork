@@ -10,6 +10,7 @@
     setModelPoolUser,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let instances = $state([]);
   let loading = $state(true);
@@ -64,7 +65,7 @@
   }
 
   async function doStop(username) {
-    if (!confirm(t('confirmStopCliproxy', { username }))) return;
+    if (!(await showConfirm(t('confirmStopCliproxy', { username })))) return;
     actingUser = username;
     error = '';
     message = '';
@@ -452,7 +453,7 @@
                         class="btn btn-sm btn-ghost"
                         style="padding:0.15rem 0.35rem;font-size:0.65rem;"
                         onclick={() => copyUrl(ci.base_url)}
-                        title={t('copyUrlTitle')}>Copy</button
+                        title={t('copyUrlTitle')}>{t('copy')}</button
                       >
                     {/if}
                   </div>

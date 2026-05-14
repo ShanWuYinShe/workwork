@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let services = $state([]);
   let loading = $state(true);
@@ -21,8 +22,13 @@
     }
   });
 
+  function confirmKey(act) {
+    const map = { stop: 'confirmStopService', start: 'confirmStartService', restart: 'confirmRestartService' };
+    return map[act] || 'confirmStopService';
+  }
+
   async function act(name, action) {
-    if (!confirm(t('confirm' + action.charAt(0).toUpperCase() + action.slice(1) + 'Service', { name }))) return;
+    if (!(await showConfirm(t(confirmKey(action), { name })))) return;
     actingService = name;
     try {
       const d = await serviceAction(name, action);

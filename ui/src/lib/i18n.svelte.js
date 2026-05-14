@@ -68,6 +68,7 @@ const zh = {
   anthropic: 'Anthropic',
   save: '保存',
   cancel: '取消',
+  ok: '确定',
   config: '配置',
   start: '启动',
   stop: '停止',
@@ -351,6 +352,7 @@ const en = {
   anthropic: 'Anthropic',
   save: 'Save',
   cancel: 'Cancel',
+  ok: 'OK',
   delete: 'Delete',
   config: 'Config',
   start: 'Start',
@@ -574,7 +576,7 @@ let lang = $state(
 export function t(key, vars) {
   let s = dicts[lang]?.[key] || dicts.en[key] || key;
   if (vars) {
-    for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, v);
+    for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v);
   }
   return s;
 }
