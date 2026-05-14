@@ -595,7 +595,11 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Prevent deleting the last admin
-		doc, _ := readUsersMeta()
+		doc, err := readUsersMeta()
+		if err != nil {
+			writeError(w, "Failed to read users", 500)
+			return
+		}
 		adminCount := 0
 		for _, info := range doc.Users {
 			if info.Role == "admin" {
@@ -661,7 +665,11 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 
 		// Prevent demoting the last admin
 		if body.Role != "admin" {
-			doc, _ := readUsersMeta()
+			doc, err := readUsersMeta()
+			if err != nil {
+				writeError(w, "Failed to read users", 500)
+				return
+			}
 			adminCount := 0
 			for username, info := range doc.Users {
 				if info.Role == "admin" && username != body.Username {
