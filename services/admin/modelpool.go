@@ -64,17 +64,15 @@ func getUserPoolAccess(username string) bool {
 }
 
 func setUserPoolAccess(username string, granted bool) error {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return err
-	}
-	info, ok := doc.Users[username]
-	if !ok {
-		info = UserInfo{Role: "viewer"}
-	}
-	info.PoolAccess = granted
-	doc.Users[username] = info
-	return saveUsersMeta(doc)
+	return updateUsersMeta(func(doc *usersMetaDoc) error {
+		info, ok := doc.Users[username]
+		if !ok {
+			info = UserInfo{Role: "viewer"}
+		}
+		info.PoolAccess = granted
+		doc.Users[username] = info
+		return nil
+	})
 }
 
 func poolAuthorizedUsers() []string {
@@ -181,7 +179,7 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	// Read user's existing personal providers
 	var userProviders []cliproxyProvider
 	cfgPath := cliproxyConfigPath(tok)
-	metaPath := cfgPath[:len(cfgPath)-5] + ".providers.json"
+	metaPath := strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 	if metaData, err := os.ReadFile(metaPath); err == nil {
 		var meta struct {
 			Providers []cliproxyProvider `json:"providers"`
@@ -193,13 +191,13 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 
 	// API keys for cliproxy access
 	var apiKeysYAML strings.Builder
-	fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", tok)
+	fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", sanitizeYAML(tok))
 	pubKeys := getEnv("CLIPROXY_PUBLIC_API_KEYS")
 	if pubKeys != "" {
 		for _, k := range strings.Split(pubKeys, ",") {
 			k = strings.TrimSpace(k)
 			if k != "" {
-				fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", k)
+				fmt.Fprintf(&apiKeysYAML, "  - \"%s\"\n", sanitizeYAML(k))
 			}
 		}
 	}
@@ -218,44 +216,12 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	}
 
 	// Generate separate sections by type
-	var openAICompatYAML strings.Builder
-	var claudeAPIKeyYAML strings.Builder
-	for _, p := range allProviders {
-		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" {
-			continue
-		}
-		t := p.Type
-		if t == "" {
-			t = "openai"
-		}
-
-		if t == "anthropic" {
-			fmt.Fprintf(&claudeAPIKeyYAML, "  - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
-			if p.BaseURL != "https://api.anthropic.com/v1" {
-				fmt.Fprintf(&claudeAPIKeyYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
-			}
-			fmt.Fprintf(&claudeAPIKeyYAML, "    models:\n")
-			for _, m := range p.getModels() {
-				fmt.Fprintf(&claudeAPIKeyYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
-				fmt.Fprintf(&claudeAPIKeyYAML, "        alias: \"%s\"\n", sanitizeYAML(m.Alias))
-			}
-		} else {
-			fmt.Fprintf(&openAICompatYAML, "  - name: \"%s\"\n", sanitizeYAML(p.Name))
-			fmt.Fprintf(&openAICompatYAML, "    base-url: \"%s\"\n", sanitizeYAML(p.BaseURL))
-			fmt.Fprintf(&openAICompatYAML, "    api-key-entries:\n")
-			fmt.Fprintf(&openAICompatYAML, "      - api-key: \"%s\"\n", sanitizeYAML(p.APIKey))
-			fmt.Fprintf(&openAICompatYAML, "    models:\n")
-			for _, m := range p.getModels() {
-				fmt.Fprintf(&openAICompatYAML, "      - name: \"%s\"\n", sanitizeYAML(m.Name))
-				fmt.Fprintf(&openAICompatYAML, "        alias: \"%s/*\"\n", sanitizeYAML(m.Alias))
-			}
-		}
-	}
+	openAICompatYAML, claudeAPIKeyYAML := renderProvidersYAML(allProviders)
 
 	out := string(tmpl)
 	out = strings.ReplaceAll(out, "__CLIPROXY_PUBLIC_API_KEYS_YAML__", apiKeysYAML.String())
-	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", openAICompatYAML.String())
-	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", claudeAPIKeyYAML.String())
+	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", openAICompatYAML)
+	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", claudeAPIKeyYAML)
 
 	if idx := strings.LastIndex(cfgPath, "/"); idx >= 0 {
 		dir := cfgPath[:idx]
@@ -268,7 +234,7 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 	}
 
 	// Save merged providers metadata
-	metaPath = cfgPath[:len(cfgPath)-5] + ".providers.json"
+	metaPath = strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 	metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
 	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
 		log.Printf("WARNING: failed to write providers metadata %s: %v", metaPath, err)

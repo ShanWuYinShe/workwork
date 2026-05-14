@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -124,6 +126,12 @@ func (rl *rateLimiter) allow(ip string) bool {
 // rateLimitMiddleware should be placed AFTER ipBlockMiddleware
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Skip rate limiting for internal service requests (fail2ban etc.)
+		if internalToken := os.Getenv("INTERNAL_TOKEN"); internalToken != "" &&
+			subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
+			next(w, r)
+			return
+		}
 		ip := clientIP(r)
 		if ip != "" && !authRateLimiter.allow(ip) {
 			writeError(w, "Too many requests, try again later", 429)

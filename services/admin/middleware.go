@@ -54,12 +54,29 @@ func readUsersMeta() (*usersMetaDoc, error) {
 	return doc, nil
 }
 
-func saveUsersMeta(doc *usersMetaDoc) error {
+func updateUsersMeta(fn func(doc *usersMetaDoc) error) error {
 	usersMetaMu.Lock()
 	defer usersMetaMu.Unlock()
 
+	doc := &usersMetaDoc{Users: make(map[string]UserInfo)}
+	data, err := os.ReadFile(usersMetaPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else if err := json.Unmarshal(data, doc); err != nil {
+		return err
+	}
+	if doc.Users == nil {
+		doc.Users = make(map[string]UserInfo)
+	}
+
+	if err := fn(doc); err != nil {
+		return err
+	}
+
 	os.MkdirAll("/app/data", 0755)
-	data, err := json.MarshalIndent(doc, "", "  ")
+	data, err = json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -67,19 +84,17 @@ func saveUsersMeta(doc *usersMetaDoc) error {
 }
 
 func ensureUserMeta(username string) (*UserInfo, error) {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return nil, err
-	}
-	info, exists := doc.Users[username]
-	if !exists {
-		info = UserInfo{Role: "viewer", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-		doc.Users[username] = info
-		if err := saveUsersMeta(doc); err != nil {
-			return nil, err
+	var info *UserInfo
+	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+		existing, exists := doc.Users[username]
+		if !exists {
+			existing = UserInfo{Role: "viewer", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+			doc.Users[username] = existing
 		}
-	}
-	return &info, nil
+		info = &existing
+		return nil
+	})
+	return info, err
 }
 
 func isProtectedAdmin(username string) bool {
@@ -87,21 +102,17 @@ func isProtectedAdmin(username string) bool {
 }
 
 func updateUserMeta(username string, info UserInfo) error {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return err
-	}
-	doc.Users[username] = info
-	return saveUsersMeta(doc)
+	return updateUsersMeta(func(doc *usersMetaDoc) error {
+		doc.Users[username] = info
+		return nil
+	})
 }
 
 func deleteUserMeta(username string) error {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return err
-	}
-	delete(doc.Users, username)
-	return saveUsersMeta(doc)
+	return updateUsersMeta(func(doc *usersMetaDoc) error {
+		delete(doc.Users, username)
+		return nil
+	})
 }
 
 func getUserFromContext(r *http.Request) (*UserInfo, string) {
@@ -111,28 +122,26 @@ func getUserFromContext(r *http.Request) (*UserInfo, string) {
 }
 
 func getOrCreateCliproxyToken(username string) (string, error) {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return "", err
-	}
-	info := doc.Users[username]
-	if info.CliproxyToken != "" {
-		return info.CliproxyToken, nil
-	}
-	b := make([]byte, 10)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	info.CliproxyToken = hex.EncodeToString(b)
-	info.Role = doc.Users[username].Role
-	if info.CreatedAt == "" {
-		info.CreatedAt = doc.Users[username].CreatedAt
-	}
-	doc.Users[username] = info
-	if err := saveUsersMeta(doc); err != nil {
-		return "", err
-	}
-	return info.CliproxyToken, nil
+	var token string
+	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+		info := doc.Users[username]
+		if info.CliproxyToken != "" {
+			token = info.CliproxyToken
+			return nil
+		}
+		b := make([]byte, 10)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		info.CliproxyToken = hex.EncodeToString(b)
+		if info.CreatedAt == "" {
+			info.CreatedAt = doc.Users[username].CreatedAt
+		}
+		doc.Users[username] = info
+		token = info.CliproxyToken
+		return nil
+	})
+	return token, err
 }
 
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
