@@ -37,7 +37,7 @@
   let currentRoute = $derived(routes.find((r) => r.path === currentPath));
 </script>
 
-<div class="layout" class:collapsed={sidebarCollapsed}>
+<div class="layout {sidebarCollapsed ? 'collapsed' : ''}">
   <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} />
 
   <main class="main">
