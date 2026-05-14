@@ -86,7 +86,7 @@ func genXrayConfig() error {
 	}, map[string]string{
 		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
-	return os.WriteFile("/app/configs/xray.json", []byte(out), 0644)
+	return os.WriteFile("/app/configs/xray.json", []byte(out), 0600)
 }
 
 // migrateXrayClients ensures all existing clients have email and removes test entries.
@@ -169,7 +169,7 @@ func genHtpasswd() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("/app/htpasswd", bytes.TrimSpace(out), 0644)
+	return os.WriteFile("/app/htpasswd", bytes.TrimSpace(out), 0600)
 }
 
 func genCliproxyConfig() error {
