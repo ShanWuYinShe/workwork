@@ -3,6 +3,7 @@
   import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
+  import Toast from '../lib/Toast.svelte';
 
   let net = $state({
     nginx_ip: '-',
@@ -217,9 +218,9 @@
         {rotating ? t('rotating') : t('rotateReality')}
       </button>
       {#if result.msg}
-        <div class="toast toast-{result.ok ? 'success' : 'error'}" style="margin:0;">
+        <Toast type={result.ok ? 'success' : 'error'} visible={!!result.msg} onclose={() => result = { ok: false, msg: '' }}>
           {result.msg}
-        </div>
+        </Toast>
       {/if}
     </div>
   </div>
