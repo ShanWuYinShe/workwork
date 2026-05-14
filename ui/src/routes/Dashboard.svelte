@@ -3,6 +3,7 @@
   import { getDashboard, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
+  import Toast from '../lib/Toast.svelte';
 
   let stats = $state({
     services: '-',
@@ -75,7 +76,7 @@
     <h1 class="page-title">{t('dashboard')}</h1>
   </div>
 
-  {#if error}<div class="toast toast-error">{error}</div>{/if}
+  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if loading}
     <div class="stats">
@@ -241,7 +242,7 @@
         </div>
         <textarea rows="16" readonly>{generatedJSON}</textarea>
         {#if copied}
-          <div class="toast toast-success" style="margin-top:0.75rem;">{t('configCopied')}</div>
+          <Toast type="success" visible={copied} onclose={() => copied = false}>{t('configCopied')}</Toast>
         {/if}
       </div>
     {:else}
