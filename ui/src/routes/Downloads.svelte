@@ -10,6 +10,7 @@
     refreshClaudeVersions,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import Toast from '../lib/Toast.svelte';
 
   let releases = $state([]);
   let platforms = $state([]);
@@ -159,8 +160,8 @@
     </div>
   </div>
 
-  {#if error}<div class="toast toast-error">{error}</div>{/if}
-  {#if message}<div class="toast toast-success">{message}</div>{/if}
+  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
+  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   <div class="stats">
     <div class="stat">

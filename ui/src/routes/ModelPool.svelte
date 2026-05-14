@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getModelPool, setModelPool, setModelPoolUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import Toast from '../lib/Toast.svelte';
 
   let pool = $state({ providers: [], authorized_users: [] });
   let loading = $state(true);
@@ -98,8 +99,8 @@
     </div>
   </div>
 
-  {#if error}<div class="toast toast-error">{error}</div>{/if}
-  {#if message}<div class="toast toast-success">{message}</div>{/if}
+  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
+  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>

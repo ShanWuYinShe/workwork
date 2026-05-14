@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getServices, getServiceLogs } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import Toast from '../lib/Toast.svelte';
 
   let services = $state([]);
   let selectedService = $state('');
@@ -53,7 +54,7 @@
     </div>
   </div>
 
-  {#if error}<div class="toast toast-error">{error}</div>{/if}
+  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:300px;"></div></div>

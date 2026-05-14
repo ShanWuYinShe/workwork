@@ -3,6 +3,7 @@
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
+  import Toast from '../lib/Toast.svelte';
 
   let services = $state([]);
   let loading = $state(true);
@@ -48,7 +49,7 @@
     <h1 class="page-title">{t('services')}</h1>
   </div>
 
-  {#if error}<div class="toast toast-error">{error}</div>{/if}
+  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if loading}
     <div class="loading-skeleton" style="height:200px;"></div>
