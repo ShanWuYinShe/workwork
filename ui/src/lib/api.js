@@ -1,4 +1,11 @@
 const BASE = '/api/admin';
+const FETCH_TIMEOUT = 30000;
+
+function signalFromTimeout(ms, controller) {
+  if (!controller) controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
 
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
@@ -6,9 +13,13 @@ async function req(path, opts = {}) {
   if (hasBody && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }
+  const ctrl = new AbortController();
+  const timeout = opts.timeout || FETCH_TIMEOUT;
+  const signal = opts.signal || signalFromTimeout(timeout, ctrl);
   const r = await fetch(BASE + path, {
     credentials: 'same-origin',
     ...opts,
+    signal,
     headers,
   });
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
@@ -30,14 +41,7 @@ export async function getServices() {
 }
 
 export async function serviceAction(name, action) {
-  const r = await fetch(`${BASE}/services/${name}/${action}`, {
-    method: 'POST',
-    credentials: 'same-origin',
-  });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  const json = await r.json();
-  if (!json.success) throw new Error(json.error || 'API error');
-  return json.data;
+  return req(`/services/${name}/${action}`, { method: 'POST' });
 }
 
 export async function getServiceLogs(name, tail = 100) {
@@ -159,12 +163,16 @@ export async function getClaudePlatforms(version) {
 }
 
 export async function downloadClaudeVersion(version, plat, onProgress) {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
   const r = await fetch(BASE + '/claude-code/download', {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
     body: JSON.stringify({ version, plat }),
+    signal: ctrl.signal,
   });
+  clearTimeout(timeout);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
 
   const reader = r.body.getReader();

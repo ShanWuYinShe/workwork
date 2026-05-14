@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let net = $state({
     nginx_ip: '-',
@@ -22,6 +23,7 @@
 
   async function refresh() {
     loading = true;
+    syncMsg = '';
     try {
       const ns = await getNetworkStatus();
       net = { ...net, ...ns };
@@ -44,7 +46,7 @@
   }
 
   async function doRotate() {
-    if (!confirm(t('rotateConfirm'))) return;
+    if (!(await showConfirm(t('rotateConfirm')))) return;
     rotating = true;
     result = { ok: false, msg: '' };
     try {

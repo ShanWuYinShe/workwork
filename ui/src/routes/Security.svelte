@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getBlockedIPs, blockIP, unblockIP } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let entries = $state([]);
   let loading = $state(true);
@@ -42,7 +43,7 @@
   }
 
   async function doUnblock(ip) {
-    if (!confirm(t('confirmUnblock', { ip }))) return;
+    if (!(await showConfirm(t('confirmUnblock', { ip })))) return;
     error = '';
     message = '';
     try {
