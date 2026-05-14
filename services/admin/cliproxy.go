@@ -591,9 +591,28 @@ func maskKey(key string) string {
 }
 
 func sanitizeYAML(s string) string {
+	// Escape YAML special characters to prevent injection
+	// Order matters: backslash first, then double-quote, then others
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, "\n", "")
 	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, ":", "\\:")
+	s = strings.ReplaceAll(s, "#", "\\#")
+	s = strings.ReplaceAll(s, "{", "\\{")
+	s = strings.ReplaceAll(s, "}", "\\}")
+	s = strings.ReplaceAll(s, "[", "\\[")
+	s = strings.ReplaceAll(s, "]", "\\]")
+	s = strings.ReplaceAll(s, "&", "\\&")
+	s = strings.ReplaceAll(s, "*", "\\*")
+	s = strings.ReplaceAll(s, "!", "\\!")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	s = strings.ReplaceAll(s, ">", "\\>")
+	s = strings.ReplaceAll(s, "'", "\\'")
+	s = strings.ReplaceAll(s, ",", "\\,")
+	s = strings.ReplaceAll(s, "?", "\\?")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "@", "\\@")
+	s = strings.ReplaceAll(s, "`", "\\`")
 	return s
 }

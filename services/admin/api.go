@@ -344,8 +344,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to serialize config", 500)
 			return
 		}
-		atomicWriteFile("/app/configs/xray.json", out, 0644)
-		go restartXray(cli)
+		atomicWriteFile("/app/configs/xray.json", out, 0600)
+
+		if err := restartXray(cli); err != nil {
+			log.Printf("WARNING: failed to restart xray after add: %v", err)
+		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -404,8 +407,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to serialize config", 500)
 			return
 		}
-		atomicWriteFile("/app/configs/xray.json", out, 0644)
-		go restartXray(cli)
+		atomicWriteFile("/app/configs/xray.json", out, 0600)
+
+		if err := restartXray(cli); err != nil {
+			log.Printf("WARNING: failed to restart xray after delete: %v", err)
+		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -819,6 +825,9 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 
 func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		xrayConfigMu.Lock()
+		defer xrayConfigMu.Unlock()
+
 		subnet := getEnv("IPV6_SUBNET")
 		primaryIP := getEnv("XRAY_IPV6")
 		nginxIP := getEnv("NGINX_IPV6")
@@ -987,7 +996,7 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func restartXray(cli *client.Client) {
+func restartXray(cli *client.Client) error {
 	ctx := context.Background()
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		Filters: filters.NewArgs(filters.KeyValuePair{
@@ -995,16 +1004,16 @@ func restartXray(cli *client.Client) {
 		}),
 	})
 	if err != nil {
-		log.Printf("WARNING: failed to list xray container: %v", err)
-		return
+		return fmt.Errorf("list xray container: %w", err)
 	}
 	if len(containers) == 0 {
-		return
+		return nil
 	}
 	t := 10
 	if err := cli.ContainerRestart(ctx, containers[0].ID, container.StopOptions{Timeout: &t}); err != nil {
-		log.Printf("WARNING: failed to restart xray: %v", err)
+		return fmt.Errorf("restart xray: %w", err)
 	}
+	return nil
 }
 
 func containerExec(ctx context.Context, cli *client.Client, containerID string, cmd ...string) error {
