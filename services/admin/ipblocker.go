@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -31,18 +32,28 @@ func (s *ipBlockStore) load() {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, &s)
+	if err := json.Unmarshal(data, &s); err != nil {
+		log.Printf("WARNING: failed to parse blocked-ips.json: %v", err)
+	}
 }
 
 func (s *ipBlockStore) save() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	b, _ := json.MarshalIndent(s, "", "  ")
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		log.Printf("ERROR: failed to marshal blocked IPs: %v", err)
+		return
+	}
 	os.MkdirAll("/app/data", 0755)
-	// Atomic write: write to temp file then rename
 	tmp := s.path + ".tmp"
-	os.WriteFile(tmp, b, 0600)
-	os.Rename(tmp, s.path)
+	if err := os.WriteFile(tmp, b, 0600); err != nil {
+		log.Printf("ERROR: failed to write blocked IPs: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		log.Printf("ERROR: failed to rename blocked IPs: %v", err)
+	}
 }
 
 func (s *ipBlockStore) isBlocked(ip string) bool {

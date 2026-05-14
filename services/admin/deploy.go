@@ -196,19 +196,16 @@ func genCliproxyConfig() error {
 }
 
 func seedAdminUser() error {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return err
-	}
 	adminUser := getEnv("AUTH_USER")
 	if adminUser == "" {
 		return nil
 	}
-	if _, exists := doc.Users[adminUser]; !exists {
-		doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-		return saveUsersMeta(doc)
-	}
-	return nil
+	return updateUsersMeta(func(doc *usersMetaDoc) error {
+		if _, exists := doc.Users[adminUser]; !exists {
+			doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+		}
+		return nil
+	})
 }
 
 func genInternalToken() error {

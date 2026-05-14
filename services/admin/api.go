@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -338,7 +339,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			settings["clients"] = clientsRaw
 			settings["decryption"] = "none"
 		}
-		out, _ := json.MarshalIndent(full, "", "  ")
+		out, err := json.MarshalIndent(full, "", "  ")
+		if err != nil {
+			writeError(w, "Failed to serialize config", 500)
+			return
+		}
 		atomicWriteFile("/app/configs/xray.json", out, 0644)
 		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -394,7 +399,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			}
 			settings["clients"] = kept
 		}
-		out, _ := json.MarshalIndent(full, "", "  ")
+		out, err := json.MarshalIndent(full, "", "  ")
+		if err != nil {
+			writeError(w, "Failed to serialize config", 500)
+			return
+		}
 		atomicWriteFile("/app/configs/xray.json", out, 0644)
 		go restartXray(cli)
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -612,8 +621,16 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		content := strings.Join(lines, "\n") + "\n"
 		tmp := htpasswdFile + ".tmp"
-		os.WriteFile(tmp, []byte(content), 0644)
-		os.Rename(tmp, htpasswdFile)
+		if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+			htpasswdMu.Unlock()
+			writeError(w, "Failed to write htpasswd", 500)
+			return
+		}
+		if err := os.Rename(tmp, htpasswdFile); err != nil {
+			htpasswdMu.Unlock()
+			writeError(w, "Failed to update htpasswd", 500)
+			return
+		}
 		htpasswdMu.Unlock()
 		deleteUserMeta(body.Username)
 		cleanupCliproxyForUser(r.Context(), cli, body.Username)
@@ -969,11 +986,17 @@ func restartXray(cli *client.Client) {
 			Key: "label", Value: "com.docker.compose.service=xray",
 		}),
 	})
-	if err != nil || len(containers) == 0 {
+	if err != nil {
+		log.Printf("WARNING: failed to list xray container: %v", err)
+		return
+	}
+	if len(containers) == 0 {
 		return
 	}
 	t := 10
-	cli.ContainerRestart(ctx, containers[0].ID, container.StopOptions{Timeout: &t})
+	if err := cli.ContainerRestart(ctx, containers[0].ID, container.StopOptions{Timeout: &t}); err != nil {
+		log.Printf("WARNING: failed to restart xray: %v", err)
+	}
 }
 
 func containerExec(ctx context.Context, cli *client.Client, containerID string, cmd ...string) error {
