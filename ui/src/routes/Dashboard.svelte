@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getDashboard, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { copyToClipboard } from '../lib/clipboard.js';
 
   let stats = $state({
     services: '-',
@@ -50,25 +51,11 @@
   });
 
   async function copyConfig() {
-    try {
-      await navigator.clipboard.writeText(generatedJSON);
+    if (await copyToClipboard(generatedJSON)) {
       copied = true;
       setTimeout(() => (copied = false), 2000);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = generatedJSON;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand('copy');
-        copied = true;
-        setTimeout(() => (copied = false), 2000);
-      } catch {
-        error = t('copyFailed');
-      }
-      document.body.removeChild(ta);
+    } else {
+      error = t('copyFailed');
     }
   }
 

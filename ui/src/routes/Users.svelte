@@ -10,6 +10,7 @@
     setModelPoolUser,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let adminUsers = $state([]);
   let loading = $state(true);
@@ -57,7 +58,7 @@
   }
 
   async function deleteUser(username) {
-    if (!confirm(t('confirmDeleteUser', { username }))) return;
+    if (!(await showConfirm(t('confirmDeleteUser', { username })))) return;
     error = '';
     try {
       await deleteAdminUser(username);

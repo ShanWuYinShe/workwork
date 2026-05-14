@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient, getXrayClientConfig } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { copyToClipboard } from '../lib/clipboard.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
 
   let clients = $state([]);
   let generatedJSON = $state('');
@@ -76,7 +78,7 @@
   }
 
   async function deleteClient(uuid) {
-    if (!confirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) }))) return;
+    if (!(await showConfirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) })))) return;
     deletingId = uuid;
     error = '';
     try {
@@ -94,25 +96,11 @@
   }
 
   async function copyConfig() {
-    try {
-      await navigator.clipboard.writeText(generatedJSON);
+    if (await copyToClipboard(generatedJSON)) {
       copied = true;
       setTimeout(() => (copied = false), 2000);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = generatedJSON;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand('copy');
-        copied = true;
-        setTimeout(() => (copied = false), 2000);
-      } catch {
-        error = t('copyFailedManual');
-      }
-      document.body.removeChild(ta);
+    } else {
+      error = t('copyFailedManual');
     }
   }
 
@@ -179,7 +167,10 @@
               <tr
                 class="clickable-row"
                 class:selected={selectedUUID === c.id}
+                tabindex="0"
+                role="button"
                 onclick={() => loadConfig(c.id)}
+                onkeydown={(e) => e.key === 'Enter' && loadConfig(c.id)}
               >
                 <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
                 {#if isAdmin}
