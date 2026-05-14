@@ -83,6 +83,8 @@ func genXrayConfig() error {
 		"__XRAY_REALITY_SERVER_NAME__": "XRAY_REALITY_SERVER_NAME",
 		"__XRAY_PRIVATE_KEY__":         "XRAY_PRIVATE_KEY",
 		"__XRAY_SHORT_IDS__":           "XRAY_SHORT_IDS",
+	}, map[string]string{
+		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
 	return os.WriteFile("/app/configs/xray.json", []byte(out), 0644)
 }
@@ -226,9 +228,16 @@ func genInternalToken() error {
 	return nil
 }
 
-func replaceEnv(s string, vars map[string]string) string {
+func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {
+	def := map[string]string{}
+	if len(defaults) > 0 {
+		def = defaults[0]
+	}
 	for placeholder, key := range vars {
 		v := getEnv(key)
+		if v == "" {
+			v = def[placeholder]
+		}
 		s = strings.ReplaceAll(s, placeholder, v)
 	}
 	return s

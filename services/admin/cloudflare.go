@@ -148,7 +148,9 @@ func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
 			return nil, err
 		}
 		var updated cfDNSRecord
-		json.Unmarshal(cr.Result, &updated)
+		if err := json.Unmarshal(cr.Result, &updated); err != nil {
+			return nil, fmt.Errorf("failed to parse PATCH response: %w", err)
+		}
 		return &updated, nil
 	}
 	cr, err := cfRequest("POST", fmt.Sprintf("/zones/%s/dns_records", zoneID), record)
@@ -156,6 +158,8 @@ func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
 		return nil, err
 	}
 	var created cfDNSRecord
-	json.Unmarshal(cr.Result, &created)
+	if err := json.Unmarshal(cr.Result, &created); err != nil {
+		return nil, fmt.Errorf("failed to parse POST response: %w", err)
+	}
 	return &created, nil
 }
