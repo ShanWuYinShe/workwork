@@ -22,7 +22,7 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" class:collapsed={sidebarCollapsed}>
   <div class="sidebar-header">
     <div class="brand-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
