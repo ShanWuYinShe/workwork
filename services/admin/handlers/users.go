@@ -126,7 +126,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
 					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome"},
-					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "stream-up"},
+					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "stream-one"},
 					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
 			},
