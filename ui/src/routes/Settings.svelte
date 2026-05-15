@@ -8,12 +8,12 @@
   let net = $state({
     nginx_ip: '-',
     xray_ip: '-',
+    nginx_rotating: null,
     subnet: '-',
     static_range: '-',
     rotating_range: '-',
     cf_configured: false,
-    dns_reality: null,
-    dns_nginx: null,
+    dns_records: [],
   });
   let loading = $state(true);
   let rotating = $state(false);
@@ -52,7 +52,7 @@
     result = { ok: false, msg: '' };
     try {
       const d = await rotateIPv6();
-      result = { ok: true, msg: t('newIp', { ip: d.new_ip }) };
+      result = { ok: true, msg: t('rotateResult', { xray: d.xray_ip, nginx: d.nginx_ip }) };
       await refresh();
     } catch (e) {
       result = { ok: false, msg: e.message };
@@ -60,9 +60,6 @@
       rotating = false;
     }
   }
-
-  let realitySynced = $derived(net.dns_reality?.synced);
-  let nginxSynced = $derived(net.dns_nginx?.synced);
 </script>
 
 <div class="page">
@@ -84,35 +81,19 @@
         <div class="card-subtitle">{t('publicIPv6')}</div>
       </div>
       <table>
-        <thead><tr><th>{t('service')}</th><th>{t('ipv6Address')}</th><th>{t('roleCol')}</th><th>{t('dns')}</th></tr></thead>
+        <thead><tr><th>{t('service')}</th><th>{t('staticIP')}</th><th>{t('rotatingIP')}</th><th>{t('roleCol')}</th></tr></thead>
         <tbody>
           <tr>
-            <td style="font-weight:500;">nginx</td>
+            <td style="font-weight:500;">nginx (xhttp)</td>
             <td class="td-mono">{net.nginx_ip}</td>
+            <td class="td-mono" style="color:#93c5fd;">{net.nginx_rotating || '—'}</td>
             <td class="td-muted">{t('webGateway')}</td>
-            <td>
-              {#if net.dns_nginx}
-                <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{nginxSynced ? t('synced') : t('mismatch')}
-                </span>
-              {:else}
-                <span class="badge badge-red">{t('noDNS')}</span>
-              {/if}
-            </td>
           </tr>
           <tr>
-            <td style="font-weight:500;">xray reality</td>
+            <td style="font-weight:500;">xray (reality)</td>
+            <td class="td-mono">{net.xray_ip}</td>
             <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
             <td class="td-muted">{t('realityDesc')}</td>
-            <td>
-              {#if net.dns_reality}
-                <span class="badge badge-{realitySynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{realitySynced ? t('synced') : t('mismatch')}
-                </span>
-              {:else}
-                <span class="badge badge-red">{t('noDNS')}</span>
-              {/if}
-            </td>
           </tr>
         </tbody>
       </table>
@@ -171,30 +152,24 @@
       <table>
         <thead><tr><th>{t('domain')}</th><th>{t('dnsRecord')}</th><th>{t('expected')}</th><th>{t('status')}</th></tr></thead>
         <tbody>
-          {#if net.dns_nginx}
+          {#each net.dns_records as dns}
             <tr>
-              <td style="font-weight:500;">{net.dns_nginx.domain}</td>
-              <td class="td-mono">{net.dns_nginx.record?.content || '—'}</td>
-              <td class="td-mono">{net.nginx_ip}</td>
+              <td style="font-weight:500;">{dns.domain}</td>
+              <td class="td-mono">{dns.record?.content || '—'}</td>
+              <td class="td-mono">{dns.record?.content || '—'}</td>
               <td>
-                <span class="badge badge-{nginxSynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{nginxSynced ? t('synced') : t('mismatch')}
-                </span>
+                {#if dns.error}
+                  <span class="badge badge-red">{dns.error}</span>
+                {:else if dns.synced}
+                  <span class="badge badge-green"><span class="badge-dot"></span>{t('synced')}</span>
+                {:else}
+                  <span class="badge badge-red"><span class="badge-dot"></span>{t('mismatch')}</span>
+                {/if}
               </td>
             </tr>
-          {/if}
-          {#if net.dns_reality}
-            <tr>
-              <td style="font-weight:500;">{net.dns_reality.domain}</td>
-              <td class="td-mono">{net.dns_reality.record?.content || '—'}</td>
-              <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
-              <td>
-                <span class="badge badge-{realitySynced ? 'green' : 'red'}">
-                  <span class="badge-dot"></span>{realitySynced ? t('synced') : t('mismatch')}
-                </span>
-              </td>
-            </tr>
-          {/if}
+          {:else}
+            <tr><td colspan="4" class="td-muted">{t('noDNS')}</td></tr>
+          {/each}
         </tbody>
       </table>
     {/if}
@@ -215,7 +190,7 @@
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={doRotate} disabled={rotating}>
         {#if rotating}<span class="spinner" style="margin-right:0.35rem;"></span>{/if}
-        {rotating ? t('rotating') : t('rotateReality')}
+        {rotating ? t('rotating') : t('rotateAll')}
       </button>
       {#if result.msg}
         <Toast type={result.ok ? 'success' : 'error'} visible={!!result.msg} onclose={() => result = { ok: false, msg: '' }}>
