@@ -18,6 +18,7 @@ services:
       - ./services/nginx/config/fail2ban:/etc/fail2ban/custom:ro
       - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
       - ./.wework/.internal-token:/etc/fail2ban/.internal-token:ro
+      - /dev/shm:/dev/shm
     cap_add:
       - NET_ADMIN
     depends_on:
@@ -46,6 +47,7 @@ services:
     volumes:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./services/xray/config.json:/etc/xray/config.json:ro
+      - /dev/shm:/dev/shm
     healthcheck:
       test: ["CMD", "pgrep", "xray"]
       interval: 30s

@@ -102,11 +102,22 @@ func main() {
 	mux.Handle("/icons.svg", static)
 
 	// Wrap all routes: security headers -> IP block -> rate limit -> serve
+	// Static assets bypass rate limiting to avoid consuming request quota.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
+
+		// Static assets: cache forever (fingerprinted filenames), skip rate limit
+		if isStaticAsset(r.URL.Path) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+				mux.ServeHTTP(w2, r2)
+			})(w, r)
+			return
+		}
+
 		ipBlockMiddleware(rateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		}))(w, r)
@@ -146,4 +157,11 @@ func main() {
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/app/ui/index.html")
+}
+
+// isStaticAsset returns true for fingerprinted asset paths that bypass rate limiting.
+func isStaticAsset(path string) bool {
+	return len(path) >= 8 &&
+		(path == "/favicon.svg" || path == "/icons.svg" ||
+			(len(path) > 8 && path[:8] == "/assets/"))
 }
