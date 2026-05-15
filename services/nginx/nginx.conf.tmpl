@@ -91,6 +91,7 @@ server {
         proxy_pass http://admin:__ADMIN_PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-User $remote_user;
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
@@ -101,6 +102,7 @@ server {
         proxy_pass http://admin:__ADMIN_PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-User $remote_user;
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
@@ -111,6 +113,7 @@ server {
         proxy_pass http://admin:__ADMIN_PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-User $remote_user;
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
