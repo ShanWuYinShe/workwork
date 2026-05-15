@@ -281,7 +281,8 @@ func apiClaudeCodeServeDownload() http.HandlerFunc {
 			return
 		}
 		path := filepath.Join(claudeDownloadsDir, filename)
-		// Prevent Cloudflare/proxies from buffering the entire response
+		// Stream without buffering — nginx and Cloudflare should pass bytes through immediately
+		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
