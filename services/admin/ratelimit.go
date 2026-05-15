@@ -126,9 +126,14 @@ func (rl *rateLimiter) allow(ip string) bool {
 // rateLimitMiddleware should be placed AFTER ipBlockMiddleware
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Skip rate limiting for internal service requests (fail2ban etc.)
+		// Internal service requests (fail2ban etc.) bypass rate limiting
 		if internalToken := os.Getenv("INTERNAL_TOKEN"); internalToken != "" &&
 			subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
+			next(w, r)
+			return
+		}
+		// Authenticated users (verified by nginx basic auth) bypass rate limiting
+		if r.Header.Get("X-Forwarded-User") != "" {
 			next(w, r)
 			return
 		}
