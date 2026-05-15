@@ -726,7 +726,8 @@ func readHtpasswdUsers() []string {
 // -- Network / IPv6 rotation APIs --
 
 type rotatingIPState struct {
-	CurrentIP string `json:"current_ip"`
+	XrayIP  string `json:"xray_ip"`
+	NginxIP string `json:"nginx_ip"`
 }
 
 func loadRotatingState() rotatingIPState {
@@ -751,9 +752,13 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		nginxIP := getEnv("NGINX_IPV6")
 		xrayPrimary := getEnv("XRAY_IPV6")
 		state := loadRotatingState()
-		xrayIP := state.CurrentIP
+		xrayIP := state.XrayIP
 		if xrayIP == "" {
 			xrayIP = xrayPrimary
+		}
+		nxIP := state.NginxIP
+		if nxIP == "" {
+			nxIP = nginxIP
 		}
 
 		// Derive allocation ranges from subnet's first /64
@@ -784,13 +789,17 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		if cfOK {
 			for _, di := range allDomainInfos() {
 				info := dnsInfo{Domain: di.Domain}
+				expectedIP := nxIP
+				if di.Container == "xray" {
+					expectedIP = xrayIP
+				}
 				rec, err := cfFindAAAARecord(di.Domain)
 				if err != nil {
 					info.Error = err.Error()
 				} else {
 					info.Record = rec
 					if rec != nil {
-						info.Synced = rec.Content == xrayIP
+						info.Synced = rec.Content == expectedIP
 					}
 				}
 				dnsResults = append(dnsResults, info)
@@ -803,6 +812,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 			"rotating_range": rotatingRange,
 			"nginx_ip":       nginxIP,
 			"xray_ip":        xrayIP,
+			"nginx_rotating": nxIP,
 			"cf_configured":  cfOK,
 			"dns_records":    dnsResults,
 		})
@@ -850,13 +860,14 @@ func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID stri
 }
 
 // allDomainInfos returns the DNS domain configurations that should be rotated.
-func allDomainInfos() []struct{ Domain, IP string } {
-	var infos []struct{ Domain, IP string }
+// Each entry maps a domain to its container (xray or nginx).
+func allDomainInfos() []struct{ Domain, Container string } {
+	var infos []struct{ Domain, Container string }
 	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, IP string }{d, getEnv("XRAY_IPV6")})
+		infos = append(infos, struct{ Domain, Container string }{d, "xray"})
 	}
 	if d := getEnv("XHTTP_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, IP string }{d, getEnv("NGINX_IPV6")})
+		infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
 	}
 	return infos
 }
@@ -867,15 +878,14 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		defer xrayConfigMu.Unlock()
 
 		subnet := getEnv("IPV6_SUBNET")
-		primaryIP := getEnv("XRAY_IPV6")
-		nginxIP := getEnv("NGINX_IPV6")
+		xrayStatic := getEnv("XRAY_IPV6")
+		nginxStatic := getEnv("NGINX_IPV6")
 
 		if getEnv("CF_API_TOKEN") == "" {
 			writeError(w, "CF_API_TOKEN not configured", 400)
 			return
 		}
 
-		// Find containers first so we can collect assigned IPs
 		xrayID, err := findContainer(r.Context(), cli, "xray")
 		if err != nil {
 			writeError(w, "Xray container not found", 500)
@@ -887,67 +897,75 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Collect all currently assigned IPs to avoid collisions
-		xrayIPs, _ := collectContainerIPs(r.Context(), cli, xrayID)
-		nginxIPs, _ := collectContainerIPs(r.Context(), cli, nginxID)
-		assignedIPs := append([]string{primaryIP, nginxIP}, xrayIPs...)
-		assignedIPs = append(assignedIPs, nginxIPs...)
-		oldState := loadRotatingState()
-		if oldState.CurrentIP != "" {
-			assignedIPs = append(assignedIPs, oldState.CurrentIP)
-		}
-
+		// Collect assigned IPs to avoid collisions; generate separate IPs per container
 		prefix, err := parseSubnetPrefix(subnet)
 		if err != nil {
 			writeError(w, "Invalid IPV6_SUBNET: "+err.Error(), 500)
 			return
 		}
-		newIP, err := genRandomIPv6(prefix, assignedIPs...)
+
+		xrayAssigned, _ := collectContainerIPs(r.Context(), cli, xrayID)
+		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
+		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
-			writeError(w, "Failed to generate IPv6: "+err.Error(), 500)
+			writeError(w, "Failed to generate xray IPv6: "+err.Error(), 500)
 			return
 		}
 
+		nginxAssigned, _ := collectContainerIPs(r.Context(), cli, nginxID)
+		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
+		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
+		if err != nil {
+			writeError(w, "Failed to generate nginx IPv6: "+err.Error(), 500)
+			return
+		}
+
+		oldState := loadRotatingState()
 		xrayIface := detectIPvlanIface(r.Context(), cli, xrayID)
 		nginxIface := detectIPvlanIface(r.Context(), cli, nginxID)
 
-		// Add new IPv6 to both containers
-		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", newIP+"/64", "dev", xrayIface); err != nil {
+		// Add new IPs
+		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", xrayIP+"/64", "dev", xrayIface); err != nil {
 			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
 			return
 		}
-		if err := containerExec(r.Context(), cli, nginxID, "ip", "addr", "add", newIP+"/64", "dev", nginxIface); err != nil {
-			// Rollback xray
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", newIP+"/64", "dev", xrayIface)
+		if err := containerExec(r.Context(), cli, nginxID, "ip", "addr", "add", nginxIP+"/64", "dev", nginxIface); err != nil {
+			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
 			writeError(w, "Failed to add IPv6 to nginx: "+err.Error(), 500)
 			return
 		}
 
-		// Update DNS AAAA for all domains
+		// Update DNS per domain → container mapping
 		domains := allDomainInfos()
 		var updated []string
 		for _, di := range domains {
-			if _, err := cfUpsertAAAARecord(di.Domain, newIP); err != nil {
-				// Rollback: remove IP from both containers
-				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", newIP+"/64", "dev", xrayIface)
-				containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", newIP+"/64", "dev", nginxIface)
+			ip := nginxIP
+			if di.Container == "xray" {
+				ip = xrayIP
+			}
+			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
+				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
+				containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", nginxIP+"/64", "dev", nginxIface)
 				writeError(w, fmt.Sprintf("DNS update failed for %s: %s", di.Domain, err.Error()), 500)
 				return
 			}
-			updated = append(updated, di.Domain)
+			updated = append(updated, fmt.Sprintf("%s → %s", di.Domain, ip))
 		}
 
-		// Remove old rotating IP from both containers
-		if oldState.CurrentIP != "" && oldState.CurrentIP != primaryIP {
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", xrayIface)
-			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", nginxIface)
+		// Remove old rotating IPs
+		if oldState.XrayIP != "" && oldState.XrayIP != xrayStatic {
+			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.XrayIP+"/64", "dev", xrayIface)
+		}
+		if oldState.NginxIP != "" && oldState.NginxIP != nginxStatic {
+			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldState.NginxIP+"/64", "dev", nginxIface)
 		}
 
-		saveRotatingState(rotatingIPState{CurrentIP: newIP})
+		saveRotatingState(rotatingIPState{XrayIP: xrayIP, NginxIP: nginxIP})
 
 		writeJSON(w, map[string]any{
-			"new_ip":  newIP,
-			"domains": updated,
+			"xray_ip":  xrayIP,
+			"nginx_ip": nginxIP,
+			"domains":  updated,
 		})
 	}
 }
@@ -1034,16 +1052,24 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		state := loadRotatingState()
-		activeIP := state.CurrentIP
-		if activeIP == "" {
-			activeIP = getEnv("XRAY_IPV6")
+		xrayIP := state.XrayIP
+		if xrayIP == "" {
+			xrayIP = getEnv("XRAY_IPV6")
+		}
+		nginxIP := state.NginxIP
+		if nginxIP == "" {
+			nginxIP = getEnv("NGINX_IPV6")
 		}
 		var results []string
 		for _, di := range allDomainInfos() {
-			if _, err := cfUpsertAAAARecord(di.Domain, activeIP); err != nil {
+			ip := nginxIP
+			if di.Container == "xray" {
+				ip = xrayIP
+			}
+			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
 				results = append(results, fmt.Sprintf("%s: %s", di.Domain, err.Error()))
 			} else {
-				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, activeIP))
+				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, ip))
 			}
 		}
 		writeJSON(w, map[string]any{"results": results})

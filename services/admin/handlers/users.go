@@ -85,12 +85,12 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			map[string]any{
 				"tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
 				"settings": map[string]any{"udp": true},
-				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}},
 			},
 			map[string]any{
 				"tag": "http", "port": 10809, "listen": "127.0.0.1", "protocol": "http",
 				"settings": map[string]any{},
-				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls"}},
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}},
 			},
 		}},
 		{"outbounds", []any{
@@ -125,7 +125,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				},
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
-					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome"},
+					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome", "alpn": []string{"h2"}},
 					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "stream-one"},
 					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
