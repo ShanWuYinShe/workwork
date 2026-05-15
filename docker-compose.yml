@@ -28,11 +28,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 128M
 
   xray:
     build:
@@ -56,11 +51,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 128M
 
   cliproxy-public:
     build:
@@ -80,11 +70,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 64M
 
   admin:
     build:
@@ -117,11 +102,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 128M
 
 networks:
   ipvlan_docker:
