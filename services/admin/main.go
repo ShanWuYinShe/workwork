@@ -111,7 +111,7 @@ func main() {
 
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
 		if isStaticAsset(r.URL.Path) {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
 			ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 				mux.ServeHTTP(w2, r2)
 			})(w, r)
