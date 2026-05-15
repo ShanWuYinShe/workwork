@@ -875,18 +875,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		prefix, err := parseSubnetPrefix(subnet)
-		if err != nil {
-			writeError(w, "Invalid IPV6_SUBNET: "+err.Error(), 500)
-			return
-		}
-		newIP, err := genRandomIPv6(prefix, primaryIP, nginxIP)
-		if err != nil {
-			writeError(w, "Failed to generate IPv6: "+err.Error(), 500)
-			return
-		}
-
-		// Find containers
+		// Find containers first so we can collect assigned IPs
 		xrayID, err := findContainer(r.Context(), cli, "xray")
 		if err != nil {
 			writeError(w, "Xray container not found", 500)
@@ -895,6 +884,27 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		nginxID, err := findContainer(r.Context(), cli, "nginx")
 		if err != nil {
 			writeError(w, "Nginx container not found", 500)
+			return
+		}
+
+		// Collect all currently assigned IPs to avoid collisions
+		xrayIPs, _ := collectContainerIPs(r.Context(), cli, xrayID)
+		nginxIPs, _ := collectContainerIPs(r.Context(), cli, nginxID)
+		assignedIPs := append([]string{primaryIP, nginxIP}, xrayIPs...)
+		assignedIPs = append(assignedIPs, nginxIPs...)
+		oldState := loadRotatingState()
+		if oldState.CurrentIP != "" {
+			assignedIPs = append(assignedIPs, oldState.CurrentIP)
+		}
+
+		prefix, err := parseSubnetPrefix(subnet)
+		if err != nil {
+			writeError(w, "Invalid IPV6_SUBNET: "+err.Error(), 500)
+			return
+		}
+		newIP, err := genRandomIPv6(prefix, assignedIPs...)
+		if err != nil {
+			writeError(w, "Failed to generate IPv6: "+err.Error(), 500)
 			return
 		}
 
@@ -928,7 +938,6 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Remove old rotating IP from both containers
-		oldState := loadRotatingState()
 		if oldState.CurrentIP != "" && oldState.CurrentIP != primaryIP {
 			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", xrayIface)
 			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldState.CurrentIP+"/64", "dev", nginxIface)
@@ -961,7 +970,42 @@ func parseSubnetPrefix(subnet string) (string, error) {
 	return strings.Join(parts, ":") + ":", nil
 }
 
+// collectContainerIPs returns all non-link-local IPv6 addresses on the container's ipvlan interface.
+func collectContainerIPs(ctx context.Context, cli *client.Client, containerID string) ([]string, error) {
+	iface := detectIPvlanIface(ctx, cli, containerID)
+	var buf bytes.Buffer
+	execConfig := container.ExecOptions{
+		Cmd:          []string{"sh", "-c", fmt.Sprintf("ip -6 -o addr show dev %s 2>/dev/null | awk '{print $4}' | cut -d/ -f1", iface)},
+		AttachStdout: true,
+		AttachStderr: true,
+	}
+	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return nil, err
+	}
+	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer attachResp.Close()
+	stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
+	var ips []string
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		ip := strings.TrimSpace(line)
+		if ip != "" && !strings.HasPrefix(ip, "fe80:") {
+			ips = append(ips, ip)
+		}
+	}
+	return ips, nil
+}
+
 func genRandomIPv6(prefix string, exclude ...string) (string, error) {
+	excludeSet := map[string]bool{}
+	for _, e := range exclude {
+		if e != "" {
+			excludeSet[e] = true
+		}
+	}
 	for attempts := 0; attempts < 100; attempts++ {
 		var ifid [8]byte
 		if _, err := io.ReadFull(rand.Reader, ifid[:]); err != nil {
@@ -976,14 +1020,7 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 			binary.BigEndian.Uint16(ifid[2:4]),
 			binary.BigEndian.Uint16(ifid[4:6]),
 		)
-		excluded := false
-		for _, e := range exclude {
-			if e != "" && ip == e {
-				excluded = true
-				break
-			}
-		}
-		if !excluded {
+		if !excludeSet[ip] {
 			return ip, nil
 		}
 	}
