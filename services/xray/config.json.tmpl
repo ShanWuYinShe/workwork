@@ -32,6 +32,10 @@
         "clients": __XRAY_REALITY_CLIENTS_JSON__,
         "decryption": "none"
       },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      },
       "streamSettings": {
         "network": "tcp",
         "security": "reality",
