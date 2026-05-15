@@ -736,20 +736,7 @@ func loadRotatingState() rotatingIPState {
 	if err != nil {
 		return s
 	}
-	if err := json.Unmarshal(data, &s); err != nil {
-		return s
-	}
-	// Migrate old format: {"current_ip": "..."} → new format
-	if s.XrayIP == "" && s.NginxIP == "" {
-		var old struct {
-			CurrentIP string `json:"current_ip"`
-		}
-		if json.Unmarshal(data, &old) == nil && old.CurrentIP != "" {
-			s.XrayIP = old.CurrentIP
-			s.NginxIP = old.CurrentIP
-			saveRotatingState(s)
-		}
-	}
+	json.Unmarshal(data, &s)
 	return s
 }
 
