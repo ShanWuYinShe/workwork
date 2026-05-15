@@ -5,8 +5,7 @@
   "inbounds": [
     {
       "tag": "xhttp-in",
-      "listen": "0.0.0.0",
-      "port": 8447,
+      "listen": "/dev/shm/xrxh.socket,0666",
       "protocol": "vless",
       "settings": {
         "clients": __XRAY_CLIENTS_JSON__,
@@ -14,7 +13,10 @@
       },
       "streamSettings": {
         "network": "xhttp",
-        "security": "none"
+        "security": "none",
+        "xhttpSettings": {
+          "mode": "stream-one"
+        }
       },
       "sniffing": {
         "enabled": true,
