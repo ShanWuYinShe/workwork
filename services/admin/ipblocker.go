@@ -127,6 +127,11 @@ func clientIP(r *http.Request) string {
 
 func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Authenticated users (verified by nginx basic auth) bypass IP blocking
+		if r.Header.Get("X-Forwarded-User") != "" {
+			next(w, r)
+			return
+		}
 		ip := clientIP(r)
 		if ip != "" && ipBlocker.isBlocked(ip) {
 			writeError(w, "Access denied", 403)
