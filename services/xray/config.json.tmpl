@@ -2,6 +2,23 @@
   "log": {
     "loglevel": "warning"
   },
+  "dns": {
+    "servers": [
+      {
+        "address": "https://1.1.1.1/dns-query",
+        "domains": ["geosite:geolocation-!cn"]
+      },
+      {
+        "address": "https://8.8.8.8/dns-query",
+        "domains": ["geosite:geolocation-!cn"]
+      },
+      {
+        "address": "8.8.8.8",
+        "domains": ["geosite:cn"]
+      }
+    ],
+    "queryStrategy": "UseIPv4"
+  },
   "inbounds": [
     {
       "tag": "xhttp-in",
@@ -20,7 +37,8 @@
       },
       "sniffing": {
         "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
+        "destOverride": ["http", "tls"],
+        "routeOnly": true
       }
     },
     {
@@ -34,7 +52,8 @@
       },
       "sniffing": {
         "enabled": true,
-        "destOverride": ["http", "tls", "quic"]
+        "destOverride": ["http", "tls"],
+        "routeOnly": true
       },
       "streamSettings": {
         "network": "tcp",
@@ -56,6 +75,12 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv6"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpNoDelay": true
+        }
       }
     },
     {
@@ -63,6 +88,12 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tcpFastOpen": true,
+          "tcpNoDelay": true
+        }
       }
     },
     {
