@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,6 +41,13 @@ func generateConfigs() error {
 }
 
 func genXrayConfig() error {
+	// Skip if already exists — preserves client data added via API.
+	// Template changes (DNS/outbounds) are applied via migrateXrayConfig on restart.
+	if data, err := os.ReadFile("/app/configs/xray.json"); err == nil {
+		if len(data) > 10 && data[0] == '{' {
+			return migrateXrayConfig(data)
+		}
+	}
 	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
 	if err != nil {
 		return err
@@ -81,6 +89,114 @@ func genXrayConfig() error {
 		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
 	return os.WriteFile("/app/configs/xray.json", []byte(out), 0600)
+}
+
+// migrateXrayConfig merges new top-level sections (dns, outbounds, routing) from the
+// template into an existing xray.json, preserving inbounds (client data) intact.
+func migrateXrayConfig(existing []byte) error {
+	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
+	if err != nil {
+		return nil // template not available, keep existing config
+	}
+
+	// Extract sections from template that are safe to merge (not client data)
+	sectionsToMerge := []string{"dns", "outbounds", "routing"}
+	tmplSections := extractJSONSections(string(tmpl), sectionsToMerge)
+	if len(tmplSections) == 0 {
+		return nil // nothing to merge
+	}
+
+	// Check if existing config already has all sections
+	existingStr := string(existing)
+	needsUpdate := false
+	for _, key := range sectionsToMerge {
+		if _, ok := tmplSections[key]; ok {
+			if !strings.Contains(existingStr, `"`+key+`"`) {
+				needsUpdate = true
+				break
+			}
+		}
+	}
+	if !needsUpdate {
+		return nil
+	}
+
+	// Merge: remove trailing } and append missing sections
+	merged := strings.TrimRight(existingStr, " \t\n\r")
+	merged = strings.TrimSuffix(merged, "}")
+	merged = strings.TrimRight(merged, " \t\n\r")
+
+	for _, key := range sectionsToMerge {
+		if tmplJSON, ok := tmplSections[key]; ok {
+			if !strings.Contains(existingStr, `"`+key+`"`) {
+				merged += ",\n  " + tmplJSON
+			}
+		}
+	}
+	merged += "\n}\n"
+
+	log.Printf("Migrated xray config: added missing sections from template")
+	return os.WriteFile("/app/configs/xray.json", []byte(merged), 0600)
+}
+
+// extractJSONSections extracts top-level named sections from a JSON object string.
+func extractJSONSections(jsonStr string, keys []string) map[string]string {
+	result := make(map[string]string)
+	for _, key := range keys {
+		// Find "key": { ... } in the JSON
+		startTag := `"` + key + `":`
+		idx := strings.Index(jsonStr, startTag)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(startTag)
+		// Skip whitespace
+		for start < len(jsonStr) && (jsonStr[start] == ' ' || jsonStr[start] == '\t' || jsonStr[start] == '\n') {
+			start++
+		}
+		if start >= len(jsonStr) {
+			continue
+		}
+		// Find matching closing brace
+		depth := 0
+		inString := false
+		escaped := false
+		end := start
+		for end < len(jsonStr) {
+			c := jsonStr[end]
+			if escaped {
+				escaped = false
+				end++
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				end++
+				continue
+			}
+			if c == '"' {
+				inString = !inString
+				end++
+				continue
+			}
+			if inString {
+				end++
+				continue
+			}
+			if c == '{' || c == '[' {
+				depth++
+			} else if c == '}' || c == ']' {
+				depth--
+				if depth == 0 {
+					end++
+					break
+				}
+			}
+			end++
+		}
+		result[key] = strings.TrimSpace(jsonStr[start:end])
+	}
+	return result
 }
 
 // migrateXrayClients ensures all existing clients have email and removes test entries.
