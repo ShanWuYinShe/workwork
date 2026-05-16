@@ -344,7 +344,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to serialize config", 500)
 			return
 		}
-		atomicWriteFile("/app/configs/xray.json", out, 0600)
+		if err := os.WriteFile("/app/configs/xray.json", out, 0600); err != nil {
+				log.Printf("ERROR: failed to write xray config: %v", err)
+				writeError(w, "Failed to save xray config", 500)
+				return
+			}
 
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after add: %v", err)
@@ -407,7 +411,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to serialize config", 500)
 			return
 		}
-		atomicWriteFile("/app/configs/xray.json", out, 0600)
+		if err := os.WriteFile("/app/configs/xray.json", out, 0600); err != nil {
+				log.Printf("ERROR: failed to write xray config: %v", err)
+				writeError(w, "Failed to save xray config", 500)
+				return
+			}
 
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after delete: %v", err)
