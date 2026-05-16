@@ -39,6 +39,11 @@ export const navSections = [
     items: [
       { path: '/cliproxy', key: 'cliproxy', icon: 'zap', adminOnly: true },
       { path: '/model-pool', key: 'modelPool', icon: 'layers', adminOnly: true },
+    ],
+  },
+  {
+    key: 'downloads',
+    items: [
       { path: '/downloads', key: 'downloads', icon: 'download' },
     ],
   },

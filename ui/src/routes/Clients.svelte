@@ -4,13 +4,11 @@
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let clients = $state([]);
   let generatedJSON = $state('');
   let loading = $state(true);
-  let error = $state('');
-  let copied = $state(false);
   let isAdmin = $state(false);
   let currentUser = $state('');
   let deletingId = $state('');
@@ -30,7 +28,7 @@
         await loadConfig(selectedUUID);
       }
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -53,20 +51,18 @@
 
   async function loadConfig(uuid) {
     configLoading = true;
-    error = '';
     try {
       const d = await getXrayClientConfig(uuid);
       generatedJSON = d.config || '';
       selectedUUID = uuid;
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       configLoading = false;
     }
   }
 
   async function generateAndAdd() {
-    error = '';
     const uuid = crypto.randomUUID();
     try {
       await addXrayClient(uuid);
@@ -74,14 +70,13 @@
       selectedUUID = uuid;
       await loadConfig(uuid);
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function deleteClient(uuid) {
     if (!(await showConfirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) })))) return;
     deletingId = uuid;
-    error = '';
     try {
       await deleteXrayClient(uuid);
       if (selectedUUID === uuid) {
@@ -90,7 +85,7 @@
       }
       await loadData();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       deletingId = '';
     }
@@ -98,10 +93,9 @@
 
   async function copyConfig() {
     if (await copyToClipboard(generatedJSON)) {
-      copied = true;
-      setTimeout(() => (copied = false), 2000);
+      toast(t('configCopied'), 'success', 2000);
     } else {
-      error = t('copyFailedManual');
+      toast(t('copyFailedManual'), 'error');
     }
   }
 
@@ -122,8 +116,6 @@
   <div class="page-header">
     <h1 class="page-title">{t('clients')}</h1>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if !isAdmin}
     <div class="card">
@@ -217,7 +209,7 @@
         </div>
         <div class="card-actions">
           <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label={t('copyConfiguration')}>
-            {copied ? t('copied') : t('copyConfig')}
+            {t('copyConfig')}
           </button>
           <button class="btn btn-sm btn-ghost" onclick={downloadConfig} aria-label={t('downloadConfiguration')}>
             {t('download')}
@@ -230,9 +222,7 @@
         <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
       </div>
       <textarea rows="16" readonly>{generatedJSON}</textarea>
-      {#if copied}
-        <Toast type="success" visible={copied} onclose={() => copied = false}>{t('configCopied')}</Toast>
-      {/if}
+
     </div>
   {:else if clients.length && !configLoading}
     <div class="card">

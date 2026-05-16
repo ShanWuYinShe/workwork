@@ -11,12 +11,10 @@
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let instances = $state([]);
   let loading = $state(true);
-  let error = $state('');
-  let message = $state('');
   let selectedUser = $state(null);
   let configText = $state('');
   let providers = $state([]);
@@ -39,12 +37,11 @@
 
   async function refresh() {
     loading = true;
-    error = '';
     try {
       const d = await getCliproxyInstances();
       instances = d.instances || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -52,14 +49,12 @@
 
   async function doStart(username) {
     actingUser = username;
-    error = '';
-    message = '';
     try {
       await cliproxyStart(username);
-      message = t('cliproxyStarted', { username });
+      toast(t('cliproxyStarted', { username }), 'success');
       await refresh();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       actingUser = '';
     }
@@ -68,14 +63,12 @@
   async function doStop(username) {
     if (!(await showConfirm(t('confirmStopCliproxy', { username })))) return;
     actingUser = username;
-    error = '';
-    message = '';
     try {
       await cliproxyStop(username);
-      message = t('cliproxyStopped', { username });
+      toast(t('cliproxyStopped', { username }), 'success');
       await refresh();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       actingUser = '';
     }
@@ -84,7 +77,6 @@
   async function openConfig(username) {
     selectedUser = username;
     configLoading = true;
-    error = '';
     const inst = instances.find((i) => i.username === username);
     selectedPoolAccess = inst?.pool_access || false;
     try {
@@ -92,7 +84,7 @@
       configText = d.config || '';
       providers = d.providers || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       configLoading = false;
     }
@@ -121,26 +113,23 @@
 
   async function saveConfig() {
     if (!selectedUser) return;
-    error = '';
-    message = '';
     try {
       await cliproxySetConfig(selectedUser, providers);
-      message = t('configSaved', { user: selectedUser });
+      toast(t('configSaved', { user: selectedUser }), 'success');
       selectedUser = null;
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function codexLogin(username) {
     codexLoading = true;
     codexOutput = '';
-    error = '';
     try {
       const d = await cliproxyCodexLogin(username);
       codexOutput = d.output || t('codexLoginStarted');
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       codexLoading = false;
     }
@@ -149,8 +138,6 @@
   async function uploadOAuth(e) {
     const file = e.target.files[0];
     if (!file || !selectedUser) return;
-    error = '';
-    message = '';
     const fd = new FormData();
     fd.append('username', selectedUser);
     fd.append('file', file);
@@ -163,9 +150,9 @@
       if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
       const json = await r.json();
       if (!json.success) throw new Error(t('uploadFailed'));
-      message = `OAuth file "${json.data.file}" uploaded.`;
+      toast(`OAuth file "${json.data.file}" uploaded.`, 'success');
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
     e.target.value = '';
   }
@@ -173,8 +160,6 @@
   async function togglePoolAccess() {
     if (!selectedUser) return;
     poolToggling = true;
-    error = '';
-    message = '';
     try {
       const granted = !selectedPoolAccess;
       await setModelPoolUser(selectedUser, granted);
@@ -182,11 +167,11 @@
       // Update the instance in the list
       const idx = instances.findIndex((i) => i.username === selectedUser);
       if (idx >= 0) instances[idx].pool_access = granted;
-      message = granted
+      toast(granted
         ? t('poolAccessGranted', { user: selectedUser })
-        : t('poolAccessRevoked', { user: selectedUser });
+        : t('poolAccessRevoked', { user: selectedUser }), 'success');
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       poolToggling = false;
     }
@@ -217,9 +202,6 @@
       <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
-  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   {#if selectedUser}
     <div class="card">

@@ -3,11 +3,10 @@
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let services = $state([]);
   let loading = $state(true);
-  let error = $state('');
   let isAdmin = $state(false);
   let actingService = $state('');
 
@@ -17,7 +16,7 @@
       services = d.services || [];
       isAdmin = user.role === 'admin';
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -35,7 +34,7 @@
       const d = await serviceAction(name, action);
       services = d.services || services;
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       actingService = '';
     }
@@ -48,8 +47,6 @@
   <div class="page-header">
     <h1 class="page-title">{t('services')}</h1>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if loading}
     <div class="loading-skeleton" style="height:200px;"></div>

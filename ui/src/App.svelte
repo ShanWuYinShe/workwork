@@ -5,10 +5,12 @@
   import { routes, routeTitles } from './lib/routes.js';
   import Sidebar from './lib/Sidebar.svelte';
   import ConfirmModal from './lib/ConfirmModal.svelte';
+  import Toast from './lib/Toast.svelte';
 
   let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
   let userInfo = $state(null);
   let sidebarCollapsed = $state(false);
+  let mobileMenuOpen = $state(false);
 
   onMount(async () => {
     try {
@@ -38,9 +40,26 @@
 </script>
 
 <div class="layout {sidebarCollapsed ? 'collapsed' : ''}">
-  <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} />
+  <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} {mobileMenuOpen} />
+
+  {#if mobileMenuOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="mobile-overlay" onclick={() => mobileMenuOpen = false}></div>
+  {/if}
 
   <main class="main">
+    <div class="mobile-topbar">
+      <button class="hamburger-btn" onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+          {#if mobileMenuOpen}
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          {:else}
+            <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+          {/if}
+        </svg>
+      </button>
+      <span class="topbar-title">WorkWork</span>
+    </div>
     <div class="main-scroll">
       {#if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
@@ -56,6 +75,7 @@
 </div>
 
 <ConfirmModal />
+<Toast />
 
 <style>
   /* ── CSS Design Tokens ── */
@@ -873,15 +893,109 @@
     font-size: 0.85rem;
   }
 
+  /* ── Mobile topbar ── */
+  .mobile-topbar {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--c-bg);
+    border-bottom: 1px solid var(--c-border);
+    position: sticky;
+    top: 0;
+    z-index: 15;
+  }
+  .hamburger-btn {
+    background: none;
+    border: none;
+    color: var(--c-text-secondary);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: var(--radius-sm);
+    display: flex;
+  }
+  .hamburger-btn:hover { color: var(--c-text); background: var(--c-bg-hover); }
+  .topbar-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--c-text-heading);
+  }
+  .mobile-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 19;
+  }
+
   /* ── Responsive ── */
   @media (max-width: 768px) {
+    .mobile-topbar { display: flex; }
+    .mobile-overlay { display: block; }
+
+    :global(.sidebar) {
+      width: var(--sidebar-width);
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+      z-index: 25;
+    }
+    :global(.sidebar.mobile-open) {
+      transform: translateX(0);
+    }
+    :global(.sidebar) {
+      width: var(--sidebar-width) !important;
+    }
+    :global(.sidebar .nav-item) {
+      justify-content: flex-start;
+      padding: 0.5rem 0.75rem;
+    }
+    :global(.sidebar .brand-text),
+    :global(.sidebar .nav-label),
+    :global(.sidebar .nav-section-label),
+    :global(.sidebar .user-info) {
+      display: block;
+    }
+    :global(.sidebar .sidebar-toggle) {
+      display: flex;
+    }
+    :global(.sidebar .lang-toggle) {
+      display: flex;
+    }
+    :global(.sidebar.collapsed) {
+      width: var(--sidebar-width) !important;
+    }
+    :global(.sidebar.collapsed .brand-text),
+    :global(.sidebar.collapsed .nav-label),
+    :global(.sidebar.collapsed .nav-section-label),
+    :global(.sidebar.collapsed .user-info) {
+      display: block;
+    }
+    :global(.sidebar.collapsed .nav-item) {
+      justify-content: flex-start;
+      padding: 0.5rem 0.75rem;
+    }
+    :global(.sidebar.collapsed .sidebar-toggle) {
+      display: flex;
+    }
+    :global(.sidebar.collapsed .lang-toggle) {
+      display: flex;
+    }
+
+    .main {
+      margin-left: 0 !important;
+    }
+    .main-scroll {
+      padding: 1rem 0.75rem 2rem;
+    }
+  }
+
+  @media (max-width: 1024px) and (min-width: 769px) {
     :global(.sidebar) {
       width: var(--sidebar-collapsed);
     }
     :global(.sidebar .brand-text),
     :global(.sidebar .nav-label),
     :global(.sidebar .nav-section-label),
-    :global(.sidebar .sidebar-toggle),
     :global(.sidebar .user-info) {
       display: none;
     }
@@ -889,11 +1003,30 @@
       justify-content: center;
       padding: 0.5rem;
     }
+    :global(.sidebar .lang-toggle) {
+      display: none;
+    }
+    :global(.sidebar.collapsed) {
+      width: var(--sidebar-width) !important;
+    }
+    :global(.sidebar.collapsed .brand-text),
+    :global(.sidebar.collapsed .nav-label),
+    :global(.sidebar.collapsed .nav-section-label),
+    :global(.sidebar.collapsed .user-info) {
+      display: block;
+    }
+    :global(.sidebar.collapsed .nav-item) {
+      justify-content: flex-start;
+      padding: 0.5rem 0.75rem;
+    }
+    :global(.sidebar.collapsed .lang-toggle) {
+      display: flex;
+    }
     .main {
       margin-left: var(--sidebar-collapsed) !important;
     }
     .main-scroll {
-      padding: 1.25rem 1rem 2rem;
+      padding: 1.5rem 1.5rem 2.5rem;
     }
   }
 

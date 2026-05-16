@@ -1180,3 +1180,77 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		writeJSON(w, map[string]any{"logs": s})
 	}
 }
+
+// GET /api/admin/services/{name}/logs/stream?tail=100
+func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		tail := r.URL.Query().Get("tail")
+		if tail == "" {
+			tail = "100"
+		}
+		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
+			tail = "100"
+		}
+		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+			All: true,
+			Filters: filters.NewArgs(filters.KeyValuePair{
+				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
+			}),
+		})
+		if err != nil || len(containers) == 0 {
+			writeError(w, "Service not found", 404)
+			return
+		}
+		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
+			ShowStdout: true, ShowStderr: true,
+			Tail: tail, Timestamps: true, Follow: true,
+		})
+		if err != nil {
+			writeError(w, err.Error(), 500)
+			return
+		}
+		defer logs.Close()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, "Streaming not supported", 500)
+			return
+		}
+
+		// Decode Docker multiplexed stream and write as SSE
+		hdr := make([]byte, 8)
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+			_, err := io.ReadFull(logs, hdr)
+			if err != nil {
+				return
+			}
+			size := int(binary.BigEndian.Uint32(hdr[4:8]))
+			if size > len(buf) {
+				buf = make([]byte, size)
+			}
+			if size > 0 {
+				_, err := io.ReadFull(logs, buf[:size])
+				if err != nil {
+					return
+				}
+				line := string(buf[:size])
+				line = strings.TrimRight(line, "\n\r")
+				if line != "" {
+					fmt.Fprintf(w, "data: %s\n\n", line)
+					flusher.Flush()
+				}
+			}
+		}
+	}
+}

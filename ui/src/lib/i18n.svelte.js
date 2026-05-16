@@ -12,6 +12,11 @@ const zh = {
   settings: '设置',
   modelPool: '模型池',
   downloads: '下载',
+  downloadsClaude: 'Claude Code',
+  downloadsXray: 'Xray',
+  xrayBinaries: 'Xray-core 二进制文件',
+  noXrayAskAdmin: '暂无 Xray 二进制文件。请联系管理员下载。',
+  alreadyDownloadedXray: 'Xray {version} ({plat}) 已下载。',
   adminPanel: '管理面板',
   // Clients
   generateClient: '生成客户端',
@@ -298,6 +303,11 @@ const en = {
   settings: 'Settings',
   modelPool: 'Model Pool',
   downloads: 'Downloads',
+  downloadsClaude: 'Claude Code',
+  downloadsXray: 'Xray',
+  xrayBinaries: 'Xray-core binaries',
+  noXrayAskAdmin: 'No Xray binaries available yet. Ask an admin to download them.',
+  alreadyDownloadedXray: 'Xray {version} ({plat}) already downloaded.',
   adminPanel: 'Admin Panel',
   // Clients
   generateClient: 'Generate Client',
