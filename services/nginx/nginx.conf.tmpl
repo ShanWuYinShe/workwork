@@ -55,14 +55,6 @@ server {
         proxy_send_timeout 300s;
     }
 
-    # Redirect /api/admin/single-segment/ → /api/admin/single-segment (trailing slash)
-    # Go 1.22+ mux requires exact match; child routes cause subtree root to 404.
-    location ~ ^/api/admin/([^/]+)/$ {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        return 301 /api/admin/$1;
-    }
-
     # Download progress (NDJSON streaming): no buffering, runtime DNS.
     location = /api/admin/claude-code/download {
         auth_basic "Restricted";
@@ -97,6 +89,8 @@ server {
 
     # SSE log streaming — no buffering required
     location /api/admin/services/ {
+        # Internal rewrite: strip trailing slash from bare /services/ to avoid Go 1.22+ mux 404
+        rewrite ^/api/admin/services/$ /api/admin/services break;
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         set $admin_upstream admin:__ADMIN_PORT__;
@@ -143,6 +137,8 @@ server {
     }
 
     location /api/admin/ {
+        # Internal rewrite: strip trailing slash from single-segment API paths (e.g. /dashboard/ → /dashboard)
+        rewrite ^(/api/admin/[^/]+)/$ $1 break;
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         access_log /var/log/nginx/admin-access.log auth_log;
