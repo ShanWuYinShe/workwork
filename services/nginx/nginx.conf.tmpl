@@ -9,7 +9,7 @@ server_tokens off;
 
 tcp_nodelay on;
 
-resolver 127.0.0.11 valid=30s ipv6=off;
+resolver 127.0.0.11 valid=30s;
 
 server {
     listen [__NGINX_IPV6__]:443 ssl;
