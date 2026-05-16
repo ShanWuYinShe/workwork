@@ -3,7 +3,7 @@
   import { getNetworkStatus, rotateIPv6, syncDNS } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let net = $state({
     nginx_ip: '-',
@@ -42,7 +42,7 @@
       syncMsg = d.results.join('; ');
       await refresh();
     } catch (e) {
-      syncMsg = t('syncFailed', { error: e.message });
+      toast(t('syncFailed', { error: e.message }), 'error');
     }
   }
 

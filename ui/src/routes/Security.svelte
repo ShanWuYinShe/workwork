@@ -3,12 +3,10 @@
   import { getBlockedIPs, blockIP, unblockIP } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let entries = $state([]);
   let loading = $state(true);
-  let error = $state('');
-  let message = $state('');
   let newIP = $state(''),
     newReason = $state(''),
     newDuration = $state('86400');
@@ -17,12 +15,11 @@
 
   async function refresh() {
     loading = true;
-    error = '';
     try {
       const d = await getBlockedIPs();
       entries = d.entries || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -30,29 +27,25 @@
 
   async function doBlock() {
     if (!newIP) return;
-    error = '';
-    message = '';
     try {
       await blockIP(newIP, newReason, parseInt(newDuration));
-      message = t('ipBlocked', { ip: newIP });
+      toast(t('ipBlocked', { ip: newIP }), 'success');
       newIP = '';
       newReason = '';
       await refresh();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function doUnblock(ip) {
     if (!(await showConfirm(t('confirmUnblock', { ip })))) return;
-    error = '';
-    message = '';
     try {
       await unblockIP(ip);
-      message = t('ipUnblocked', { ip });
+      toast(t('ipUnblocked', { ip }), 'success');
       await refresh();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 </script>
@@ -61,9 +54,6 @@
   <div class="page-header">
     <h1 class="page-title">{t('security')}</h1>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
-  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   <div class="card">
     <div class="card-header">

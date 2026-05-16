@@ -2,80 +2,93 @@
   import { onMount } from 'svelte';
   import {
     getCurrentUser,
-    getClaudeReleases,
-    getClaudeStored,
-    getClaudePlatforms,
-    downloadClaudeVersion,
-    deleteClaudeDownload,
-    refreshClaudeVersions,
+    getClaudeReleases, getClaudeStored, getClaudePlatforms,
+    downloadClaudeVersion, deleteClaudeDownload, refreshClaudeVersions,
+    getXrayReleases, getXrayStored, getXrayPlatforms,
+    downloadXrayVersion, deleteXrayDownload, refreshXrayVersions,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
+  let tab = $state('claude');
   let releases = $state([]);
   let platforms = $state([]);
   let stored = $state([]);
   let loading = $state(true);
-  let error = $state('');
-  let message = $state('');
   let isAdmin = $state(false);
   let refreshing = $state(false);
   let downloading = $state(false);
   let downloadKey = $state('');
   let downloadProgress = $state(null);
   let deletingFile = $state('');
-  let versionPlatforms = $state({}); // version -> [{label, plat}]
+  let versionPlatforms = $state({});
 
   onMount(async () => {
     try {
       const user = await getCurrentUser();
       isAdmin = user.role === 'admin';
-      if (isAdmin) {
-        const d = await getClaudeReleases();
-        releases = d.releases || [];
-        platforms = d.platforms || [];
-        stored = d.stored || [];
-      } else {
-        const s = await getClaudeStored();
-        stored = s.stored || [];
-      }
+      await loadTabData();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
   });
 
-  async function reloadPageData() {
+  async function loadTabData() {
     loading = true;
-    error = '';
     try {
-      if (isAdmin) {
-        const d = await getClaudeReleases();
-        releases = d.releases || [];
-        platforms = d.platforms || [];
-        stored = d.stored || [];
+      if (tab === 'claude') {
+        if (isAdmin) {
+          const d = await getClaudeReleases();
+          releases = d.releases || [];
+          platforms = d.platforms || [];
+          stored = d.stored || [];
+        } else {
+          const s = await getClaudeStored();
+          stored = s.stored || [];
+          releases = [];
+          platforms = [];
+        }
       } else {
-        const s = await getClaudeStored();
-        stored = s.stored || [];
+        if (isAdmin) {
+          const d = await getXrayReleases();
+          releases = d.releases || [];
+          platforms = d.platforms || [];
+          stored = d.stored || [];
+        } else {
+          const s = await getXrayStored();
+          stored = s.stored || [];
+          releases = [];
+          platforms = [];
+        }
       }
+      versionPlatforms = {};
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
   }
 
+  async function switchTab(t) {
+    tab = t;
+    releases = [];
+    platforms = [];
+    stored = [];
+    versionPlatforms = {};
+    await loadTabData();
+  }
+
   async function doRefreshVersions() {
     refreshing = true;
-    error = '';
-    message = '';
     try {
-      const d = await refreshClaudeVersions();
-      message = t('versionsRefreshed', { count: d.count });
-      await reloadPageData();
+      const fn = tab === 'claude' ? refreshClaudeVersions : refreshXrayVersions;
+      const d = await fn();
+      toast(t('versionsRefreshed', { count: d.count }), 'success');
+      await loadTabData();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       refreshing = false;
     }
@@ -84,10 +97,11 @@
   async function loadPlatforms(version) {
     if (versionPlatforms[version]) return;
     try {
-      const d = await getClaudePlatforms(version);
-      versionPlatforms[version] = d.platforms || [];
+      const fn = tab === 'claude' ? getClaudePlatforms : getXrayPlatforms;
+      const d = await fn(version);
+      versionPlatforms = { ...versionPlatforms, [version]: d.platforms || [] };
     } catch {
-      versionPlatforms[version] = [];
+      versionPlatforms = { ...versionPlatforms, [version]: [] };
     }
   }
 
@@ -96,20 +110,20 @@
     downloadKey = key;
     downloading = true;
     downloadProgress = null;
-    error = '';
-    message = '';
     try {
-      const d = await downloadClaudeVersion(version, plat, (p) => {
-        downloadProgress = p;
-      });
+      const fn = tab === 'claude' ? downloadClaudeVersion : downloadXrayVersion;
+      const d = await fn(version, plat, (p) => { downloadProgress = p; });
       if (d.status === 'already_exists') {
-        message = t('alreadyDownloaded', { version, plat });
+        const msg = tab === 'claude'
+          ? t('alreadyDownloaded', { version, plat })
+          : t('alreadyDownloadedXray', { version, plat });
+        toast(msg, 'info');
       } else {
-        message = t('downloadSuccess', { filename: d.filename, size: formatSize(d.size), checksum: (d.checksum || '').slice(0, 16) });
+        toast(t('downloadSuccess', { filename: d.filename, size: formatSize(d.size), checksum: (d.checksum || '').slice(0, 16) }), 'success');
       }
-      await reloadPageData();
+      await loadTabData();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       downloading = false;
       downloadKey = '';
@@ -119,14 +133,13 @@
 
   async function doDelete(filename) {
     deletingFile = filename;
-    error = '';
-    message = '';
     try {
-      await deleteClaudeDownload(filename);
-      message = t('deleted', { filename });
-      await reloadPageData();
+      const fn = tab === 'claude' ? deleteClaudeDownload : deleteXrayDownload;
+      await fn(filename);
+      toast(t('deleted', { filename }), 'success');
+      await loadTabData();
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       deletingFile = '';
     }
@@ -141,6 +154,11 @@
   function formatDate(s) {
     if (!s) return '';
     return s.slice(0, 10);
+  }
+
+  function downloadUrl(filename) {
+    const prefix = tab === 'claude' ? 'claude-code' : 'xray';
+    return `/api/admin/${prefix}/downloads/${filename}`;
   }
 
   let latestReleases = $derived(releases.slice(0, 15));
@@ -160,19 +178,20 @@
     </div>
   </div>
 
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
-  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
+  <div class="tab-bar">
+    <button class="tab-btn" class:active={tab === 'claude'} onclick={() => switchTab('claude')}>
+      {t('downloadsClaude')}
+    </button>
+    <button class="tab-btn" class:active={tab === 'xray'} onclick={() => switchTab('xray')}>
+      {t('downloadsXray')}
+    </button>
+  </div>
 
   <div class="stats">
     <div class="stat">
       <div class="stat-icon purple">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-          ><path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
-          /></svg
-        >
+          ><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
       </div>
       <div class="label">{t('stored')}</div>
       <div class="value">{stored.length}</div>
@@ -181,12 +200,7 @@
       <div class="stat">
         <div class="stat-icon blue">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-            ><path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
-            /></svg
-          >
+            ><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>
         </div>
         <div class="label">{t('available')}</div>
         <div class="value">{releases.length}</div>
@@ -201,32 +215,24 @@
           {t('storedDownloads')}
           <span class="card-title-count">{stored.length}</span>
         </div>
-        <div class="card-subtitle">{t('officialBinaries')}</div>
+        <div class="card-subtitle">
+          {tab === 'claude' ? t('officialBinaries') : t('xrayBinaries')}
+        </div>
       </div>
       <table>
-        <thead
-          ><tr><th>{t('version')}</th><th>{t('platform')}</th><th>{t('size')}</th><th>{t('checksum')}</th><th></th></tr></thead
-        >
+        <thead><tr><th>{t('version')}</th><th>{t('platform')}</th><th>{t('size')}</th><th>{t('checksum')}</th><th></th></tr></thead>
         <tbody>
           {#each stored as s}
             <tr>
               <td style="font-weight:500;">
-                <a
-                  href="/api/admin/claude-code/downloads/{s.filename}"
-                  download={s.filename}
-                  style="color:#93c5fd;text-decoration:none;"
-                  title={t('downloadToLocal')}
-                >
+                <a href={downloadUrl(s.filename)} download={s.filename}
+                  style="color:#93c5fd;text-decoration:none;" title={t('downloadToLocal')}>
                   {s.version}
                 </a>
               </td>
               <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
               <td class="td-muted">{formatSize(s.size)}</td>
-              <td
-                class="td-mono"
-                style="font-size:0.65rem;color:var(--c-text-muted);"
-                title={s.checksum}
-              >
+              <td class="td-mono" style="font-size:0.65rem;color:var(--c-text-muted);" title={s.checksum}>
                 {s.checksum ? s.checksum.slice(0, 12) + '…' : '—'}
               </td>
               <td>
@@ -234,9 +240,7 @@
                   {#if deletingFile === s.filename}
                     <span class="spinner"></span>
                   {:else}
-                    <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}
-                      >{t('delete')}</button
-                    >
+                    <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}>{t('delete')}</button>
                   {/if}
                 {/if}
               </td>
@@ -267,13 +271,10 @@
               <tr>
                 <td style="font-weight:500;">
                   {rel.version}
-                  <button
-                    class="btn btn-ghost btn-sm"
-                    style="margin-left:0.35rem;font-size:0.7rem;padding:0.15rem 0.4rem;"
-                    onclick={() => loadPlatforms(rel.version)}
-                    disabled={vPlats}
-                    title={t('loadPlatforms')}
-                  >{vPlats ? '✓' : t('check') }</button>
+                  <button class="btn btn-ghost btn-sm" style="margin-left:0.35rem;font-size:0.7rem;padding:0.15rem 0.4rem;"
+                    onclick={() => loadPlatforms(rel.version)} disabled={vPlats} title={t('loadPlatforms')}>
+                    {vPlats ? '✓' : t('check')}
+                  </button>
                 </td>
                 <td class="td-muted">{formatDate(rel.date)}</td>
                 <td>
@@ -288,18 +289,14 @@
                         {#if alreadyDownloaded.has(key)}
                           <span class="badge badge-green" style="cursor:default;">{p.label}</span>
                         {:else if downloadKey === key && downloadProgress}
-                          <span class="badge badge-blue" style="min-width:60px;">
-                            {downloadProgress.percent || 0}%
-                          </span>
+                          <span class="badge badge-blue" style="min-width:60px;">{downloadProgress.percent || 0}%</span>
                         {:else if downloadKey === key}
                           <span class="badge badge-blue"><span class="spinner" style="width:10px;height:10px;"></span></span>
                         {:else}
-                          <button
-                            class="badge badge-blue"
-                            style="cursor:pointer;border:none;"
-                            onclick={() => doDownload(rel.version, p.plat)}
-                            disabled={downloading}
-                          >{p.label}</button>
+                          <button class="badge badge-blue" style="cursor:pointer;border:none;"
+                            onclick={() => doDownload(rel.version, p.plat)} disabled={downloading}>
+                            {p.label}
+                          </button>
                         {/if}
                       {/each}
                     </div>
@@ -326,13 +323,36 @@
   {#if !loading && !isAdmin && stored.length === 0}
     <div class="card">
       <div class="empty-state">
-        {t('noClaudeCodeAskAdmin')}
+        {tab === 'claude' ? t('noClaudeCodeAskAdmin') : t('noXrayAskAdmin')}
       </div>
     </div>
   {/if}
 </div>
 
 <style>
+  .tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--c-border);
+  }
+  .tab-btn {
+    padding: 0.5rem 1rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--c-text-muted);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--c-text); }
+  .tab-btn.active {
+    color: var(--c-accent);
+    border-bottom-color: var(--c-accent);
+  }
   .progress-bar {
     height: 6px;
     background: var(--c-border);
@@ -341,7 +361,7 @@
   }
   .progress-fill {
     height: 100%;
-    background: var(--c-accent, #3b82f6);
+    background: var(--c-accent);
     border-radius: 3px;
     transition: width 0.2s ease;
   }

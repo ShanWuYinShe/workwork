@@ -87,6 +87,15 @@ func main() {
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 	// Service logs
 	mux.HandleFunc("GET /api/admin/services/{name}/logs", requireRole("admin")(apiServiceLogs(cli)))
+	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", requireRole("admin")(apiServiceLogStream(cli)))
+	// Xray downloads — admin manages, viewer can see + download stored
+	mux.HandleFunc("GET /api/admin/xray/releases", requireRole("admin")(apiXrayReleases()))
+	mux.HandleFunc("POST /api/admin/xray/refresh", requireRole("admin")(apiXrayRefresh()))
+	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", requireRole("admin")(apiXrayPlatforms()))
+	mux.HandleFunc("GET /api/admin/xray/stored", requireRole("viewer")(apiXrayStored()))
+	mux.HandleFunc("POST /api/admin/xray/download", requireRole("admin")(apiXrayDownload()))
+	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", requireRole("viewer")(apiXrayServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads/", requireRole("admin")(apiXrayDeleteDownload()))
 	// Rate limit management (admin only)
 	mux.HandleFunc("GET /api/admin/security/rate-limit", requireRole("admin")(apiRateLimitStatus()))
 	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", requireRole("admin")(apiRateLimitUnblock()))

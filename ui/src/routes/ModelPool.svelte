@@ -2,12 +2,10 @@
   import { onMount } from 'svelte';
   import { getModelPool, setModelPool, setModelPoolUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let pool = $state({ providers: [], authorized_users: [] });
   let loading = $state(true);
-  let error = $state('');
-  let message = $state('');
   let saving = $state(false);
 
   let newName = $state(''),
@@ -23,12 +21,11 @@
 
   async function refresh() {
     loading = true;
-    error = '';
     try {
       const d = await getModelPool();
       pool = { providers: d.providers || [], authorized_users: d.authorized_users || [] };
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -54,31 +51,27 @@
 
   async function savePool() {
     saving = true;
-    error = '';
-    message = '';
     try {
       const d = await setModelPool(pool.providers);
-      message = d.regenerated
+      toast(d.regenerated
         ? t('poolSavedRegen', { users: d.regenerated.join(', ') })
-        : t('poolSaved');
+        : t('poolSaved'), 'success');
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       saving = false;
     }
   }
 
   async function toggleUser(username, granted) {
-    error = '';
-    message = '';
     try {
       const d = await setModelPoolUser(username, granted);
       pool.authorized_users = d.authorized_users || [];
-      message = granted
+      toast(granted
         ? t('poolAccessGrantedRegen', { user: username })
-        : t('poolAccessRevoked', { user: username });
+        : t('poolAccessRevoked', { user: username }), 'success');
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
@@ -98,9 +91,6 @@
       <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
     </div>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
-  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
