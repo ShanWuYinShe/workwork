@@ -11,12 +11,10 @@
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let adminUsers = $state([]);
   let loading = $state(true);
-  let error = $state('');
-  let message = $state('');
   let isAdmin = $state(false);
   let newUser = $state(''),
     newPass = $state(''),
@@ -35,7 +33,7 @@
       const me = await getCurrentUser();
       isAdmin = me?.role === 'admin';
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -43,70 +41,61 @@
 
   async function addUser() {
     if (!newUser || !newPass) return;
-    error = '';
-    message = '';
     try {
       await addAdminUser(newUser, newPass, newRole);
-      message = t('userAdded', { user: newUser });
+      toast(t('userAdded', { user: newUser }), 'success');
       newUser = '';
       newPass = '';
       newRole = 'viewer';
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function deleteUser(username) {
     if (!(await showConfirm(t('confirmDeleteUser', { username })))) return;
-    error = '';
     try {
       await deleteAdminUser(username);
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function changePw() {
     if (!pwUser || !pwPass) return;
-    error = '';
-    message = '';
     try {
       await changePassword(pwUser, oldPass, pwPass);
-      message = t('passwordChanged', { user: pwUser });
+      toast(t('passwordChanged', { user: pwUser }), 'success');
       oldPass = '';
       pwPass = '';
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function changeRole(username, role) {
-    error = '';
-    message = '';
     try {
       await setUserRole(username, role);
-      message = t('roleSetTo', { user: username, role });
+      toast(t('roleSetTo', { user: username, role }), 'success');
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
   async function togglePool(username, granted) {
-    error = '';
-    message = '';
     try {
       await setModelPoolUser(username, granted);
-      message = granted ? t('poolAccessGranted', { user: username }) : t('poolAccessRevoked', { user: username });
+      toast(granted ? t('poolAccessGranted', { user: username }) : t('poolAccessRevoked', { user: username }), 'success');
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     }
   }
 
@@ -119,9 +108,6 @@
   <div class="page-header">
     <h1 class="page-title">{t('users')}</h1>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
-  <Toast type="success" visible={!!message} onclose={() => message = ''}>{message}</Toast>
 
   <div class="card">
     <div class="card-header">

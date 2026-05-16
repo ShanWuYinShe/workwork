@@ -216,3 +216,71 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
 export async function deleteClaudeDownload(filename) {
   return req('/claude-code/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
 }
+
+// ── Xray downloads ──
+
+export async function refreshXrayVersions() {
+  return req('/xray/refresh', { method: 'POST' });
+}
+
+export async function getXrayReleases() {
+  return req('/xray/releases');
+}
+
+export async function getXrayStored() {
+  return req('/xray/stored');
+}
+
+export async function getXrayPlatforms(version) {
+  return req(`/xray/platforms/${version}`);
+}
+
+export async function downloadXrayVersion(version, plat, onProgress) {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
+  const r = await fetch(BASE + '/xray/download', {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    body: JSON.stringify({ version, plat }),
+    signal: ctrl.signal,
+  });
+  clearTimeout(timeout);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let result = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let data;
+      try { data = JSON.parse(line); } catch { continue; }
+      if (data.type === 'progress' && onProgress) onProgress(data);
+      if (data.type === 'error') throw new Error(data.error);
+      if (data.type === 'done') result = data;
+      if (data.type === 'start' && onProgress) onProgress({ bytes: 0, total: 0, percent: 0 });
+    }
+  }
+  if (buf.trim()) {
+    let data;
+    try { data = JSON.parse(buf); } catch { /* ignore */ }
+    if (data) {
+      if (data.type === 'error') throw new Error(data.error);
+      if (data.type === 'done') result = data;
+    }
+  }
+  if (!result) throw new Error('Download completed but no result received');
+  return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
+}
+
+export async function deleteXrayDownload(filename) {
+  return req('/xray/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
+}

@@ -3,7 +3,7 @@
   import { getDashboard, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
-  import Toast from '../lib/Toast.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let stats = $state({
     services: '-',
@@ -19,9 +19,7 @@
   let username = $state('');
   let myClients = $state([]);
   let generatedJSON = $state('');
-  let error = $state('');
   let loading = $state(true);
-  let copied = $state(false);
   let isAdmin = $state(false);
 
   onMount(async () => {
@@ -45,7 +43,7 @@
         generatedJSON = d.generatedJSON || '';
       }
     } catch (e) {
-      error = e.message;
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -53,10 +51,9 @@
 
   async function copyConfig() {
     if (await copyToClipboard(generatedJSON)) {
-      copied = true;
-      setTimeout(() => (copied = false), 2000);
+      toast(t('configCopied'), 'success', 2000);
     } else {
-      error = t('copyFailed');
+      toast(t('copyFailed'), 'error');
     }
   }
 
@@ -75,8 +72,6 @@
   <div class="page-header">
     <h1 class="page-title">{t('dashboard')}</h1>
   </div>
-
-  <Toast type="error" visible={!!error} onclose={() => error = ''}>{error}</Toast>
 
   {#if loading}
     <div class="stats">
@@ -226,7 +221,7 @@
               onclick={copyConfig}
               aria-label={t('copyConfiguration')}
             >
-              {#if copied}{t('copied')}{:else}{t('copy')}{/if}
+              {t('copy')}
             </button>
             <button
               class="btn btn-sm btn-ghost"
@@ -241,9 +236,6 @@
           <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
         </div>
         <textarea rows="16" readonly>{generatedJSON}</textarea>
-        {#if copied}
-          <Toast type="success" visible={copied} onclose={() => copied = false}>{t('configCopied')}</Toast>
-        {/if}
       </div>
     {:else}
       <div class="card">
