@@ -87,23 +87,6 @@ server {
         proxy_send_timeout 600s;
     }
 
-    # SSE log streaming — no buffering required
-    location /api/admin/services/ {
-        # Internal rewrite: strip trailing slash from bare /services/ to avoid Go 1.22+ mux 404
-        rewrite ^/api/admin/services/$ /api/admin/services break;
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_buffering off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
     # Large file downloads: stream without buffering, runtime DNS.
     location /api/admin/claude-code/downloads/ {
         auth_basic "Restricted";
@@ -137,8 +120,6 @@ server {
     }
 
     location /api/admin/ {
-        # Internal rewrite: strip trailing slash from single-segment API paths (e.g. /dashboard/ → /dashboard)
-        rewrite ^(/api/admin/[^/]+)/$ $1 break;
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         access_log /var/log/nginx/admin-access.log auth_log;
