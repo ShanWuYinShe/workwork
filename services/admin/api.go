@@ -297,6 +297,10 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+		if !validUUID.MatchString(body.UUID) {
+			writeError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
+			return
+		}
 
 		// Regular users can only create one client
 		if userInfo != nil && userInfo.Role != "admin" {
@@ -470,6 +474,7 @@ var htpasswdFile = "/app/htpasswd"
 var xrayConfigMu sync.Mutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func isValidUsername(username string) bool {
 	return username != "" && validUsername.MatchString(username) && len(username) <= 64
