@@ -2,6 +2,13 @@
   "log": {
     "loglevel": "warning"
   },
+  "dns": {
+    "servers": [
+      "https://dns.cloudflare.com/dns-query",
+      "localhost"
+    ],
+    "queryStrategy": "UseIP"
+  },
   "inbounds": [
     {
       "tag": "xhttp-in",
@@ -52,19 +59,12 @@
       }
     }
   ],
-  "dns": {
-    "servers": [
-      "https://dns.cloudflare.com/dns-query",
-      "localhost"
-    ],
-    "queryStrategy": "UseIP"
-  },
   "outbounds": [
     {
       "tag": "direct",
       "protocol": "freedom",
       "settings": {
-        "domainStrategy": "UseIPv6v4"
+        "domainStrategy": "UseIP"
       },
       "streamSettings": {
         "sockopt": {
@@ -74,28 +74,8 @@
       }
     },
     {
-      "tag": "blocked",
-      "protocol": "blackhole"
+      "protocol": "blackhole",
+      "tag": "blocked"
     }
-  ],
-  "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      {
-        "type": "field",
-        "ip": [
-          "10.0.0.0/8",
-          "172.16.0.0/12",
-          "192.168.0.0/16",
-          "127.0.0.0/8",
-          "169.254.0.0/16",
-          "224.0.0.0/4",
-          "::1/128",
-          "fc00::/7",
-          "fe80::/10"
-        ],
-        "outboundTag": "blocked"
-      }
-    ]
-  }
+  ]
 }
