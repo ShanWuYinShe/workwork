@@ -304,56 +304,25 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 
 		// Regular users can only create one client
 		if userInfo != nil && userInfo.Role != "admin" {
-			allClients, _ := handlers.ReadXrayClients()
+			allClients, _ := readXrayClients()
 			for _, c := range allClients {
-				if c["owner"] == username {
+				if c.Owner == username {
 					writeError(w, "You can only create one client. Delete the existing one first.", 400)
 					return
 				}
 			}
 		}
 
+		if err := addXrayClient(xrayClientEntry{ID: body.UUID, Owner: username, Email: username}); err != nil {
+			writeError(w, "Failed to save client: "+err.Error(), 500)
+			return
+		}
+
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
-
-		data, err := os.ReadFile("/app/configs/xray.json")
-		if err != nil {
-			writeError(w, err.Error(), 500)
-			return
+		if err := genXrayConfig(); err != nil {
+			log.Printf("ERROR: failed to regenerate xray config: %v", err)
 		}
-		var full map[string]any
-		if err := json.Unmarshal(data, &full); err != nil {
-			writeError(w, "Invalid xray config: "+err.Error(), 500)
-			return
-		}
-		inbounds, _ := full["inbounds"].([]any)
-		for i := range inbounds {
-			ib, _ := inbounds[i].(map[string]any)
-			tag, _ := ib["tag"].(string)
-			settings, _ := ib["settings"].(map[string]any)
-			if settings == nil {
-				continue
-			}
-			clientsRaw, _ := settings["clients"].([]any)
-			nc := map[string]any{"id": body.UUID, "email": username, "owner": username}
-			if tag == "reality-in" {
-				nc["flow"] = "xtls-rprx-vision"
-			}
-			clientsRaw = append(clientsRaw, nc)
-			settings["clients"] = clientsRaw
-			settings["decryption"] = "none"
-		}
-		out, err := json.MarshalIndent(full, "", "  ")
-		if err != nil {
-			writeError(w, "Failed to serialize config", 500)
-			return
-		}
-		if err := os.WriteFile("/app/configs/xray.json", out, 0600); err != nil {
-				log.Printf("ERROR: failed to write xray config: %v", err)
-				writeError(w, "Failed to save xray config", 500)
-				return
-			}
-
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after add: %v", err)
 		}
@@ -372,55 +341,39 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+
+		// Check ownership before deleting
+		clients, err := readXrayClients()
+		if err != nil {
+			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			return
+		}
+		found := false
+		for _, c := range clients {
+			if c.ID == body.UUID {
+				if userInfo != nil && userInfo.Role != "admin" && c.Owner != username {
+					writeError(w, "Forbidden: not your client", 403)
+					return
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, "Client not found", 404)
+			return
+		}
+
+		if err := deleteXrayClient(body.UUID); err != nil {
+			writeError(w, "Failed to delete client: "+err.Error(), 500)
+			return
+		}
+
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
-
-		data, err := os.ReadFile("/app/configs/xray.json")
-		if err != nil {
-			writeError(w, "Failed to read xray config: "+err.Error(), 500)
-			return
+		if err := genXrayConfig(); err != nil {
+			log.Printf("ERROR: failed to regenerate xray config: %v", err)
 		}
-		var full map[string]any
-		if err := json.Unmarshal(data, &full); err != nil {
-			writeError(w, "Invalid xray config: "+err.Error(), 500)
-			return
-		}
-		inbounds, _ := full["inbounds"].([]any)
-		for i := range inbounds {
-			ib, _ := inbounds[i].(map[string]any)
-			settings, _ := ib["settings"].(map[string]any)
-			if settings == nil {
-				continue
-			}
-			clientsRaw, _ := settings["clients"].([]any)
-			var kept []any
-			for _, c := range clientsRaw {
-				cm, _ := c.(map[string]any)
-				id, _ := cm["id"].(string)
-				if id == body.UUID {
-					// Check ownership
-					owner, _ := cm["owner"].(string)
-					if userInfo != nil && userInfo.Role != "admin" && owner != username {
-						writeError(w, "Forbidden: not your client", 403)
-						return
-					}
-					continue
-				}
-				kept = append(kept, c)
-			}
-			settings["clients"] = kept
-		}
-		out, err := json.MarshalIndent(full, "", "  ")
-		if err != nil {
-			writeError(w, "Failed to serialize config", 500)
-			return
-		}
-		if err := os.WriteFile("/app/configs/xray.json", out, 0600); err != nil {
-				log.Printf("ERROR: failed to write xray config: %v", err)
-				writeError(w, "Failed to save xray config", 500)
-				return
-			}
-
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after delete: %v", err)
 		}

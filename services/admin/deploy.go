@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,11 +15,11 @@ import (
 // generateConfigs creates xray config, nginx config, and htpasswd from templates.
 // Called on admin startup to ensure configs exist before services come up.
 func generateConfigs() error {
+	if err := ensureXrayClients(); err != nil {
+		return fmt.Errorf("xray clients init: %w", err)
+	}
 	if err := genXrayConfig(); err != nil {
 		return fmt.Errorf("xray config: %w", err)
-	}
-	if err := migrateXrayClients(); err != nil {
-		return fmt.Errorf("xray migrate: %w", err)
 	}
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
@@ -40,46 +39,49 @@ func generateConfigs() error {
 	return nil
 }
 
+// genXrayConfig generates xray.json from the template + persisted client data.
+// Always regenerates — client data lives in /app/data/xray-clients.json.
 func genXrayConfig() error {
-	// Skip if already exists — preserves client data added via API.
-	// Template changes (DNS/outbounds) are applied via migrateXrayConfig on restart.
-	if data, err := os.ReadFile("/app/configs/xray.json"); err == nil {
-		if len(data) > 10 && data[0] == '{' {
-			return migrateXrayConfig(data)
-		}
-	}
 	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
 	if err != nil {
 		return err
 	}
-	ids := getEnv("XRAY_CLIENT_IDS")
-	uuids := strings.Split(ids, ",")
-	var clientsJSON, realityClientsJSON bytes.Buffer
-	clientsJSON.WriteByte('[')
-	realityClientsJSON.WriteByte('[')
-	for i, u := range uuids {
-		u = strings.TrimSpace(u)
-		if u == "" {
-			continue
-		}
-		if i > 0 {
-			clientsJSON.WriteByte(',')
-			realityClientsJSON.WriteByte(',')
-		}
-		owner := getEnv("AUTH_USER")
-		c := map[string]string{"id": u, "email": owner, "flow": "", "owner": owner}
-		json.NewEncoder(&clientsJSON).Encode(c)
-		clientsJSON.Truncate(clientsJSON.Len() - 1)
-		c["flow"] = "xtls-rprx-vision"
-		json.NewEncoder(&realityClientsJSON).Encode(c)
-		realityClientsJSON.Truncate(realityClientsJSON.Len() - 1)
+
+	clients, err := readXrayClients()
+	if err != nil {
+		return err
 	}
-	clientsJSON.WriteByte(']')
-	realityClientsJSON.WriteByte(']')
+
+	var xhttpClients, realityClients bytes.Buffer
+	enc := json.NewEncoder(&xhttpClients)
+	enc.SetEscapeHTML(false)
+	for _, c := range clients {
+		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner})
+		// Trim trailing newline that Encode adds
+		xhttpClients.Truncate(xhttpClients.Len() - 1)
+		xhttpClients.WriteByte(',')
+	}
+	enc = json.NewEncoder(&realityClients)
+	enc.SetEscapeHTML(false)
+	for _, c := range clients {
+		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner})
+		realityClients.Truncate(realityClients.Len() - 1)
+		realityClients.WriteByte(',')
+	}
+
+	xhttpJSON := "[]"
+	if xhttpClients.Len() > 0 {
+		// Remove trailing comma
+		xhttpJSON = "[" + strings.TrimSuffix(xhttpClients.String(), ",") + "]"
+	}
+	realityJSON := "[]"
+	if realityClients.Len() > 0 {
+		realityJSON = "[" + strings.TrimSuffix(realityClients.String(), ",") + "]"
+	}
 
 	out := string(tmpl)
-	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", clientsJSON.String())
-	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityClientsJSON.String())
+	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", xhttpJSON)
+	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityJSON)
 	out = replaceEnv(out, map[string]string{
 		"__XRAY_REALITY_DEST__":        "XRAY_REALITY_DEST",
 		"__XRAY_REALITY_SERVER_NAME__": "XRAY_REALITY_SERVER_NAME",
@@ -88,163 +90,12 @@ func genXrayConfig() error {
 	}, map[string]string{
 		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
+
+	// Skip write if unchanged
+	if existing, err := os.ReadFile("/app/configs/xray.json"); err == nil && string(existing) == out {
+		return nil
+	}
 	return os.WriteFile("/app/configs/xray.json", []byte(out), 0600)
-}
-
-// migrateXrayConfig merges new top-level sections (dns, outbounds, routing) from the
-// template into an existing xray.json, preserving inbounds (client data) intact.
-func migrateXrayConfig(existing []byte) error {
-	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
-	if err != nil {
-		return nil // template not available, keep existing config
-	}
-
-	// Extract sections from template that are safe to merge (not client data)
-	sectionsToMerge := []string{"dns", "outbounds", "routing"}
-	tmplSections := extractJSONSections(string(tmpl), sectionsToMerge)
-	if len(tmplSections) == 0 {
-		return nil // nothing to merge
-	}
-
-	// Check if existing config already has all sections
-	existingStr := string(existing)
-	needsUpdate := false
-	for _, key := range sectionsToMerge {
-		if _, ok := tmplSections[key]; ok {
-			if !strings.Contains(existingStr, `"`+key+`"`) {
-				needsUpdate = true
-				break
-			}
-		}
-	}
-	if !needsUpdate {
-		return nil
-	}
-
-	// Merge: remove trailing } and append missing sections
-	merged := strings.TrimRight(existingStr, " \t\n\r")
-	merged = strings.TrimSuffix(merged, "}")
-	merged = strings.TrimRight(merged, " \t\n\r")
-
-	for _, key := range sectionsToMerge {
-		if tmplJSON, ok := tmplSections[key]; ok {
-			if !strings.Contains(existingStr, `"`+key+`"`) {
-				merged += ",\n  " + tmplJSON
-			}
-		}
-	}
-	merged += "\n}\n"
-
-	log.Printf("Migrated xray config: added missing sections from template")
-	return os.WriteFile("/app/configs/xray.json", []byte(merged), 0600)
-}
-
-// extractJSONSections extracts top-level named sections from a JSON object string.
-func extractJSONSections(jsonStr string, keys []string) map[string]string {
-	result := make(map[string]string)
-	for _, key := range keys {
-		// Find "key": { ... } in the JSON
-		startTag := `"` + key + `":`
-		idx := strings.Index(jsonStr, startTag)
-		if idx < 0 {
-			continue
-		}
-		start := idx + len(startTag)
-		// Skip whitespace
-		for start < len(jsonStr) && (jsonStr[start] == ' ' || jsonStr[start] == '\t' || jsonStr[start] == '\n') {
-			start++
-		}
-		if start >= len(jsonStr) {
-			continue
-		}
-		// Find matching closing brace
-		depth := 0
-		inString := false
-		escaped := false
-		end := start
-		for end < len(jsonStr) {
-			c := jsonStr[end]
-			if escaped {
-				escaped = false
-				end++
-				continue
-			}
-			if c == '\\' {
-				escaped = true
-				end++
-				continue
-			}
-			if c == '"' {
-				inString = !inString
-				end++
-				continue
-			}
-			if inString {
-				end++
-				continue
-			}
-			if c == '{' || c == '[' {
-				depth++
-			} else if c == '}' || c == ']' {
-				depth--
-				if depth == 0 {
-					end++
-					break
-				}
-			}
-			end++
-		}
-		result[key] = strings.TrimSpace(jsonStr[start:end])
-	}
-	return result
-}
-
-// migrateXrayClients ensures all existing clients have email and removes test entries.
-func migrateXrayClients() error {
-	data, err := os.ReadFile("/app/configs/xray.json")
-	if err != nil {
-		return nil
-	}
-	var full map[string]any
-	if err := json.Unmarshal(data, &full); err != nil {
-		return nil
-	}
-	inbounds, _ := full["inbounds"].([]any)
-	changed := false
-	for i := range inbounds {
-		ib, _ := inbounds[i].(map[string]any)
-		settings, _ := ib["settings"].(map[string]any)
-		if settings == nil {
-			continue
-		}
-		clientsRaw, _ := settings["clients"].([]any)
-		var kept []any
-		for _, c := range clientsRaw {
-			cm, _ := c.(map[string]any)
-			id, _ := cm["id"].(string)
-			// Remove test entries
-			if id == "" || id == "test" {
-				changed = true
-				continue
-			}
-			// Add email if missing
-			if _, hasEmail := cm["email"]; !hasEmail {
-				owner, _ := cm["owner"].(string)
-				if owner == "" {
-					owner = id
-				}
-				cm["email"] = owner
-				changed = true
-			}
-			kept = append(kept, c)
-		}
-		settings["clients"] = kept
-	}
-	if changed {
-		out, _ := json.MarshalIndent(full, "", "  ")
-		return os.WriteFile("/app/configs/xray.json", out, 0644)
-	}
-	return nil
 }
 
 func genNginxConfig() error {
@@ -257,7 +108,6 @@ func genNginxConfig() error {
 		"__NGINX_IPV6__": "NGINX_IPV6",
 		"__ADMIN_PORT__": "ADMIN_PORT",
 	})
-	// Check if unchanged to avoid unnecessary writes
 	if existing, err := os.ReadFile("/app/configs/nginx.conf"); err == nil && string(existing) == out {
 		return nil
 	}
@@ -300,7 +150,6 @@ func genCliproxyConfig() error {
 	out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
 	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
 	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
-	// Check if unchanged
 	if existing, err := os.ReadFile("/app/configs/cliproxy.yaml"); err == nil && string(existing) == out {
 		return nil
 	}
@@ -321,11 +170,9 @@ func seedAdminUser() error {
 }
 
 func genInternalToken() error {
-	// Already set via env / .env
 	if os.Getenv("INTERNAL_TOKEN") != "" {
 		return nil
 	}
-	// Generate and persist a random token
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return err

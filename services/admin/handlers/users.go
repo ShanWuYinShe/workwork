@@ -7,33 +7,27 @@ import (
 )
 
 func ReadXrayClients() ([]map[string]string, error) {
-	data, err := os.ReadFile("/app/configs/xray.json")
+	data, err := os.ReadFile("/app/data/xray-clients.json")
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	var cfg struct {
-		Inbounds []struct {
-			Tag      string `json:"tag"`
-			Settings struct {
-				Clients []map[string]string `json:"clients"`
-			} `json:"settings"`
-		} `json:"inbounds"`
+	var entries []struct {
+		ID    string `json:"id"`
+		Owner string `json:"owner"`
+		Email string `json:"email"`
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, err
 	}
-
-	seen := map[string]bool{}
-	var clients []map[string]string
-	for _, ib := range cfg.Inbounds {
-		if ib.Tag == "reality-in" || ib.Tag == "xhttp-in" {
-			for _, c := range ib.Settings.Clients {
-				id := c["id"]
-				if !seen[id] {
-					seen[id] = true
-					clients = append(clients, c)
-				}
-			}
+	clients := make([]map[string]string, len(entries))
+	for i, e := range entries {
+		clients[i] = map[string]string{
+			"id":    e.ID,
+			"owner": e.Owner,
+			"email": e.Email,
 		}
 	}
 	return clients, nil
@@ -53,32 +47,14 @@ type jsonField struct {
 	val any
 }
 
-func orderedJSON(fields []jsonField) string {
-	var buf []byte
-	buf = append(buf, "{\n"...)
-	for i, f := range fields {
-		val, _ := json.MarshalIndent(f.val, "  ", "  ")
-		buf = append(buf, fmt.Sprintf("  %q: %s", f.key, val)...)
-		if i < len(fields)-1 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, '\n')
-	}
-	buf = append(buf, "}\n"...)
-	return string(buf)
-}
-
 func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string {
 	uuid := "YOUR_UUID"
 	if len(clients) > 0 {
 		uuid = clients[0]["id"]
 	}
-
-	// Refuse to generate config with missing/incomplete required settings
 	if cfg.RealityDomain == "" || cfg.RealityPublicKey == "" || cfg.XHTTPDomain == "" {
 		return "{\"error\": \"Server configuration incomplete\"}"
 	}
-
 	return orderedJSON([]jsonField{
 		{"log", map[string]any{"loglevel": "warning"}},
 		{"inbounds", []any{
@@ -162,4 +138,19 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			},
 		}},
 	})
+}
+
+func orderedJSON(fields []jsonField) string {
+	var buf []byte
+	buf = append(buf, "{\n"...)
+	for i, f := range fields {
+		val, _ := json.MarshalIndent(f.val, "  ", "  ")
+		buf = append(buf, fmt.Sprintf("  %q: %s", f.key, val)...)
+		if i < len(fields)-1 {
+			buf = append(buf, ',')
+		}
+		buf = append(buf, '\n')
+	}
+	buf = append(buf, "}\n"...)
+	return string(buf)
 }
