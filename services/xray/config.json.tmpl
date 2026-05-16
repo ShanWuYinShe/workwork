@@ -54,24 +54,8 @@
   ],
   "outbounds": [
     {
-      "tag": "direct-v6",
+      "tag": "direct",
       "protocol": "freedom",
-      "settings": {
-        "domainStrategy": "UseIPv6"
-      },
-      "streamSettings": {
-        "sockopt": {
-          "tcpFastOpen": true,
-          "tcpNoDelay": true
-        }
-      }
-    },
-    {
-      "tag": "direct-v4",
-      "protocol": "freedom",
-      "settings": {
-        "domainStrategy": "UseIPv4"
-      },
       "streamSettings": {
         "sockopt": {
           "tcpFastOpen": true,
@@ -85,18 +69,6 @@
     }
   ],
   "routing": {
-    "domainStrategy": "IPIfNonMatch",
-    "rules": [
-      {
-        "type": "field",
-        "outboundTag": "direct-v6",
-        "ip": ["::/0"]
-      },
-      {
-        "type": "field",
-        "outboundTag": "direct-v4",
-        "ip": ["0.0.0.0/0"]
-      }
-    ]
+    "domainStrategy": "AsIs"
   }
 }
