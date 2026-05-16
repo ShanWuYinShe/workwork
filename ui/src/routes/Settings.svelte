@@ -91,7 +91,7 @@
           </tr>
           <tr>
             <td style="font-weight:500;">xray (reality)</td>
-            <td class="td-mono">{net.xray_ip}</td>
+            <td class="td-mono">{net.xray_static || '—'}</td>
             <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
             <td class="td-muted">{t('realityDesc')}</td>
           </tr>

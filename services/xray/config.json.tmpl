@@ -52,6 +52,16 @@
       }
     }
   ],
+  "dns": {
+    "servers": [
+      {
+        "address": "https://dns.cloudflare.com/dns-query",
+        "domains": ["geosite:geolocation-!cn"]
+      },
+      "localhost"
+    ],
+    "queryStrategy": "UseIPv6"
+  },
   "outbounds": [
     {
       "tag": "direct",

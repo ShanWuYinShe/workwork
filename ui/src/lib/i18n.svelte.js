@@ -148,7 +148,7 @@ const zh = {
   syncAllDNS: '同步全部 DNS',
   dnsSyncFailed: '同步失败',
   ipv6Rotation: 'IPv6 旋转',
-  rotateDesc: '在轮转范围 ({range}) 中生成两个新 IPv6，分别分配给 xray 和 nginx，更新所有域名 DNS 后移除旧 IP。',
+  rotateDesc: '在轮转范围 ({range}) 中生成两个新 IPv6 地址，分别分配给 xray 和 nginx，同步更新所有域名的 Cloudflare DNS 记录后移除旧地址。',
   range: '范围',
   rotateAll: '轮转所有 IPv6',
   rotating: '轮转中...',
@@ -162,7 +162,7 @@ const zh = {
   staticRange: '静态',
   rotatingRange: '轮转',
   staticRangeUsage: 'nginx, xray',
-  rotatingRangeUsage: 'xray reality 动态 IP',
+  rotatingRangeUsage: 'xray + nginx 对外 IPv6',
   internalDockerViaNginx: '经由 nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: '经由 nginx /proxy/query',
   // Security
@@ -441,7 +441,7 @@ const en = {
   dnsSyncFailed: 'Sync failed',
   ipv6Rotation: 'IPv6 Rotation',
   rotateDesc:
-    'Generates two new IPv6 addresses in the rotating range ({range}), assigns to xray and nginx, updates all domain DNS records, then removes old IPs.',
+    'Generates two new IPv6 addresses in the rotating range ({range}), assigns to xray and nginx, syncs all domain Cloudflare DNS records, then removes old addresses.',
   range: 'Range',
   staticIP: 'Static',
   rotatingIP: 'Rotating',
@@ -455,7 +455,7 @@ const en = {
   staticRange: 'Static',
   rotatingRange: 'Rotating',
   staticRangeUsage: 'nginx, xray',
-  rotatingRangeUsage: 'xray reality dynamic IPs',
+  rotatingRangeUsage: 'xray + nginx public IPv6',
   internalDockerViaNginx: 'via nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: 'via nginx /proxy/query',
   // Security
