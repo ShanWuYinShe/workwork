@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -47,17 +48,13 @@ func genXrayConfig() error {
 		return err
 	}
 
-	clients, err := readXrayClients()
-	if err != nil {
-		return err
-	}
+	clients, _ := readXrayClients()
 
 	var xhttpClients, realityClients bytes.Buffer
 	enc := json.NewEncoder(&xhttpClients)
 	enc.SetEscapeHTML(false)
 	for _, c := range clients {
 		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner})
-		// Trim trailing newline that Encode adds
 		xhttpClients.Truncate(xhttpClients.Len() - 1)
 		xhttpClients.WriteByte(',')
 	}
@@ -71,7 +68,6 @@ func genXrayConfig() error {
 
 	xhttpJSON := "[]"
 	if xhttpClients.Len() > 0 {
-		// Remove trailing comma
 		xhttpJSON = "[" + strings.TrimSuffix(xhttpClients.String(), ",") + "]"
 	}
 	realityJSON := "[]"
@@ -91,10 +87,13 @@ func genXrayConfig() error {
 		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
 
-	// Skip write if unchanged
-	if existing, err := os.ReadFile("/app/configs/xray.json"); err == nil && string(existing) == out {
+	// Always write — content comparison happens inside WriteFile (atomic overwrite).
+	// The file is shared with xray container via bind mount.
+	existing, _ := os.ReadFile("/app/configs/xray.json")
+	if string(existing) == out {
 		return nil
 	}
+	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clients), strings.Contains(out, `"dns"`))
 	return os.WriteFile("/app/configs/xray.json", []byte(out), 0600)
 }
 
