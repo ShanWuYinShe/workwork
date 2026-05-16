@@ -40,12 +40,6 @@ func generateConfigs() error {
 }
 
 func genXrayConfig() error {
-	// Skip if already exists and has valid JSON
-	if data, err := os.ReadFile("/app/configs/xray.json"); err == nil {
-		if len(data) > 10 && data[0] == '{' {
-			return nil
-		}
-	}
 	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
 	if err != nil {
 		return err
