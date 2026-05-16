@@ -153,8 +153,8 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		{"burstObservatory", map[string]any{
 			"subjectSelector": []string{"reality", "xhttp"},
 			"pingConfig": map[string]any{
-				"destination":  "https://cp.cloudflare.com/generate_204",
-				"connectivity": "https://www.google.com/generate_204",
+				"destination":  "https://www.gstatic.com/generate_204",
+				"connectivity": "https://cp.cloudflare.com/cdn-cgi/trace",
 				"interval":     "30s",
 				"sampling":     10,
 				"timeout":      "5s",
