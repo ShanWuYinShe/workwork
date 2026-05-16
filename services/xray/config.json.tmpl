@@ -57,12 +57,15 @@
       "https://dns.cloudflare.com/dns-query",
       "localhost"
     ],
-    "queryStrategy": "UseIPv6"
+    "queryStrategy": "UseIP"
   },
   "outbounds": [
     {
       "tag": "direct",
       "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIPv6v4"
+      },
       "streamSettings": {
         "sockopt": {
           "tcpFastOpen": true,
@@ -76,6 +79,13 @@
     }
   ],
   "routing": {
-    "domainStrategy": "AsIs"
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "blocked"
+      }
+    ]
   }
 }
