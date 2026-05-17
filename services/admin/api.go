@@ -691,41 +691,35 @@ func readHtpasswdUsers() []string {
 
 // -- Network / IPv6 rotation APIs --
 
-type rotatingIPState struct {
-	XrayIP  string `json:"xray_ip"`
-	NginxIP string `json:"nginx_ip"`
-}
-
-func loadRotatingState() rotatingIPState {
-	var s rotatingIPState
-	data, err := os.ReadFile("/app/data/rotating-ip.json")
-	if err != nil {
-		return s
+// loadCurrentIPs returns the current IPv6 for each container, queried from
+// Cloudflare DNS (the authoritative source). Falls back to env var static IPs.
+func loadCurrentIPs() (xrayIP, nginxIP string) {
+	xrayIP = getEnv("XRAY_IPV6")
+	nginxIP = getEnv("NGINX_IPV6")
+	if getEnv("CF_API_TOKEN") == "" {
+		return
 	}
-	json.Unmarshal(data, &s)
-	return s
-}
-
-func saveRotatingState(s rotatingIPState) {
-	b, _ := json.Marshal(s)
-	os.WriteFile("/app/data/rotating-ip.json", b, 0644)
+	for _, di := range allDomainInfos() {
+		rec, err := cfFindAAAARecord(di.Domain)
+		if err != nil || rec == nil {
+			continue
+		}
+		if di.Container == "xray" {
+			xrayIP = rec.Content
+		} else {
+			nginxIP = rec.Content
+		}
+	}
+	return
 }
 
 func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfOK := getEnv("CF_API_TOKEN") != ""
 		subnet := getEnv("IPV6_SUBNET")
-		nginxIP := getEnv("NGINX_IPV6")
-		xrayPrimary := getEnv("XRAY_IPV6")
-		state := loadRotatingState()
-		xrayIP := state.XrayIP
-		if xrayIP == "" {
-			xrayIP = xrayPrimary
-		}
-		nxIP := state.NginxIP
-		if nxIP == "" {
-			nxIP = nginxIP
-		}
+		nginxStatic := getEnv("NGINX_IPV6")
+		xrayStatic := getEnv("XRAY_IPV6")
+		xrayIP, nxIP := loadCurrentIPs()
 
 		// Derive allocation ranges from subnet's first /64
 		prefix := ""
@@ -776,9 +770,9 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 			"subnet":         prefix + "/64",
 			"static_range":   staticRange,
 			"rotating_range": rotatingRange,
-			"nginx_ip":       nginxIP,
-			"xray_static":    xrayPrimary,
-				"xray_ip":        xrayIP,
+			"nginx_ip":       nginxStatic,
+			"xray_static":    xrayStatic,
+			"xray_ip":        xrayIP,
 			"nginx_rotating": nxIP,
 			"cf_configured":  cfOK,
 			"dns_records":    dnsResults,
@@ -887,7 +881,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		oldState := loadRotatingState()
+		oldXrayIP, oldNginxIP := loadCurrentIPs()
 		xrayIface := detectIPvlanIface(r.Context(), cli, xrayID)
 		nginxIface := detectIPvlanIface(r.Context(), cli, nginxID)
 
@@ -920,14 +914,14 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Remove old rotating IPs
-		if oldState.XrayIP != "" && oldState.XrayIP != xrayStatic {
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldState.XrayIP+"/64", "dev", xrayIface)
+		if oldXrayIP != "" && oldXrayIP != xrayStatic {
+			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldXrayIP+"/64", "dev", xrayIface)
 		}
-		if oldState.NginxIP != "" && oldState.NginxIP != nginxStatic {
-			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldState.NginxIP+"/64", "dev", nginxIface)
+		if oldNginxIP != "" && oldNginxIP != nginxStatic {
+			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldNginxIP+"/64", "dev", nginxIface)
 		}
 
-		saveRotatingState(rotatingIPState{XrayIP: xrayIP, NginxIP: nginxIP})
+		// state now lives in Cloudflare DNS
 
 		writeJSON(w, map[string]any{
 			"xray_ip":  xrayIP,
@@ -1018,15 +1012,29 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			writeError(w, "CF_API_TOKEN not configured", 400)
 			return
 		}
-		state := loadRotatingState()
-		xrayIP := state.XrayIP
+		// Get actual container IPs — no local state, containers are the source of truth.
+		xrayID, err := findContainer(r.Context(), cli, "xray")
+		if err != nil {
+			writeError(w, "xray container: "+err.Error(), 500)
+			return
+		}
+		nginxID, err := findContainer(r.Context(), cli, "nginx")
+		if err != nil {
+			writeError(w, "nginx container: "+err.Error(), 500)
+			return
+		}
+		xrayIface := detectIPvlanIface(r.Context(), cli, xrayID)
+		nginxIface := detectIPvlanIface(r.Context(), cli, nginxID)
+
+		xrayIP := getContainerIP(r.Context(), cli, xrayID, xrayIface)
 		if xrayIP == "" {
 			xrayIP = getEnv("XRAY_IPV6")
 		}
-		nginxIP := state.NginxIP
+		nginxIP := getContainerIP(r.Context(), cli, nginxID, nginxIface)
 		if nginxIP == "" {
 			nginxIP = getEnv("NGINX_IPV6")
 		}
+
 		var results []string
 		for _, di := range allDomainInfos() {
 			ip := nginxIP
@@ -1041,6 +1049,25 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 		}
 		writeJSON(w, map[string]any{"results": results})
 	}
+}
+
+// getContainerIP returns the first global IPv6 on the given interface.
+func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface string) string {
+	ips, err := collectContainerIPs(ctx, cli, containerID)
+	if err != nil {
+		return ""
+	}
+	subnet := getEnv("IPV6_SUBNET")
+	prefix, err := parseSubnetPrefix(subnet)
+	if err != nil {
+		return ""
+	}
+	for _, ip := range ips {
+		if strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
+			return ip
+		}
+	}
+	return ""
 }
 
 func restartXray(cli *client.Client) error {
