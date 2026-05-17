@@ -103,6 +103,12 @@ func genNginxConfig() error {
 		return err
 	}
 	out := string(tmpl)
+	// XHTTP proxy auth: if XHTTP_PROXY_AUTH env is set, require basic auth
+	proxyAuth := "auth_basic off;"
+	if getEnv("XHTTP_PROXY_AUTH") != "" {
+		proxyAuth = "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
+	}
+	out = strings.ReplaceAll(out, "__XHTTP_PROXY_AUTH__", proxyAuth)
 	out = replaceEnv(out, map[string]string{
 		"__NGINX_IPV6__": "NGINX_IPV6",
 		"__ADMIN_PORT__": "ADMIN_PORT",
