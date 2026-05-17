@@ -32,7 +32,7 @@ server {
     ssl_verify_client on;
 
     location /proxy/query {
-        auth_basic off;
+        __XHTTP_PROXY_AUTH__
         access_log /var/log/nginx/proxy-query-access.log auth_log;
         client_max_body_size 0;
         proxy_pass http://unix:/dev/shm/xrxh.socket;

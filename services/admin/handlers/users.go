@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,6 +40,7 @@ type ClientConfig struct {
 	RealityPublicKey  string
 	RealityShortID    string
 	XHTTPDomain       string
+	XHTTPProxyAuth    string // "user:pass" for nginx basic auth
 }
 
 // Ordered JSON builder: preserves field order in output.
@@ -102,7 +104,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
 					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome", "alpn": []string{"h2"}},
-					"xhttpSettings": map[string]any{"path": "/proxy/query", "mode": "packet-up"},
+					"xhttpSettings": xhttpSettings(cfg),
 					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
 				},
 			},
@@ -138,6 +140,15 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			},
 		}},
 	})
+}
+
+func xhttpSettings(cfg ClientConfig) map[string]any {
+	s := map[string]any{"path": "/proxy/query", "mode": "packet-up"}
+	if cfg.XHTTPProxyAuth != "" {
+		auth := base64.StdEncoding.EncodeToString([]byte(cfg.XHTTPProxyAuth))
+		s["headers"] = map[string]any{"Authorization": "Basic " + auth}
+	}
+	return s
 }
 
 func orderedJSON(fields []jsonField) string {
