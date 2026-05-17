@@ -54,6 +54,19 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 }
 
 
+// proxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
+// Creates a per-user proxy password on first call.
+func proxyAuthForUser(username string) string {
+	if username == "" {
+		return ""
+	}
+	pass, err := getOrCreateProxyPassword(username)
+	if err != nil || pass == "" {
+		return ""
+	}
+	return username + ":" + pass
+}
+
 func apiDashboard(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
@@ -73,7 +86,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 				RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-				XHTTPProxyAuth:    getEnv("XHTTP_PROXY_AUTH"),
+				XHTTPProxyAuth:    proxyAuthForUser(username),
 			})
 			writeJSON(w, map[string]any{
 				"role":          userInfo.Role,
@@ -251,7 +264,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    getEnv("XHTTP_PROXY_AUTH"),
+			XHTTPProxyAuth:    proxyAuthForUser(username),
 		})
 
 		// Build adminUsers with role info
@@ -418,7 +431,7 @@ func apiXrayClientConfig() http.HandlerFunc {
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    getEnv("XHTTP_PROXY_AUTH"),
+			XHTTPProxyAuth:    proxyAuthForUser(username),
 		})
 		writeJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],

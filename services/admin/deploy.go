@@ -34,6 +34,7 @@ func generateConfigs() error {
 	if err := seedAdminUser(); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
+	genProxyHtpasswd() // ensure proxy-htpasswd file exists (even if empty)
 	if err := genInternalToken(); err != nil {
 		return fmt.Errorf("internal token: %w", err)
 	}
@@ -103,11 +104,8 @@ func genNginxConfig() error {
 		return err
 	}
 	out := string(tmpl)
-	// XHTTP proxy auth: if XHTTP_PROXY_AUTH env is set, require basic auth
-	proxyAuth := "auth_basic off;"
-	if getEnv("XHTTP_PROXY_AUTH") != "" {
-		proxyAuth = "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
-	}
+	// XHTTP proxy auth: always use per-user proxy htpasswd
+	proxyAuth := "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
 	out = strings.ReplaceAll(out, "__XHTTP_PROXY_AUTH__", proxyAuth)
 	out = replaceEnv(out, map[string]string{
 		"__NGINX_IPV6__": "NGINX_IPV6",
@@ -188,6 +186,31 @@ func genInternalToken() error {
 	}
 	os.Setenv("INTERNAL_TOKEN", tok)
 	return nil
+}
+
+// genProxyHtpasswd regenerates /app/data/proxy-htpasswd from all users' proxy passwords.
+func genProxyHtpasswd() {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return
+	}
+	var entries []string
+	for username, info := range doc.Users {
+		if info.ProxyPassword == "" {
+			continue
+		}
+		out, err := exec.Command("htpasswd", "-nbB", username, info.ProxyPassword).Output()
+		if err != nil {
+			continue
+		}
+		entries = append(entries, strings.TrimSpace(string(out)))
+	}
+	os.MkdirAll("/app/data", 0755)
+	if len(entries) == 0 {
+		os.WriteFile("/app/data/proxy-htpasswd", []byte{}, 0644)
+		return
+	}
+	os.WriteFile("/app/data/proxy-htpasswd", []byte(strings.Join(entries, "\n")+"\n"), 0644)
 }
 
 func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {
