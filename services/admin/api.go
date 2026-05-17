@@ -576,6 +576,10 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username required", 400)
 			return
 		}
+		if isProtectedAdmin(body.Username) {
+			writeError(w, "Cannot delete the default admin account", 403)
+			return
+		}
 		_, currentUser := getUserFromContext(r)
 		if body.Username == currentUser {
 			writeError(w, "Cannot delete yourself", 400)
