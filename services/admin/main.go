@@ -154,6 +154,13 @@ func main() {
 		}
 	}()
 
+	// Assign rotating IPv6 addresses after containers are up.
+	// Restores rotation-based DNS that was lost on container restart.
+	go func() {
+		time.Sleep(10 * time.Second)
+		startupRotateIPv6(cli)
+	}()
+
 	<-ctx.Done()
 	log.Println("Shutting down server...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
