@@ -798,10 +798,15 @@ func findContainer(ctx context.Context, cli *client.Client, service string) (str
 
 // detectIPvlanIface finds the ipvlan interface (IPv6 enabled) on a container.
 func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID string) string {
+	subnet := getEnv("IPV6_SUBNET")
+	prefix, err := parseSubnetPrefix(subnet)
+	if err != nil {
+		return "eth0"
+	}
 	for _, try := range []string{"eth0", "eth1", "eth2"} {
 		var buf bytes.Buffer
 		execConfig := container.ExecOptions{
-			Cmd:          []string{"sh", "-c", fmt.Sprintf("cat /proc/sys/net/ipv6/conf/%s/disable_ipv6 2>/dev/null || echo 1", try)},
+			Cmd:          []string{"sh", "-c", fmt.Sprintf("ip -6 addr show dev %s 2>/dev/null | grep -q '%s' && echo found", try, prefix)},
 			AttachStdout: true,
 			AttachStderr: true,
 		}
@@ -811,13 +816,13 @@ func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID stri
 			if attachErr == nil {
 				stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
 				attachResp.Close()
-				if strings.TrimSpace(buf.String()) == "0" {
+				if strings.TrimSpace(buf.String()) == "found" {
 					return try
 				}
 			}
 		}
 	}
-	return "eth1" // fallback
+	return "eth0"
 }
 
 // allDomainInfos returns all managed domains and their container assignments.
