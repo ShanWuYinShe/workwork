@@ -839,6 +839,86 @@ func allDomainInfos() []struct{ Domain, Container string } {
 	return infos
 }
 
+// startupRotateIPv6 assigns fresh rotating IPv6 addresses after container restart.
+// Called on admin startup to restore rotation-based DNS after containers are recreated.
+func startupRotateIPv6(cli *client.Client) {
+	if getEnv("CF_API_TOKEN") == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	xrayID, err := findContainer(ctx, cli, "xray")
+	if err != nil {
+		log.Printf("startup rotate: xray: %v", err)
+		return
+	}
+	nginxID, err := findContainer(ctx, cli, "nginx")
+	if err != nil {
+		log.Printf("startup rotate: nginx: %v", err)
+		return
+	}
+
+	subnet := getEnv("IPV6_SUBNET")
+	prefix, err := parseSubnetPrefix(subnet)
+	if err != nil {
+		log.Printf("startup rotate: subnet: %v", err)
+		return
+	}
+	xrayStatic := getEnv("XRAY_IPV6")
+	nginxStatic := getEnv("NGINX_IPV6")
+
+	xrayAssigned, _ := collectContainerIPs(ctx, cli, xrayID)
+	xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
+	xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
+	if err != nil {
+		log.Printf("startup rotate: xray IP: %v", err)
+		return
+	}
+
+	nginxAssigned, _ := collectContainerIPs(ctx, cli, nginxID)
+	nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
+	nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
+	if err != nil {
+		log.Printf("startup rotate: nginx IP: %v", err)
+		return
+	}
+
+	oldXrayIP, oldNginxIP := loadCurrentIPs()
+	xrayIface := detectIPvlanIface(ctx, cli, xrayID)
+	nginxIface := detectIPvlanIface(ctx, cli, nginxID)
+
+	if err := containerExec(ctx, cli, xrayID, "ip", "addr", "add", xrayIP+"/64", "dev", xrayIface); err != nil {
+		log.Printf("startup rotate: add xray IP: %v", err)
+		return
+	}
+	if err := containerExec(ctx, cli, nginxID, "ip", "addr", "add", nginxIP+"/64", "dev", nginxIface); err != nil {
+		containerExec(ctx, cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
+		log.Printf("startup rotate: add nginx IP: %v", err)
+		return
+	}
+
+	for _, di := range allDomainInfos() {
+		ip := nginxIP
+		if di.Container == "xray" {
+			ip = xrayIP
+		}
+		if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
+			log.Printf("startup rotate: DNS %s: %v", di.Domain, err)
+		}
+	}
+
+	// Clean up old IPs
+	if oldXrayIP != "" && oldXrayIP != xrayStatic {
+		containerExec(ctx, cli, xrayID, "ip", "addr", "del", oldXrayIP+"/64", "dev", xrayIface)
+	}
+	if oldNginxIP != "" && oldNginxIP != nginxStatic {
+		containerExec(ctx, cli, nginxID, "ip", "addr", "del", oldNginxIP+"/64", "dev", nginxIface)
+	}
+
+	log.Printf("Startup rotate: xray=%s nginx=%s", xrayIP, nginxIP)
+}
+
 func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		xrayConfigMu.Lock()
@@ -1057,8 +1137,7 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-// getContainerIP returns the primary global IPv6 on the given interface.
-// Prefers the static range (1::/80) over rotating/SLAAC addresses.
+// getContainerIP returns the first global IPv6 on the given interface.
 func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface string) string {
 	ips, err := collectContainerIPs(ctx, cli, containerID)
 	if err != nil {
@@ -1069,20 +1148,12 @@ func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface 
 	if err != nil {
 		return ""
 	}
-	staticPrefix := prefix + "1:"
-	var fallback string
 	for _, ip := range ips {
-		if !strings.HasPrefix(ip, prefix) || strings.Contains(ip, "::1") {
-			continue
-		}
-		if strings.Contains(ip, staticPrefix) {
-			return ip // static range, preferred
-		}
-		if fallback == "" {
-			fallback = ip
+		if strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
+			return ip
 		}
 	}
-	return fallback
+	return ""
 }
 
 func restartXray(cli *client.Client) error {
