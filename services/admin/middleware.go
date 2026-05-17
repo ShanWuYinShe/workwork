@@ -22,6 +22,7 @@ type UserInfo struct {
 	CreatedAt     string `json:"created_at"`
 	CliproxyToken string `json:"cliproxy_token"`
 	PoolAccess    bool   `json:"pool_access"`
+	ProxyPassword string `json:"proxy_password"` // plaintext, for xhttp client config
 }
 
 type usersMetaDoc struct {
@@ -142,6 +143,34 @@ func getOrCreateCliproxyToken(username string) (string, error) {
 		return nil
 	})
 	return token, err
+}
+
+func getOrCreateProxyPassword(username string) (string, error) {
+	var password string
+	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+		info := doc.Users[username]
+		if info.ProxyPassword != "" {
+			password = info.ProxyPassword
+			return nil
+		}
+		b := make([]byte, 12)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		info.ProxyPassword = hex.EncodeToString(b)
+		if info.CreatedAt == "" {
+			info.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		doc.Users[username] = info
+		password = info.ProxyPassword
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	// Regenerate proxy htpasswd so nginx picks up the new user
+	genProxyHtpasswd()
+	return password, nil
 }
 
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
