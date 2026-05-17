@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WorkWork is a Docker-based proxy infrastructure with:
+WorkWork is a Docker-based proxy infrastructure featuring:
 - **Xray** VLESS Reality + XHTTP proxy (dual-stack IPv6/ipvlan + IPv4/bridge)
 - **Nginx** reverse proxy (Cloudflare Full Proxy → nginx → admin/xray)
-- **Admin panel** (Go backend + Svelte SPA) with user management, IPv6 rotation, cliproxy orchestration, model pool
+- **Admin panel** (Go backend + Svelte SPA) with user management, IPv6 rotation, cliproxy orchestration, model pool, binary downloads
 - **Cliproxy** per-user API proxy containers for AI provider access
 - **Python CLI** (`dev/dev.py`) for local Docker development environment
 
@@ -55,18 +55,20 @@ Request flows: `rateLimitMiddleware → ipBlockMiddleware → requireRole → ha
 
 ### Page/API access matrix
 
-| Page | Nav visible | Route guard | API endpoints | Role |
-|------|-------------|-------------|---------------|------|
-| Dashboard | all | all | `/api/admin/dashboard` | viewer+ (returns role-specific data) |
-| Services | adminOnly | adminOnly | `/api/admin/services` | admin |
-| Clients | all | all | `/api/admin/users` (filtered) | viewer+ |
-| Users | adminOnly | adminOnly | `/api/admin/users/admin/*` | admin |
-| Security | adminOnly | adminOnly | `/api/admin/security/*` | admin |
-| Cliproxy | adminOnly | adminOnly | `/api/admin/cliproxy/*` | admin |
-| Settings | adminOnly | adminOnly | `/api/admin/network/*` | admin |
-| Model Pool | adminOnly | adminOnly | `/api/admin/model-pool/*` | admin |
-| Downloads | all | all | `/api/admin/claude-code/stored` | viewer+ |
-| Downloads mgmt | adminOnly* | adminOnly* | `/api/admin/claude-code/download` | admin |
+| Page | Nav | Route | API endpoints | Role |
+|------|-----|-------|--------------|------|
+| Dashboard | all | all | `GET /api/admin/dashboard` | viewer+ (admin gets stats, viewer gets personal data) |
+| Services | admin | admin | `GET /api/admin/services`, `POST /api/admin/services/{name}/{action}` | admin |
+| Clients | all | all | `GET /api/admin/users`, `POST /api/admin/users/xray/add`, `POST /api/admin/users/xray/delete` | viewer+ (own clients only) |
+| Users | admin | admin | `POST /api/admin/users/admin/add`, `POST /api/admin/users/admin/delete`, `POST /api/admin/users/roles/set` | admin |
+| Security | admin | admin | `GET /api/admin/security/blocked`, `POST /api/admin/security/block`, `POST /api/admin/security/unblock` | admin |
+| Cliproxy | admin | admin | `/api/admin/cliproxy/*` | admin |
+| Settings | admin | admin | `GET /api/admin/network/status`, `POST /api/admin/network/rotate-ipv6`, `POST /api/admin/network/sync-dns` | admin |
+| Model Pool | admin | admin | `GET/POST /api/admin/model-pool`, `POST /api/admin/model-pool/users` | admin |
+| Downloads | all | all | `GET /api/admin/claude-code/stored`, `GET /api/admin/claude-code/downloads/{filename}` | viewer+ |
+| Downloads mgmt | admin | admin | `GET /api/admin/claude-code/releases`, `POST /api/admin/claude-code/download`, `DELETE /api/admin/claude-code/downloads/` | admin |
+| Xray binary | all | all | `GET /api/admin/xray/stored`, `GET /api/admin/xray/downloads/{filename}` | viewer+ |
+| Xray binary mgmt | admin | admin | `GET /api/admin/xray/releases`, `POST /api/admin/xray/download`, `DELETE /api/admin/xray/downloads/` | admin |
 
 *Downloads page is visible to all but admin-only controls (download/delete) are hidden for viewers.
 
@@ -74,39 +76,51 @@ Request flows: `rateLimitMiddleware → ipBlockMiddleware → requireRole → ha
 
 ### `services/admin/` — Go admin panel (port 8318, internal)
 
-Module layout: single `main` package, no sub-packages except `handlers/`.
+Single `main` package with `handlers/` sub-package.
 
 | File | Purpose |
 |------|---------|
 | `main.go` | HTTP route registration, middleware chain, SPA serving |
-| `api.go` | Dashboard, Services, Users (xray CRUD), Network status, IPv6 rotation, DNS sync |
-| `cliproxy.go` | Per-user cliproxy containers, config get/set (openai-compat + claude-api-key sections) |
+| `api.go` | Dashboard, Services, Users, Network status, IPv6 rotation, DNS sync |
+| `middleware.go` | `requireRole` auth, `isInternalRequest`, UserInfo from `users.json` |
+| `ratelimit.go` | Per-IP rate limiter (20 req/10s → auto-ban 30min) |
+| `ipblocker.go` | Persistent IP blocklist middleware |
+| `xray_clients.go` | Xray client storage (xray-clients.json), CRUD operations |
+| `handlers/users.go` | Client config generation (Reality + XHTTP, ordered JSON) |
+| `xray.go` | Xray binary download from GitHub with SHA256 verification |
+| `claude.go` | Claude Code binary download from official CDN with SHA256 verification |
+| `cliproxy.go` | Per-user cliproxy containers, config get/set |
 | `modelpool.go` | Public AI model pool: providers config + per-user pool access grants |
-| `middleware.go` | `requireRole` auth, `isInternalRequest` (shared secret based), UserInfo in `users.json` |
-| `ratelimit.go` | Per-IP rate limiter (20 req/10s → auto-ban 30min), feeds into ipblocker |
-| `ipblocker.go` | Persistent IP blocklist middleware, admin API for ban/unban |
 | `cloudflare.go` | Cloudflare DNS API (AAAA record upsert/find) |
 | `deploy.go` | Startup config generation: xray.json, nginx.conf, cliproxy.yaml, internal token |
-| `claude.go` | Claude Code binary download from official CDN with SHA256 verification |
-| `handlers/users.go` | Xray client config generation (ordered JSON, client template) |
+| `env.go` | Env var helpers |
 
 ### `ui/` — Svelte 5 SPA
 
-Built with Vite, served by admin Go binary from `/app/ui` (built into Docker image three-stage Dockerfile: node → golang → alpine).
+Built with Vite, served by admin Go binary from `/app/ui` (built into Docker image via multi-stage Dockerfile: node → golang → alpine).
+
+Routes map to API endpoints:
+- `Dashboard.svelte` — system stats (admin) or personal info + config (viewer)
+- `Services.svelte` — Docker container management
+- `Clients.svelte` — Xray UUID management, client config download
+- `Users.svelte` — user CRUD, role management
+- `Security.svelte` — IP blocklist + rate limit status
+- `Cliproxy.svelte` — cliproxy container management
+- `ModelPool.svelte` — model pool config
+- `Settings.svelte` — network status, IPv6 rotation, DNS sync
+- `Downloads.svelte` — Claude Code + Xray binary downloads (tabbed)
 
 ### `services/xray/` — Xray VLESS proxy
 
 - `config.json.tmpl` / `entrypoint.sh` — IPv4 via bridge, IPv6 via ipvlan
 - Inbounds: `xhttp-in` (8447, via Cloudflare) + `reality-in` (443, Reality direct)
-- Outbounds: `direct-v6` (UseIPv6), `direct-v4` (UseIPv4), `blocked`
 - Clients have `email` field (=owner username) for per-user policy/traffic stats
 - `migrateXrayClients()` ensures all clients have email on startup
 
 ### `services/nginx/` — Nginx + fail2ban
 
 - Serves admin SPA, proxies `/api/admin/` to admin:8318, `/proxy/query` to xray:8447
-- fail2ban watches auth log for 401s, calls admin API with `X-Internal-Token` to block real client IPs (not Cloudflare IPs)
-- Cloudflare Full Proxy: `real_ip_header CF-Connecting-IP` extracts real client IP
+- fail2ban watches auth log for 401s, calls admin API with `X-Internal-Token` to block real client IPs
 
 ### IPv6 addressing
 
@@ -118,10 +132,9 @@ Built with Vite, served by admin Go binary from `/app/ui` (built into Docker ima
 
 ### Cliproxy config format
 
-Provider sections (from `services/cliproxy/config.yaml.tmpl`):
 ```yaml
 api-keys:                    # User-facing keys to ACCESS cliproxy
-  - "key-value"              # Format: "- \"value\"" NOT "- key: \"value\""
+  - "key-value"
 openai-compatibility:        # OpenAI API format providers
   - name: "provider-name"
     base-url: "https://..."
@@ -140,21 +153,22 @@ claude-api-key:              # Anthropic API format providers
 
 ### `docker-compose.yml`
 
-4 services: nginx, xray, cliproxy-public, admin. Networks: `ipvlan_docker` (external, IPv6 L3) + `internal_docker` (bridge, 172.20.0.0/16). Admin build context is project root (builds both Go + UI in multi-stage Dockerfile).
+4 services: nginx, xray, cliproxy-public, admin. Networks: `ipvlan_docker` (external, IPv6 L3) + `internal_docker` (bridge, 172.20.0.0/16).
 
 ## Security — Multi-layer defense
 
-1. **Cloudflare Authenticated Origin Pulls (mTLS)**: Only CF servers with the Origin Pull certificate can establish TLS. Setup: download certificate from Cloudflare Dashboard → SSL/TLS → Origin Server → Authenticated Origin Pulls, save as `cert/cloudflare-origin-pull.pem`.
-2. **Go rate limiter** (`ratelimit.go`): 20 requests/10s per real IP (X-Real-IP from CF-Connecting-IP) → 429 → auto-ban 30min
-3. **Go IP blocker** (`ipblocker.go`): Persistent blocklist → 403
-4. **fail2ban in nginx** → calls admin API with shared `INTERNAL_TOKEN` → admin adds real IP to blocklist
+1. **Cloudflare Authenticated Origin Pulls (mTLS)**: Only CF servers with the Origin Pull certificate. Certificate: `cert/cloudflare-origin-pull.pem`
+2. **Go rate limiter**: 20 req/10s per IP → 429 → auto-ban 30min
+3. **Go IP blocker**: Persistent blocklist → 403
+4. **fail2ban in nginx**: calls admin API with `INTERNAL_TOKEN` → blocks real IP
 5. **Cloudflare DDoS/WAF** at the edge
 6. **htpasswd bcrypt** (`$2y$`): All passwords hashed with bcrypt
 
 ## Key Conventions
 
-- Git: linear history on main, one commit per feature. Format: `<type>(<scope>): <subject>`. Push → SSH pull → `docker compose build` → `docker compose up -d`.
-- Never use `RemoteAddr` for auth decisions — all traffic on Docker bridge looks internal.
-- Internal service-to-service auth uses `INTERNAL_TOKEN` (auto-generated at startup, stored in `.wework/.internal-token`).
-- Configs/secrets: gitignored `configs/`, `cert/`, `.wework/`. Local `.env` overrides defaults.
-- API keys are NOT the same thing: `api-keys:` = cliproxy access keys (user-facing); `api-key-entries:` = upstream provider keys.
+- **Git**: linear history on main, one commit per feature. Push → SSH pull → `docker compose build` → `docker compose up -d`
+- **Never use `RemoteAddr`** for auth — all traffic on Docker bridge looks internal
+- **Internal auth**: `INTERNAL_TOKEN` (auto-generated at startup, stored in `.wework/.internal-token`)
+- **Secrets**: gitignored `configs/`, `cert/`, `.wework/`. Local `.env` overrides defaults
+- **API key distinction**: `api-keys:` = cliproxy access keys (user-facing); `api-key-entries:` = upstream provider keys
+- **Xray client ownership**: Non-admin users can only manage their own Xray clients (one per user). Admin sees all clients.
