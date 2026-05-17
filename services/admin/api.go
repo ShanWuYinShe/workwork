@@ -713,6 +713,22 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 	return
 }
 
+// saveCurrentIPs persists the working rotating IPs locally for use during next rotation's cleanup.
+// DNS is the authoritative source; this file serves as a fast local cache.
+func saveCurrentIPs(xrayIP, nginxIP string) {
+	_ = os.WriteFile("/app/data/rotating-ips.json",
+		[]byte(fmt.Sprintf(`{"xray":"%s","nginx":"%s"}`, xrayIP, nginxIP)), 0644)
+}
+
+// cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,
+// except the static IP.
+func cleanContainerRotatingIPs(ctx context.Context, cli *client.Client, containerID, prefix, staticIP string) {
+	containerExec(ctx, cli, containerID, "sh", "-c",
+		fmt.Sprintf("ip -6 addr show | grep 'inet6 %sf:' | awk '{print $2}' | while read ip; do "+
+			"case \"$ip\" in %s*) continue ;; esac; "+
+			"ip addr del \"$ip\" dev eth0 2>/dev/null; done", prefix, staticIP))
+}
+
 func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfOK := getEnv("CF_API_TOKEN") != ""
@@ -855,6 +871,11 @@ func startupRotateIPv6(cli *client.Client) {
 	xrayStatic := getEnv("XRAY_IPV6")
 	nginxStatic := getEnv("NGINX_IPV6")
 
+	// Clean up any leftover rotating IPs before assigning new ones,
+	// ensuring container state matches DNS state.
+	cleanContainerRotatingIPs(ctx, cli, xrayID, prefix, xrayStatic)
+	cleanContainerRotatingIPs(ctx, cli, nginxID, prefix, nginxStatic)
+
 	xrayAssigned := getContainerIPs(ctx, cli, xrayID)
 	xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 	xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
@@ -871,8 +892,7 @@ func startupRotateIPv6(cli *client.Client) {
 		return
 	}
 
-	oldXrayIP, oldNginxIP := loadCurrentIPs()
-
+	// Add new IPs first, then update DNS. If DNS fails, roll back IPs.
 	if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
 		log.Printf("startup rotate: add xray IP: %v", err)
 		return
@@ -889,17 +909,16 @@ func startupRotateIPv6(cli *client.Client) {
 			ip = xrayIP
 		}
 		if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-			log.Printf("startup rotate: DNS %s: %v", di.Domain, err)
+			// DNS update failed — roll back new IPs so containers match DNS state
+			delContainerIP(ctx, cli, xrayID, xrayIP)
+			delContainerIP(ctx, cli, nginxID, nginxIP)
+			log.Printf("startup rotate: DNS %s: %v — rolled back IPs", di.Domain, err)
+			return
 		}
 	}
 
-	// Clean up old IPs
-	if oldXrayIP != "" && oldXrayIP != xrayStatic {
-		delContainerIP(ctx, cli, xrayID, oldXrayIP)
-	}
-	if oldNginxIP != "" && oldNginxIP != nginxStatic {
-		delContainerIP(ctx, cli, nginxID, oldNginxIP)
-	}
+	// Persist current IPs for next rotation cleanup
+	saveCurrentIPs(xrayIP, nginxIP)
 
 	log.Printf("Startup rotate: xray=%s nginx=%s", xrayIP, nginxIP)
 }
