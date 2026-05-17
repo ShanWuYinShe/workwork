@@ -60,6 +60,11 @@ func proxyAuthForUser(username string) string {
 	if username == "" || username == "internal" {
 		return ""
 	}
+	// Admin users don't need proxy passwords
+	doc, _ := readUsersMeta()
+	if info, ok := doc.Users[username]; ok && info.Role == "admin" {
+		return ""
+	}
 	pass, err := getOrCreateProxyPassword(username)
 	if err != nil || pass == "" {
 		return ""
