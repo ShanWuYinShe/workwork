@@ -1,406 +1,252 @@
-# dev-env
+# WorkWork
 
-Docker 开发环境管理器，基于 Python CLI + Docker Compose + IPvlan 网络。
-
-## 快速开始
-
-```bash
-# 1. 创建 Docker 网络（首次，需 sudo）
-sudo bash setup-networks.sh
-
-# 2. 初始化环境
-python3 dev/dev.py init
-
-# 3. 启动所有服务
-python3 dev/dev.py start
-
-# 4. 进入开发容器
-python3 dev/dev.py shell
-
-# 5. 查看状态
-python3 dev/dev.py status
-```
+Docker-based proxy infrastructure with Xray VLESS proxy + AI provider API 代理。
 
 ## 架构概览
 
 ```
-service/                         # 项目根目录
-├── dev.yml                      # 主配置文件（提交到 Git）
-├── .env                         # 本地配置覆盖（不提交）
-├── dev.docker-compose.yml       # 开发环境 Docker Compose
-├── docker-compose.yml           # Xray 代理服务（生产）
-├── instances.yaml               # Xray 实例定义
-├── setup-networks.sh            # 创建 IPvlan 网络
-├── pyproject.toml               # Python 项目定义
-│
-├── dev/                         # CLI 工具代码
-│   ├── dev.py                   # 入口点
-│   ├── cli.py                   # 参数解析与命令分发
-│   ├── core.py                  # UI、环境加载、Docker 辅助函数
-│   ├── config.py                # 分层配置系统
-│   ├── ipam.py                  # IP 地址管理
-│   ├── paths.py                 # 路径常量
-│   ├── logging.yml              # 日志限制 overlay
-│   ├── dev-test.yml             # 测试环境 Docker Compose
-│   ├── Dockerfile               # 开发容器镜像
-│   ├── Makefile                 # Make 快捷方式
-│   └── cmds/                    # 命令实现
-│       ├── lifecycle.py         # start, stop, teardown, restart, reset, build
-│       ├── access.py            # shell, exec, run, logs, wait
-│       ├── backup.py            # backup, restore, list-backups, snapshot
-│       ├── system.py            # doctor, prune, version, completion, init, status, dashboard
-│       ├── config_cmd.py        # config show/edit/ip
-│       ├── ip_cmd.py            # ip list/alloc/free/used
-│       ├── xray.py              # generate, list-instances, xray-start, xray-stop
-│       └── test_env.py          # start-test, stop-test, reset-test, test
-│
-├── scripts/
-│   └── generate_instances.py    # Xray 配置生成器
-├── templates/                   # Xray/Nginx 配置模板
-├── configs/                     # 生成的 Xray/Nginx 配置（含密钥，不提交）
-├── cert/                        # TLS 证书（不提交）
-├── nginx/                       # Nginx 反向代理
-├── tests/                       # 单元测试
-└── .local/                      # 本地数据（不提交）
-    ├── ip-allocations.json      # IP 分配记录
-    ├── instances.json           # Xray 客户端信息
-    ├── backups/                 # 数据库备份
-    └── snapshots/               # PostgreSQL 快照
+┌─────────────────────────────────────────────────────────────────┐
+│                         Cloudflare                               │
+│              (Full Proxy + WAF + DDoS Protection)                │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ :443
+┌─────────────────────────────▼───────────────────────────────────┐
+│                           Nginx                                  │
+│                  (TLS termination + fail2ban)                   │
+│                    │              │              │                 │
+│            /admin/*          /api/admin/*      /proxy/query      │
+│                    │              │              │                 │
+│           ┌────────▼────────┐  ┌──▼────────┐  ┌──▼────────┐     │
+│           │     Admin       │  │   Xray    │  │  Xray     │     │
+│           │  (Go + Svelte)  │  │  XHTTP    │  │  Reality  │     │
+│           │    :8318        │  │   :8447   │  │   :443    │     │
+│           └─────────────────┘  └───────────┘  └───────────┘     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 服务组成
+### 核心组件
 
-### 开发环境（dev.docker-compose.yml）
+| 组件 | 技术栈 | 端口 | 说明 |
+|------|--------|------|------|
+| **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
+| **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
+| **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
+| **cliproxy** | Cliproxy | 8317 | Per-user API 代理容器 |
 
-| 服务 | 镜像 | 端口 | 用途 |
-|------|------|------|------|
-| postgres | postgres:16-alpine | 5432→5433 | 主数据库 |
-| redis | redis:7-alpine | 6379→6379 | 缓存 |
-| minio | minio/minio:latest | 9000→9002, 9001→9003 | 对象存储 |
-| dev | 自定义 (Node 22 + Go + Bun) | 3000, 3001, 8080 | 开发容器 |
+### 网络架构
 
-所有服务通过 IPvlan L3 网络互联，每个服务分配独立 IP。
+- **ipvlan_docker** (external): IPv6 L3 出口，分配 `/64` 子网
+- **internal_docker** (bridge): Docker 内部网络，`172.20.0.0/16`
 
-### 代理服务（docker-compose.yml）
+## 快速开始
 
-| 服务 | 镜像 | 用途 |
-|------|------|------|
-| xray-reality-* | teddysun/xray | VLESS Reality 代理 |
-| nginx-xhttp-* | nginx:alpine | TLS 终结 + XHTTP/WS 反代 |
+### 前置要求
 
-Xray 支持 Reality（TCP 443）、XHTTP（8443）、WebSocket（8444）三种入站协议。
+- Docker + Docker Compose v2
+- IPv6 支持（ipvlan 网络需要 parent interface）
+- Cloudflare 账号（可选，用于 DNS 和代理）
 
-### 测试环境（dev/dev-test.yml）
-
-独立桥接网络，使用固定端口和凭据，用于 CI 或集成测试。
-
-| 服务 | 端口 | 凭据 |
-|------|------|------|
-| postgres | 5434 | test/test123 |
-| redis | 6380 | - |
-| minio | 9004/9005 | testminio/testminio123 |
-
-## 命令参考
-
-### 入口
+### 启动服务
 
 ```bash
-python3 dev/dev.py <command> [options]
-# 或通过 Make：
-make <target> [VARIABLE=value]
+# 1. 创建 IPvlan 网络（首次运行，需 sudo）
+sudo bash setup-networks.sh
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填写必要的配置
+
+# 3. 启动所有服务
+docker compose up -d
+
+# 4. 验证服务状态
+docker compose ps
 ```
 
-运行不带参数显示交互式 dashboard。
+### 访问管理面板
 
-### 全局选项
+- 地址: `https://your-domain.com/admin/`
+- 默认管理员: `admin` / `password` (首次登录后请修改)
+- 普通用户: `viewer` / `viewer`
 
-| 选项 | 说明 |
-|------|------|
-| `--quiet`, `-q` | 静默模式，只显示错误 |
-| `--json` | JSON 格式输出（status 命令） |
-| `--config <path>` | 指定配置文件路径 |
-
-### 环境生命周期
-
-| 命令 | 别名 | 说明 |
-|------|------|------|
-| `start` | `up` | 启动环境（分配 IP、健康检查） |
-| `stop [--all]` | `down` | 停止环境（`--all` 停止所有项目） |
-| `teardown [--force]` | - | 销毁环境及所有数据（需确认，`--force` 跳过） |
-| `restart [service]` | - | 重启服务（默认全部） |
-| `reset` | - | 清空所有服务数据 |
-| `build` | - | 重建开发容器镜像 |
-
-### 容器访问
-
-| 命令 | 说明 |
-|------|------|
-| `shell [shell]` | 进入开发容器（默认 fish） |
-| `exec <cmd...>` | 在容器内运行命令（交互式） |
-| `run <cmd...>` | 在容器内运行命令（非交互） |
-| `logs [service] [tail]` | 查看服务日志（默认跟踪 50 行） |
-| `wait [--timeout N]` | 等待所有服务健康（默认 60s） |
-| `status` / `ps` | 显示环境状态 |
-
-### 备份与快照
-
-| 命令 | 说明 |
-|------|------|
-| `backup` | 备份 PostgreSQL + Redis |
-| `restore [target]` | 恢复备份（默认最新） |
-| `list-backups` | 列出所有备份 |
-| `snapshot list` | 列出 PostgreSQL 快照 |
-| `snapshot create [name]` | 创建快照 |
-| `snapshot restore [name]` | 恢复快照（`latest` 恢复最新） |
-| `snapshot delete <name>` | 删除快照 |
+## 服务详情
 
 ### Xray 代理
 
-| 命令 | 说明 |
-|------|------|
-| `generate` | 从模板生成 Xray + Nginx 配置 |
-| `list-instances` | 列出已配置的 Xray 实例 |
-| `xray-start` | 启动 Xray 代理服务 |
-| `xray-stop` | 停止 Xray 代理服务 |
+支持两种入站协议：
 
-### 测试环境
+| 协议 | 端口 | 用途 | 目标域名 |
+|------|------|------|----------|
+| **Reality** | 443 | 直接连接（抗审查） | `xray.yinghuoren.com` |
+| **XHTTP** | 8447 | 通过 Cloudflare 连接 | `yinghuoren.com` |
 
-| 命令 | 说明 |
-|------|------|
-| `start-test` | 启动隔离测试环境 |
-| `stop-test` | 停止并销毁测试环境 |
-| `reset-test` | 重置测试数据 |
-| `test` | 完整重启（stop + start） |
+客户端配置包含 Reality + XHTTP 两种出站协议，自动选择延迟最低的线路。
 
-### 系统维护
+### Admin 管理面板
 
-| 命令 | 说明 |
-|------|------|
-| `init` | 初始化环境检查 |
-| `doctor` | 环境诊断（依赖、配置、端口、服务） |
-| `prune` | 清理孤儿 Docker 资源 |
-| `version` | 显示版本号 |
-| `completion <shell>` | 生成 shell 补全脚本（bash/zsh） |
-| `port-usage [port]` | 查看端口占用情况 |
-| `config show` | 显示当前配置 |
-| `config edit` | 编辑配置文件 |
-| `config ip` | 显示 IP 分配 |
-| `ip list` | 列出 IP 分配详情 |
-| `ip alloc <service> [ip]` | 手动分配 IP |
-| `ip free <service>` | 释放 IP |
-| `ip used` | 显示网络中正在使用的 IP |
+提供以下功能：
 
-## 配置系统
+| 页面 | 权限 | 说明 |
+|------|------|------|
+| Dashboard | viewer+ | 系统状态（admin）/ 个人信息（viewer） |
+| Services | admin | Docker 容器管理（启停重启） |
+| Clients | viewer+ | Xray 代理账号管理、客户端配置下载 |
+| Users | admin | 用户增删改、角色分配 |
+| Security | admin | IP 黑名单、限速状态管理 |
+| Cliproxy | admin | API 代理容器管理 |
+| Model Pool | admin | AI 模型池配置 |
+| Settings | admin | 网络状态、IPv6 轮换、DNS 同步 |
+| Downloads | viewer+ | Claude Code / Xray 二进制下载 |
 
-采用分层配置：`dev.yml`（提交） → `.env`（本地覆盖） → 环境变量。
+### Downloads 页面
 
-### dev.yml 结构
+支持下载 **Claude Code** 和 **Xray** 官方二进制文件：
+
+| Tab | viewer 可见 | admin 可执行 |
+|-----|-----------|-------------|
+| Claude Code | 查看已下载、下载文件 | 刷新版本列表、下载新版本、删除 |
+| Xray | 查看已下载、下载文件 | 刷新版本列表、下载新版本、删除 |
+
+### Cliproxy
+
+Per-user API 代理容器，提供统一接口访问多个 AI 提供商：
 
 ```yaml
-project: service                    # Docker Compose 项目名
-
-services:
-  postgres:
-    image: postgres:16-alpine
-    port: 5433                      # 主机映射端口
-    db: app                         # 数据库名
-    user: app                       # 用户名
-    password: app123                # 密码
-  redis:
-    image: redis:7-alpine
-    port: 6379
-  minio:
-    image: minio/minio:latest
-    api_port: 9002
-    console_port: 9003
-    user: minioadmin
-    password: minioadmin123
-  dev:
-    ports: [3000, 3001, 8080]       # 开发容器暴露端口
-
-network:
-  name: ipvlan_docker               # Docker 网络名
-  subnet: 172.18.0.0/16             # IPv4 子网
-  ip_range: 172.18.0.0/24           # Docker 分配范围
-  ipv6_subnet: "2605:...::/64"      # IPv6 子网
-  ipv6_range: "2605:...:1::/80"
-  reserved: "172.18.0.1-172.18.0.50" # 保留 IP 段
-  alloc_start: "172.18.0.51"        # 自动分配起始 IP
-
-xray:
-  reality_dest: www.microsoft.com:443
-  reality_server_names: [www.microsoft.com]
-  default_short_ids: abcdef
+api-keys:                    # User-facing keys to ACCESS cliproxy
+  - "key-value"
+openai-compatibility:        # OpenAI API 格式
+  - name: "provider-name"
+    base-url: "https://..."
+    api-key-entries:
+      - api-key: "sk-xxx"
+    models:
+      - name: "*"
+        alias: "prefix/*"
+claude-api-key:              # Anthropic API 格式
+  - api-key: "sk-ant-xxx"
+    base-url: "https://..."
+    models:
+      - name: "*"
+        alias: "model-alias"
 ```
 
-### .env 覆盖
-
-`.env` 文件中的变量会覆盖 `dev.yml` 中的对应值。映射关系：
-
-| .env 变量 | 配置路径 |
-|-----------|---------|
-| `COMPOSE_PROJECT` | `project` |
-| `POSTGRES_PORT` | `services.postgres.port` |
-| `POSTGRES_DB` | `services.postgres.db` |
-| `POSTGRES_USER` | `services.postgres.user` |
-| `POSTGRES_PASSWORD` | `services.postgres.password` |
-| `REDIS_PORT` | `services.redis.port` |
-| `MINIO_USER` | `services.minio.user` |
-| `MINIO_PASSWORD` | `services.minio.password` |
-| `MINIO_API_PORT` | `services.minio.api_port` |
-| `MINIO_CONSOLE_PORT` | `services.minio.console_port` |
-
-## 网络架构
-
-### IPvlan L3 网络
+## 目录结构
 
 ```
-┌─────────────────────────────────────────────┐
-│            ipvlan_docker (172.18.0.0/16)     │
-│                                              │
-│  .51  postgres     .52  redis                │
-│  .53  minio        .54  dev                  │
-│  ...  (xray/nginx 代理也在此网络)             │
-│                                              │
-│  保留段: 172.18.0.1 - 172.18.0.50            │
-└─────────────────────────────────────────────┘
-         │
-    host eth0 (parent interface)
+service/
+├── docker-compose.yml        # 生产环境 Docker Compose
+├── .env                      # 环境变量（不提交）
+├── .env.example              # 环境变量示例
+├── setup-networks.sh        # 创建 ipvlan 网络
+│
+├── services/
+│   ├── admin/                # Go 管理面板后端
+│   │   ├── main.go          # HTTP 路由、中间件链
+│   │   ├── api.go          # 核心 API（用户、服务、网络）
+│   │   ├── middleware.go   # 认证、角色检查
+│   │   ├── cliproxy.go     # Cliproxy 配置管理
+│   │   ├── modelpool.go    # AI 模型池
+│   │   ├── xray.go         # Xray 下载管理
+│   │   ├── xray_clients.go # 客户端配置生成
+│   │   ├── deploy.go       # 启动时配置生成
+│   │   ├── cloudflare.go   # Cloudflare DNS
+│   │   ├── claude.go       # Claude Code 下载
+│   │   └── handlers/       # 请求处理器
+│   │
+│   ├── xray/                # Xray 代理配置
+│   │   ├── config.json.tmpl
+│   │   ├── entrypoint.sh
+│   │   └── Dockerfile
+│   │
+│   ├── nginx/               # Nginx 反向代理
+│   │   ├── nginx.conf
+│   │   ├── fail2ban/
+│   │   └── Dockerfile
+│   │
+│   └── cliproxy/            # Cliproxy API 代理
+│       ├── config.yaml.tmpl
+│       └── Dockerfile
+│
+├── ui/                      # Svelte 5 管理面板前端
+│   └── src/routes/          # 各页面组件
+│
+├── dev/                     # 开发环境 CLI
+│   ├── dev.py              # 入口点
+│   ├── cli.py              # 命令解析
+│   ├── core.py             # Docker 辅助函数
+│   ├── config.py           # 分层配置
+│   ├── ipam.py             # IP 地址管理
+│   └── cmds/               # 命令实现
+│
+├── cert/                    # TLS 证书（不提交）
+├── logs/                    # 日志输出
+└── .wework/                # 运行时数据（不提交）
 ```
 
-- IP 地址通过 IPAM 系统自动管理，持久化到 `.local/ip-allocations.json`
-- 支持手动分配 (`ip alloc`)、释放 (`ip free`)、冲突检测
-- `start` 时自动检测并解决 IP 冲突
+## 安全机制
 
-### 代理流量路径
+### 多层防护
 
-```
-客户端 → [TCP 443] → Nginx (TLS 终结)
-                    → Xray (VLESS Reality)
-                    → Internet
+1. **Cloudflare Authenticated Origin Pulls (mTLS)**
+   - 只允许 Cloudflare 服务器连接
+   - 证书: `cert/cloudflare-origin-pull.pem`
 
-客户端 → [TCP 443] → Nginx
-                    → Xray (XHTTP/WS on :8443/:8444)
-                    → Internet
-```
+2. **Nginx Basic Auth**
+   - `/admin/` 和 `/api/admin/` 需要 HTTP 基本认证
+   - htpasswd 使用 bcrypt 哈希
 
-## Xray 配置生成
+3. **Go Rate Limiter**
+   - 20 请求/10秒 per IP
+   - 超限自动 ban 30 分钟
 
-`instances.yaml` 定义代理实例，`generate` 命令自动生成密钥和配置：
+4. **fail2ban**
+   - 监控 nginx auth log 中的 401
+   - 调用 admin API 封禁真实客户端 IP
+
+5. **RBAC 角色控制**
+   - `admin`: 全部管理功能
+   - `viewer`: 查看服务状态、管理自己的 Xray 账号、下载客户端配置
+
+## 常用命令
 
 ```bash
-# 生成配置（自动创建 UUID 和密钥对）
-python3 dev/dev.py generate
+# 构建并启动
+docker compose build --no-cache admin nginx
+docker compose up -d
 
-# 查看实例列表
-python3 dev/dev.py list-instances
-```
+# 查看日志
+docker compose logs -f admin
+docker compose logs -f nginx
+docker compose logs -f xray
 
-`instances.yaml` 格式：
+# 重启服务
+docker compose restart admin
+docker compose restart xray
 
-```yaml
-instances:
-  - name: user1
-    xray_name: xray-reality-user1   # 容器名
-    path: user1                      # URL 路径前缀
-    # client_id 和 private_key 留空自动生成
-```
-
-生成的文件：
-- `configs/xray-reality-<name>.json` — Xray 配置
-- `configs/nginx-xhttp-<name>.conf` — Nginx 反代配置
-- `.local/instances.json` — 客户端连接信息（密钥，不提交）
-
-## 开发容器
-
-`dev/Dockerfile` 构建的开发容器包含：
-
-- **Node.js 22** + npm/pnpm/yarn/bun
-- **Go** (从 Alpine 提取)
-- **PostgreSQL 客户端** (psql)
-- **Redis 客户端** (redis-cli)
-- **fish shell** (默认)，配置了快捷别名：
-  - `pg` — 连接 PostgreSQL
-  - `rd` — 连接 Redis
-  - `ws` — 切换到 /workspace
-  - `ll` — ls -la
-
-容器内通过环境变量访问服务：
-- `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_DB`
-- `REDIS_HOST` / `REDIS_PORT`
-- `MINIO_ENDPOINT` / `MINIO_USER` / `MINIO_PASSWORD`
-
-## 测试
-
-```bash
-# 运行单元测试
+# 运行测试
 python3 -m pytest tests/ -v
-
-# 启动隔离测试环境
-python3 dev/dev.py start-test
-
-# 在测试环境运行集成测试后清理
-python3 dev/dev.py stop-test
 ```
 
-测试覆盖：
-- `test_cli.py` — CLI 参数解析
-- `test_config.py` — 分层配置系统
-- `test_ipam.py` — IP 地址转换与管理
-- `test_generator.py` — Xray 配置解析
-- `test_render.py` — 模板渲染
-
-## 模块依赖关系
-
-```
-dev/dev.py          # 入口，设置 sys.path
-  └── dev/cli.py    # argparse + 命令分发
-        ├── dev/core.py    # UI, Docker 辅助, 环境加载
-        │     ├── dev/paths.py     # 纯路径常量（无依赖）
-        │     └── dev/config.py    # YAML + .env 配置
-        │           └── dev/paths.py
-        ├── dev/ipam.py    # IP 地址管理
-        │     ├── dev/paths.py
-        │     └── dev/config.py
-        └── dev/cmds/*.py  # 各命令模块
-              └── (core, config, ipam, paths)
-```
-
-`paths.py` 作为纯常量模块，打破了 `config.py ↔ core.py` 的循环依赖。
-
-## Shell 补全
+## 部署流程
 
 ```bash
-# Bash
-eval "$(python3 dev/dev.py completion bash)"
+# 1. 本地开发并提交
+git add .
+git commit -m "描述"
+git push origin main
 
-# Zsh
-source <(python3 dev/dev.py completion zsh)
+# 2. 服务器拉取并部署
+ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker compose up -d"
 ```
 
-## 常见操作
+## 环境变量
 
-```bash
-# 日常开发
-python3 dev/dev.py start          # 启动环境
-python3 dev/dev.py shell          # 进入容器
-python3 dev/dev.py stop           # 下班停止
-
-# 数据库操作
-python3 dev/dev.py backup         # 备份
-python3 dev/dev.py restore        # 恢复最新备份
-python3 dev/dev.py snapshot create before-migration  # 创建快照
-
-# 环境维护
-python3 dev/dev.py doctor         # 诊断问题
-python3 dev/dev.py prune          # 清理孤儿资源
-python3 dev/dev.py port-usage     # 检查端口占用
-
-# 代理管理
-python3 dev/dev.py generate       # 重新生成代理配置
-python3 dev/dev.py xray-start     # 启动代理
-
-# 从零开始
-python3 dev/dev.py teardown --force  # 完全销毁
-python3 dev/dev.py start             # 重新创建
-```
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
+| `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |
+| `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
+| `CF_API_TOKEN` | Cloudflare API Token | - |
+| `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
+| `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
+| `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
