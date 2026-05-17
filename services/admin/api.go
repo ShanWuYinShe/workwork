@@ -796,34 +796,16 @@ func findContainer(ctx context.Context, cli *client.Client, service string) (str
 	return containers[0].ID, nil
 }
 
-// detectIPvlanIface finds the ipvlan interface (IPv6 enabled) on a container.
-func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID string) string {
-	subnet := getEnv("IPV6_SUBNET")
-	prefix, err := parseSubnetPrefix(subnet)
-	if err != nil {
-		return "eth0"
-	}
-	for _, try := range []string{"eth0", "eth1", "eth2"} {
-		var buf bytes.Buffer
-		execConfig := container.ExecOptions{
-			Cmd:          []string{"sh", "-c", fmt.Sprintf("ip -6 addr show dev %s 2>/dev/null | grep -q '%s' && echo found", try, prefix)},
-			AttachStdout: true,
-			AttachStderr: true,
-		}
-		execResp, createErr := cli.ContainerExecCreate(ctx, containerID, execConfig)
-		if createErr == nil {
-			attachResp, attachErr := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
-			if attachErr == nil {
-				stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
-				attachResp.Close()
-				if strings.TrimSpace(buf.String()) == "found" {
-					return try
-				}
-			}
-		}
-	}
-	return "eth0"
+// addContainerIP adds an IPv6 to the container's default-route interface.
+func addContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) error {
+	return containerExec(ctx, cli, containerID, "sh", "-c",
+		fmt.Sprintf("ip addr add %s/64 dev $(ip -6 route show default | awk '{print $NF; exit}')", ip))
 }
+func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) {
+	containerExec(ctx, cli, containerID, "sh", "-c",
+		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | awk '{print $NF; exit}') 2>/dev/null", ip))
+}
+
 
 // allDomainInfos returns all managed domains and their container assignments.
 // XRAY_REALITY_DOMAIN → xray, NGINX_DOMAINS (comma-separated) → nginx.
@@ -873,7 +855,7 @@ func startupRotateIPv6(cli *client.Client) {
 	xrayStatic := getEnv("XRAY_IPV6")
 	nginxStatic := getEnv("NGINX_IPV6")
 
-	xrayAssigned, _ := collectContainerIPs(ctx, cli, xrayID)
+	xrayAssigned := getContainerIPs(ctx, cli, xrayID)
 	xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 	xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 	if err != nil {
@@ -881,7 +863,7 @@ func startupRotateIPv6(cli *client.Client) {
 		return
 	}
 
-	nginxAssigned, _ := collectContainerIPs(ctx, cli, nginxID)
+	nginxAssigned := getContainerIPs(ctx, cli, nginxID)
 	nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
 	nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 	if err != nil {
@@ -890,15 +872,13 @@ func startupRotateIPv6(cli *client.Client) {
 	}
 
 	oldXrayIP, oldNginxIP := loadCurrentIPs()
-	xrayIface := detectIPvlanIface(ctx, cli, xrayID)
-	nginxIface := detectIPvlanIface(ctx, cli, nginxID)
 
-	if err := containerExec(ctx, cli, xrayID, "ip", "addr", "add", xrayIP+"/64", "dev", xrayIface); err != nil {
+	if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
 		log.Printf("startup rotate: add xray IP: %v", err)
 		return
 	}
-	if err := containerExec(ctx, cli, nginxID, "ip", "addr", "add", nginxIP+"/64", "dev", nginxIface); err != nil {
-		containerExec(ctx, cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
+	if err := addContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
+		delContainerIP(ctx, cli, xrayID, xrayIP)
 		log.Printf("startup rotate: add nginx IP: %v", err)
 		return
 	}
@@ -915,10 +895,10 @@ func startupRotateIPv6(cli *client.Client) {
 
 	// Clean up old IPs
 	if oldXrayIP != "" && oldXrayIP != xrayStatic {
-		containerExec(ctx, cli, xrayID, "ip", "addr", "del", oldXrayIP+"/64", "dev", xrayIface)
+		delContainerIP(ctx, cli, xrayID, oldXrayIP)
 	}
 	if oldNginxIP != "" && oldNginxIP != nginxStatic {
-		containerExec(ctx, cli, nginxID, "ip", "addr", "del", oldNginxIP+"/64", "dev", nginxIface)
+		delContainerIP(ctx, cli, nginxID, oldNginxIP)
 	}
 
 	log.Printf("Startup rotate: xray=%s nginx=%s", xrayIP, nginxIP)
@@ -956,7 +936,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		xrayAssigned, _ := collectContainerIPs(r.Context(), cli, xrayID)
+		xrayAssigned := getContainerIPs(r.Context(), cli, xrayID)
 		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
@@ -964,7 +944,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		nginxAssigned, _ := collectContainerIPs(r.Context(), cli, nginxID)
+		nginxAssigned := getContainerIPs(r.Context(), cli, nginxID)
 		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
@@ -973,16 +953,16 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		}
 
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
-		xrayIface := detectIPvlanIface(r.Context(), cli, xrayID)
-		nginxIface := detectIPvlanIface(r.Context(), cli, nginxID)
+
+
 
 		// Add new IPs
-		if err := containerExec(r.Context(), cli, xrayID, "ip", "addr", "add", xrayIP+"/64", "dev", xrayIface); err != nil {
+		if err := addContainerIP(r.Context(), cli, xrayID, xrayIP); err != nil {
 			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
 			return
 		}
-		if err := containerExec(r.Context(), cli, nginxID, "ip", "addr", "add", nginxIP+"/64", "dev", nginxIface); err != nil {
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
+		if err := addContainerIP(r.Context(), cli, nginxID, nginxIP); err != nil {
+			delContainerIP(r.Context(), cli, xrayID, xrayIP)
 			writeError(w, "Failed to add IPv6 to nginx: "+err.Error(), 500)
 			return
 		}
@@ -996,8 +976,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 				ip = xrayIP
 			}
 			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-				containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", xrayIP+"/64", "dev", xrayIface)
-				containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", nginxIP+"/64", "dev", nginxIface)
+				delContainerIP(r.Context(), cli, xrayID, xrayIP)
+				delContainerIP(r.Context(), cli, nginxID, nginxIP)
 				writeError(w, fmt.Sprintf("DNS update failed for %s: %s", di.Domain, err.Error()), 500)
 				return
 			}
@@ -1006,10 +986,10 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		// Remove old rotating IPs
 		if oldXrayIP != "" && oldXrayIP != xrayStatic {
-			containerExec(r.Context(), cli, xrayID, "ip", "addr", "del", oldXrayIP+"/64", "dev", xrayIface)
+			delContainerIP(r.Context(), cli, xrayID, oldXrayIP)
 		}
 		if oldNginxIP != "" && oldNginxIP != nginxStatic {
-			containerExec(r.Context(), cli, nginxID, "ip", "addr", "del", oldNginxIP+"/64", "dev", nginxIface)
+			delContainerIP(r.Context(), cli, nginxID, oldNginxIP)
 		}
 
 		// state now lives in Cloudflare DNS
@@ -1040,34 +1020,6 @@ func parseSubnetPrefix(subnet string) (string, error) {
 	return strings.Join(parts, ":") + ":", nil
 }
 
-// collectContainerIPs returns all non-link-local IPv6 addresses on the container's ipvlan interface.
-func collectContainerIPs(ctx context.Context, cli *client.Client, containerID string) ([]string, error) {
-	iface := detectIPvlanIface(ctx, cli, containerID)
-	var buf bytes.Buffer
-	execConfig := container.ExecOptions{
-		Cmd:          []string{"sh", "-c", fmt.Sprintf("ip -6 -o addr show dev %s 2>/dev/null | awk '{print $4}' | cut -d/ -f1", iface)},
-		AttachStdout: true,
-		AttachStderr: true,
-	}
-	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
-	if err != nil {
-		return nil, err
-	}
-	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
-	if err != nil {
-		return nil, err
-	}
-	defer attachResp.Close()
-	stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
-	var ips []string
-	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
-		ip := strings.TrimSpace(line)
-		if ip != "" && !strings.HasPrefix(ip, "fe80:") {
-			ips = append(ips, ip)
-		}
-	}
-	return ips, nil
-}
 
 func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 	excludeSet := map[string]bool{}
@@ -1114,14 +1066,14 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			writeError(w, "nginx container: "+err.Error(), 500)
 			return
 		}
-		xrayIface := detectIPvlanIface(r.Context(), cli, xrayID)
-		nginxIface := detectIPvlanIface(r.Context(), cli, nginxID)
 
-		xrayIP := getContainerIP(r.Context(), cli, xrayID, xrayIface)
+
+
+		xrayIP := getContainerIP(r.Context(), cli, xrayID)
 		if xrayIP == "" {
 			xrayIP = getEnv("XRAY_IPV6")
 		}
-		nginxIP := getContainerIP(r.Context(), cli, nginxID, nginxIface)
+		nginxIP := getContainerIP(r.Context(), cli, nginxID)
 		if nginxIP == "" {
 			nginxIP = getEnv("NGINX_IPV6")
 		}
@@ -1142,10 +1094,39 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-// getContainerIP returns the first global IPv6 on the given interface.
-func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface string) string {
-	ips, err := collectContainerIPs(ctx, cli, containerID)
+// getContainerIPs returns all global IPv6 addresses in our subnet from a container.
+func getContainerIPs(ctx context.Context, cli *client.Client, containerID string) []string {
+	subnet := getEnv("IPV6_SUBNET")
+	prefix, _ := parseSubnetPrefix(subnet)
+	var buf bytes.Buffer
+	execConfig := container.ExecOptions{
+		Cmd:          []string{"sh", "-c", "ip -6 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1"},
+		AttachStdout: true, AttachStderr: true,
+	}
+	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
+		return nil
+	}
+	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return nil
+	}
+	defer attachResp.Close()
+	stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
+	var ips []string
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		ip := strings.TrimSpace(line)
+		if ip != "" && strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
+			ips = append(ips, ip)
+		}
+	}
+	return ips
+}
+
+// getContainerIP returns the first global IPv6 on the given interface.
+func getContainerIP(ctx context.Context, cli *client.Client, containerID string) string {
+	ips := getContainerIPs(ctx, cli, containerID)
+	if ips == nil {
 		return ""
 	}
 	subnet := getEnv("IPV6_SUBNET")
