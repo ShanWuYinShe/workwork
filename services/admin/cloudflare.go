@@ -57,6 +57,31 @@ func init() {
 
 func cfToken() string { return getEnv("CF_API_TOKEN") }
 
+// cfListAAAARecords returns all AAAA records in the zone.
+// Uses any configured domain to resolve the zone ID.
+func cfListAAAARecords() ([]cfDNSRecord, error) {
+	domain := getEnv("XHTTP_DOMAIN")
+	if domain == "" {
+		domain = getEnv("XRAY_REALITY_DOMAIN")
+	}
+	if domain == "" {
+		return nil, fmt.Errorf("no domain configured")
+	}
+	zoneID, err := cfResolveZoneID(domain)
+	if err != nil {
+		return nil, err
+	}
+	cr, err := cfRequest("GET", fmt.Sprintf("/zones/%s/dns_records?type=AAAA&per_page=100", zoneID), nil)
+	if err != nil {
+		return nil, err
+	}
+	var records []cfDNSRecord
+	if err := json.Unmarshal(cr.Result, &records); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 func cfResolveZoneID(domain string) (string, error) {
 	cfZoneCacheMu.Lock()
 	defer cfZoneCacheMu.Unlock()

@@ -699,12 +699,13 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	for _, di := range allDomainInfos() {
-		rec, err := cfFindAAAARecord(di.Domain)
-		if err != nil || rec == nil {
-			continue
-		}
-		if di.Container == "xray" {
+	records, err := cfListAAAARecords()
+	if err != nil {
+		return
+	}
+	xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
+	for _, rec := range records {
+		if rec.Name == xrayDomain {
 			xrayIP = rec.Content
 		} else {
 			nginxIP = rec.Content
@@ -820,22 +821,22 @@ func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID stri
 	return "eth1" // fallback
 }
 
-// allDomainInfos returns the DNS domain configurations that should be rotated.
-// Primary domains: XRAY_REALITY_DOMAIN (→xray), XHTTP_DOMAIN (→nginx).
-// EXTRA_DOMAINS env var adds comma-separated additional domains (all →nginx).
+// allDomainInfos queries Cloudflare for all AAAA records and returns
+// domain→container mappings. The authoritative source is CF, not env vars.
+// Domains matching XRAY_REALITY_DOMAIN are assigned to xray, rest to nginx.
 func allDomainInfos() []struct{ Domain, Container string } {
+	records, err := cfListAAAARecords()
+	if err != nil {
+		return nil
+	}
+	xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
 	var infos []struct{ Domain, Container string }
-	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, Container string }{d, "xray"})
-	}
-	if d := getEnv("XHTTP_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
-	}
-	for _, d := range strings.Split(getEnv("EXTRA_DOMAINS"), ",") {
-		d = strings.TrimSpace(d)
-		if d != "" {
-			infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+	for _, rec := range records {
+		container := "nginx"
+		if rec.Name == xrayDomain {
+			container = "xray"
 		}
+		infos = append(infos, struct{ Domain, Container string }{rec.Name, container})
 	}
 	return infos
 }
