@@ -150,6 +150,10 @@ func getOrCreateProxyPassword(username string) (string, error) {
 	created := false
 	err := updateUsersMeta(func(doc *usersMetaDoc) error {
 		info := doc.Users[username]
+		// Admin users don't manage xray clients
+		if info.Role == "admin" {
+			return nil
+		}
 		if info.ProxyPassword != "" {
 			password = info.ProxyPassword
 			return nil
