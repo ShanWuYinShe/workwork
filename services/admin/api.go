@@ -1057,7 +1057,8 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-// getContainerIP returns the first global IPv6 on the given interface.
+// getContainerIP returns the primary global IPv6 on the given interface.
+// Prefers the static range (1::/80) over rotating/SLAAC addresses.
 func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface string) string {
 	ips, err := collectContainerIPs(ctx, cli, containerID)
 	if err != nil {
@@ -1068,12 +1069,20 @@ func getContainerIP(ctx context.Context, cli *client.Client, containerID, iface 
 	if err != nil {
 		return ""
 	}
+	staticPrefix := prefix + "1:"
+	var fallback string
 	for _, ip := range ips {
-		if strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
-			return ip
+		if !strings.HasPrefix(ip, prefix) || strings.Contains(ip, "::1") {
+			continue
+		}
+		if strings.Contains(ip, staticPrefix) {
+			return ip // static range, preferred
+		}
+		if fallback == "" {
+			fallback = ip
 		}
 	}
-	return ""
+	return fallback
 }
 
 func restartXray(cli *client.Client) error {
