@@ -692,20 +692,19 @@ func readHtpasswdUsers() []string {
 // -- Network / IPv6 rotation APIs --
 
 // loadCurrentIPs returns the current IPv6 for each container, queried from
-// Cloudflare DNS (the authoritative source). Falls back to env var static IPs.
+// Cloudflare DNS. Falls back to env var static IPs.
 func loadCurrentIPs() (xrayIP, nginxIP string) {
 	xrayIP = getEnv("XRAY_IPV6")
 	nginxIP = getEnv("NGINX_IPV6")
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	records, err := cfListAAAARecords()
-	if err != nil {
-		return
-	}
-	xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
-	for _, rec := range records {
-		if rec.Name == xrayDomain {
+	for _, di := range allDomainInfos() {
+		rec, err := cfFindAAAARecord(di.Domain)
+		if err != nil || rec == nil {
+			continue
+		}
+		if di.Container == "xray" {
 			xrayIP = rec.Content
 		} else {
 			nginxIP = rec.Content
@@ -821,22 +820,21 @@ func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID stri
 	return "eth1" // fallback
 }
 
-// allDomainInfos queries Cloudflare for all AAAA records and returns
-// domain→container mappings. The authoritative source is CF, not env vars.
-// Domains matching XRAY_REALITY_DOMAIN are assigned to xray, rest to nginx.
+// allDomainInfos returns all managed domains and their container assignments.
+// XRAY_REALITY_DOMAIN → xray, NGINX_DOMAINS (comma-separated) → nginx.
 func allDomainInfos() []struct{ Domain, Container string } {
-	records, err := cfListAAAARecords()
-	if err != nil {
-		return nil
-	}
-	xrayDomain := getEnv("XRAY_REALITY_DOMAIN")
 	var infos []struct{ Domain, Container string }
-	for _, rec := range records {
-		container := "nginx"
-		if rec.Name == xrayDomain {
-			container = "xray"
+	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
+		infos = append(infos, struct{ Domain, Container string }{d, "xray"})
+	}
+	if d := getEnv("XHTTP_DOMAIN"); d != "" {
+		infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+	}
+	for _, d := range strings.Split(getEnv("NGINX_DOMAINS"), ",") {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
 		}
-		infos = append(infos, struct{ Domain, Container string }{rec.Name, container})
 	}
 	return infos
 }
