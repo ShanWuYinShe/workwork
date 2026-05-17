@@ -821,7 +821,8 @@ func detectIPvlanIface(ctx context.Context, cli *client.Client, containerID stri
 }
 
 // allDomainInfos returns the DNS domain configurations that should be rotated.
-// Each entry maps a domain to its container (xray or nginx).
+// Primary domains: XRAY_REALITY_DOMAIN (→xray), XHTTP_DOMAIN (→nginx).
+// EXTRA_DOMAINS env var adds comma-separated additional domains (all →nginx).
 func allDomainInfos() []struct{ Domain, Container string } {
 	var infos []struct{ Domain, Container string }
 	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
@@ -829,6 +830,12 @@ func allDomainInfos() []struct{ Domain, Container string } {
 	}
 	if d := getEnv("XHTTP_DOMAIN"); d != "" {
 		infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+	}
+	for _, d := range strings.Split(getEnv("EXTRA_DOMAINS"), ",") {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+		}
 	}
 	return infos
 }
