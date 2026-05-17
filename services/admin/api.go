@@ -916,6 +916,10 @@ func startupRotateIPv6(cli *client.Client) {
 		containerExec(ctx, cli, nginxID, "ip", "addr", "del", oldNginxIP+"/64", "dev", nginxIface)
 	}
 
+	// Update nginx to listen on the new rotating IP and reload
+	containerExec(ctx, cli, nginxID, "sh", "-c",
+		fmt.Sprintf("sed -i 's/listen \\[.*\\]:443 ssl;/listen [%s]:443 ssl;/' /etc/nginx/conf.d/default.conf && nginx -s reload", nginxIP))
+
 	log.Printf("Startup rotate: xray=%s nginx=%s", xrayIP, nginxIP)
 }
 
@@ -1008,6 +1012,10 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		}
 
 		// state now lives in Cloudflare DNS
+
+		// Update nginx to listen on the new rotating IP
+		containerExec(r.Context(), cli, nginxID, "sh", "-c",
+			fmt.Sprintf("sed -i 's/listen \\[.*\\]:443 ssl;/listen [%s]:443 ssl;/' /etc/nginx/conf.d/default.conf && nginx -s reload", nginxIP))
 
 		writeJSON(w, map[string]any{
 			"xray_ip":  xrayIP,
