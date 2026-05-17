@@ -799,11 +799,11 @@ func findContainer(ctx context.Context, cli *client.Client, service string) (str
 // addContainerIP adds an IPv6 to the container's default-route interface.
 func addContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) error {
 	return containerExec(ctx, cli, containerID, "sh", "-c",
-		fmt.Sprintf("ip addr add %s/64 dev $(ip -6 route show default | awk '{print $NF; exit}')", ip))
+		fmt.Sprintf("ip addr add %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}')", ip))
 }
 func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) {
 	containerExec(ctx, cli, containerID, "sh", "-c",
-		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | awk '{print $NF; exit}') 2>/dev/null", ip))
+		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null", ip))
 }
 
 
