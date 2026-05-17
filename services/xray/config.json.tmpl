@@ -52,16 +52,10 @@
       }
     }
   ],
-  "routing": {
-    "domainStrategy": "AsIs"
-  },
   "outbounds": [
     {
       "tag": "direct",
       "protocol": "freedom",
-      "settings": {
-        "domainStrategy": "UseIPv6v4"
-      },
       "streamSettings": {
         "sockopt": {
           "tcpFastOpen": true,
@@ -70,8 +64,11 @@
       }
     },
     {
-      "protocol": "blackhole",
-      "tag": "blocked"
+      "tag": "blocked",
+      "protocol": "blackhole"
     }
-  ]
+  ],
+  "routing": {
+    "domainStrategy": "AsIs"
+  }
 }
