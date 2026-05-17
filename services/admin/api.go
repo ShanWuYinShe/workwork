@@ -57,7 +57,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 // proxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
 // Creates a per-user proxy password on first call.
 func proxyAuthForUser(username string) string {
-	if username == "" {
+	if username == "" || username == "internal" {
 		return ""
 	}
 	pass, err := getOrCreateProxyPassword(username)
