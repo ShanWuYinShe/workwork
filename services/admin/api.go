@@ -1258,6 +1258,44 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
 			tail = "100"
 		}
+
+		// nginx: read file-based access/error logs from shared volume
+		if name == "nginx" {
+			logFile := r.URL.Query().Get("file")
+			switch logFile {
+			case "access":
+				logFile = "access.log"
+			case "admin":
+				logFile = "admin-access.log"
+			case "proxy":
+				logFile = "proxy-query-access.log"
+			case "error":
+				logFile = "error.log"
+			default:
+				logFile = "error.log"
+			}
+			if !strings.Contains(logFile, "/") && !strings.Contains(logFile, "..") {
+				path := "/app/logs/nginx/" + logFile
+				if data, err := os.ReadFile(path); err == nil {
+					s := string(data)
+					lines := strings.Split(s, "\n")
+					n, _ := strconv.Atoi(tail)
+					if n > 0 && n < len(lines) {
+						lines = lines[len(lines)-n:]
+					}
+					s = strings.Join(lines, "\n")
+					if len(s) > 128*1024 {
+						s = s[len(s)-128*1024:]
+					}
+					writeJSON(w, map[string]any{
+						"logs": s,
+						"file": strings.TrimSuffix(logFile, ".log"),
+					})
+					return
+				}
+			}
+		}
+
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
 			Filters: filters.NewArgs(filters.KeyValuePair{
