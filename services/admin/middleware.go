@@ -147,6 +147,7 @@ func getOrCreateCliproxyToken(username string) (string, error) {
 
 func getOrCreateProxyPassword(username string) (string, error) {
 	var password string
+	created := false
 	err := updateUsersMeta(func(doc *usersMetaDoc) error {
 		info := doc.Users[username]
 		if info.ProxyPassword != "" {
@@ -163,13 +164,15 @@ func getOrCreateProxyPassword(username string) (string, error) {
 		}
 		doc.Users[username] = info
 		password = info.ProxyPassword
+		created = true
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
-	// Regenerate proxy htpasswd so nginx picks up the new user
-	genProxyHtpasswd()
+	if created {
+		genProxyHtpasswd()
+	}
 	return password, nil
 }
 
