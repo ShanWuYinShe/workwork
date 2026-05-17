@@ -258,13 +258,18 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
+		// Proxy auth: use first client's owner, not the viewing user
+		proxyUser := username
+		if len(filtered) > 0 && filtered[0]["owner"] != "" {
+			proxyUser = filtered[0]["owner"]
+		}
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuthForUser(username),
+			XHTTPProxyAuth:    proxyAuthForUser(proxyUser),
 		})
 
 		// Build adminUsers with role info
@@ -331,6 +336,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		if err := addXrayClient(xrayClientEntry{ID: body.UUID, Owner: username, Email: username}); err != nil {
 			writeError(w, "Failed to save client: "+err.Error(), 500)
 			return
+		}
+
+		// Ensure the owner has a proxy password for xhttp auth
+		if _, err := getOrCreateProxyPassword(username); err != nil {
+			log.Printf("WARNING: failed to create proxy password for %s: %v", username, err)
 		}
 
 		xrayConfigMu.Lock()
@@ -431,7 +441,7 @@ func apiXrayClientConfig() http.HandlerFunc {
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuthForUser(username),
+			XHTTPProxyAuth:    proxyAuthForUser(client["owner"]),
 		})
 		writeJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],
