@@ -10,6 +10,7 @@ RUN curl -sS -o /etc/nginx/cloudflare-origin-pull.pem \
 COPY fetch-cloudflare-ips.sh /usr/local/bin/fetch-cloudflare-ips.sh
 RUN chmod +x /usr/local/bin/fetch-cloudflare-ips.sh
 
+COPY config/nginx-main.conf /etc/nginx/nginx.conf
 COPY config/logrotate.conf /etc/logrotate.d/nginx
 COPY config/fail2ban/jail.local /etc/fail2ban/jail.local
 COPY config/fail2ban/filter.d/nginx-auth.conf /etc/fail2ban/filter.d/nginx-auth.conf

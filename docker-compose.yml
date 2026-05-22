@@ -6,6 +6,10 @@ services:
       context: ./services/nginx
       dockerfile: Dockerfile
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     logging:
       driver: "json-file"
       options:
@@ -41,6 +45,10 @@ services:
       context: ./services/xray
       dockerfile: Dockerfile
     restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     logging:
       driver: "json-file"
       options:

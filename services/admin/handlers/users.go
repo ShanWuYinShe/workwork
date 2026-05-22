@@ -49,6 +49,53 @@ type jsonField struct {
 	val any
 }
 
+func baseProxySockopt() map[string]any {
+	return map[string]any{
+		"tcpFastOpen":          true,
+		"tcpKeepAliveIdle":     45,
+		"tcpKeepAliveInterval": 45,
+		"tcpUserTimeout":       10000,
+		"tcpcongestion":        "bbr",
+	}
+}
+
+func xhttpOutboundSockopt() map[string]any {
+	sockopt := baseProxySockopt()
+	sockopt["domainStrategy"] = "UseIP"
+	sockopt["happyEyeballs"] = map[string]any{
+		"tryDelayMs":       250,
+		"prioritizeIPv6":   true,
+		"interleave":       1,
+		"maxConcurrentTry": 4,
+	}
+	return sockopt
+}
+
+func realityOutboundSockopt() map[string]any {
+	return baseProxySockopt()
+}
+
+func autoProxyDomains() []string {
+	return []string{
+		"geosite:google", "geosite:github", "geosite:openai",
+		"geosite:docker", "geosite:netflix", "geosite:instagram",
+		"geosite:youtube", "geosite:facebook", "geosite:twitter",
+		"domain:googlevideo.com", "domain:ytimg.com",
+		"domain:gvt1.com", "domain:gvt2.com", "domain:gvt3.com",
+	}
+}
+
+func autoProxyPingConfig() map[string]any {
+	return map[string]any{
+		"destination":  "https://www.gstatic.com/generate_204",
+		"connectivity": "https://cp.cloudflare.com/cdn-cgi/trace",
+		"interval":     "30s",
+		"sampling":     10,
+		"timeout":      "5s",
+		"httpMethod":   "HEAD",
+	}
+}
+
 func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string {
 	uuid := "YOUR_UUID"
 	if len(clients) > 0 {
@@ -88,7 +135,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 						"serverName": cfg.RealityServerName, "fingerprint": "chrome",
 						"publicKey": cfg.RealityPublicKey, "shortId": cfg.RealityShortID,
 					},
-					"sockopt": map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
+					"sockopt": realityOutboundSockopt(),
 				},
 			},
 			map[string]any{
@@ -105,7 +152,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 					"network": "xhttp", "security": "tls",
 					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome", "alpn": []string{"h2"}},
 					"xhttpSettings": xhttpSettings(cfg),
-					"sockopt":       map[string]any{"tcpFastOpen": true, "tcpCongestion": "bbr", "tcpKeepAliveInterval": 30},
+					"sockopt":       xhttpOutboundSockopt(),
 				},
 			},
 			map[string]any{"tag": "direct", "protocol": "freedom"},
@@ -120,24 +167,13 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			}},
 			"rules": []any{
 				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
-				map[string]any{"type": "field", "balancerTag": "proxy", "domain": []string{
-					"geosite:google", "geosite:github", "geosite:openai",
-					"geosite:docker", "geosite:netflix", "geosite:instagram",
-					"geosite:youtube", "geosite:facebook", "geosite:twitter",
-				}},
+				map[string]any{"type": "field", "balancerTag": "proxy", "domain": autoProxyDomains()},
 				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
 			},
 		}},
 		{"burstObservatory", map[string]any{
 			"subjectSelector": []string{"reality", "xhttp"},
-			"pingConfig": map[string]any{
-				"destination":  "https://www.gstatic.com/generate_204",
-				"connectivity": "https://cp.cloudflare.com/cdn-cgi/trace",
-				"interval":     "30s",
-				"sampling":     10,
-				"timeout":      "5s",
-				"httpMethod":   "HEAD",
-			},
+			"pingConfig":      autoProxyPingConfig(),
 		}},
 	})
 }
