@@ -2,6 +2,16 @@
   "log": {
     "loglevel": "warning"
   },
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query",
+      "https+local://dns.google/dns-query",
+      "localhost"
+    ],
+    "queryStrategy": "UseIP",
+    "enableParallelQuery": true,
+    "useSystemHosts": true
+  },
   "inbounds": [
     {
       "tag": "xhttp-in",
@@ -42,6 +52,9 @@
       "streamSettings": {
         "network": "tcp",
         "security": "reality",
+        "sockopt": {
+          "V6Only": true
+        },
         "realitySettings": {
           "show": false,
           "dest": "__XRAY_REALITY_DEST__",
@@ -59,8 +72,18 @@
       "protocol": "freedom",
       "streamSettings": {
         "sockopt": {
+          "domainStrategy": "UseIP",
+          "happyEyeballs": {
+            "tryDelayMs": 250,
+            "prioritizeIPv6": true,
+            "interleave": 1,
+            "maxConcurrentTry": 4
+          },
           "tcpFastOpen": true,
-          "tcpNoDelay": true
+          "tcpKeepAliveIdle": 45,
+          "tcpKeepAliveInterval": 45,
+          "tcpUserTimeout": 10000,
+          "tcpcongestion": "bbr"
         }
       }
     },
