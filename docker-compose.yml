@@ -45,6 +45,8 @@ services:
       context: ./services/xray
       dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "443:443"
     ulimits:
       nofile:
         soft: 65535
