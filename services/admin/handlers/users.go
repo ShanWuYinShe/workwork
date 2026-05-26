@@ -55,7 +55,7 @@ func baseProxySockopt() map[string]any {
 		"tcpKeepAliveIdle":     45,
 		"tcpKeepAliveInterval": 45,
 		"tcpUserTimeout":       10000,
-		"tcpcongestion":        "bbr",
+		"tcpCongestion":        "bbr",
 	}
 }
 
