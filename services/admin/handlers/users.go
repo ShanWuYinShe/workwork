@@ -80,8 +80,6 @@ func autoProxyDomains() []string {
 		"geosite:google", "geosite:github", "geosite:openai",
 		"geosite:docker", "geosite:netflix", "geosite:instagram",
 		"geosite:youtube", "geosite:facebook", "geosite:twitter",
-		"domain:googlevideo.com", "domain:ytimg.com",
-		"domain:gvt1.com", "domain:gvt2.com", "domain:gvt3.com",
 	}
 }
 

@@ -51,8 +51,8 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected proxy domains: %#v", proxyRule["domain"])
 	}
-	if !containsAny(domains, "domain:googlevideo.com") {
-		t.Fatalf("expected proxy domains to include googlevideo.com, got %#v", domains)
+	if !containsAny(domains, "geosite:youtube") {
+		t.Fatalf("expected proxy domains to include geosite:youtube, got %#v", domains)
 	}
 
 	observatory := nestedMap(t, doc, "burstObservatory")
