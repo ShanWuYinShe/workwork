@@ -168,7 +168,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 }
 
 func xhttpSettings(cfg ClientConfig) map[string]any {
-	s := map[string]any{"path": "/proxy/query", "mode": "stream-up"}
+	s := map[string]any{"path": "/proxy/query", "mode": "packet-up"}
 	if cfg.XHTTPProxyAuth != "" {
 		auth := base64.StdEncoding.EncodeToString([]byte(cfg.XHTTPProxyAuth))
 		s["headers"] = map[string]any{"Authorization": "Basic " + auth}
