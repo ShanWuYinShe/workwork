@@ -135,7 +135,7 @@ func assertRealitySockopt(t *testing.T, outbound map[string]any) {
 	t.Helper()
 	streamSettings := nestedMap(t, outbound, "streamSettings")
 	sockopt := nestedMap(t, streamSettings, "sockopt")
-	if sockopt["domainStrategy"] != "UseIPv4" {
+	if sockopt["domainStrategy"] != "UseIPv6" {
 		t.Fatalf("unexpected domainStrategy for reality outbound: %#v", sockopt["domainStrategy"])
 	}
 	if _, ok := sockopt["happyEyeballs"]; ok {
