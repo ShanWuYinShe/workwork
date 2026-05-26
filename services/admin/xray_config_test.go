@@ -126,7 +126,7 @@ func assertXHTTPSockopt(t *testing.T, outbound map[string]any, want string) {
 		t.Fatalf("unexpected domainStrategy for %v: %#v", outbound["tag"], sockopt["domainStrategy"])
 	}
 	happyEyeballs := nestedMap(t, sockopt, "happyEyeballs")
-	if happyEyeballs["tryDelayMs"] != float64(250) {
+	if happyEyeballs["tryDelayMs"] != float64(1) {
 		t.Fatalf("unexpected happyEyeballs.tryDelayMs: %#v", happyEyeballs["tryDelayMs"])
 	}
 }

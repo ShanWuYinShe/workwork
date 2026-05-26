@@ -63,8 +63,8 @@ func xhttpOutboundSockopt() map[string]any {
 	sockopt := baseProxySockopt()
 	sockopt["domainStrategy"] = "UseIP"
 	sockopt["happyEyeballs"] = map[string]any{
-		"tryDelayMs":       0,
-		"prioritizeIpv6":   false,
+		"tryDelayMs":       1,
+		"prioritizeIPv6":  false,
 		"interleave":       1,
 		"maxConcurrentTry": 4,
 	}
