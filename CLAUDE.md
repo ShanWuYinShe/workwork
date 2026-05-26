@@ -114,6 +114,7 @@ Routes map to API endpoints:
 
 - `config.json.tmpl` / `entrypoint.sh` — IPv4 via bridge, IPv6 via ipvlan
 - Inbounds: `xhttp-in` (8447, via Cloudflare) + `reality-in` (443, Reality direct)
+- XHTTP mode: `packet-up` — 上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
 - Clients have `email` field (=owner username) for per-user policy/traffic stats
 - `migrateXrayClients()` ensures all clients have email on startup
 
@@ -166,6 +167,7 @@ claude-api-key:              # Anthropic API format providers
 
 ## Key Conventions
 
+- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker、cliproxy 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag（如 Xray `infra/conf/` 下的结构体定义）或官方文档。
 - **Git**: linear history on main, one commit per feature. Push → SSH pull → `docker compose build` → `docker compose up -d`
 - **Never use `RemoteAddr`** for auth — all traffic on Docker bridge looks internal
 - **Internal auth**: `INTERNAL_TOKEN` (auto-generated at startup, stored in `.wework/.internal-token`)

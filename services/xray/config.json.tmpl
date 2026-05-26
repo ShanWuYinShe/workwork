@@ -26,7 +26,7 @@
         "security": "none",
         "xhttpSettings": {
           "path": "/proxy/query",
-          "mode": "stream-up"
+          "mode": "packet-up"
         }
       },
       "sniffing": {
@@ -71,8 +71,8 @@
         "sockopt": {
           "domainStrategy": "UseIP",
           "happyEyeballs": {
-            "tryDelayMs": 0,
-            "prioritizeIpv6": false,
+            "tryDelayMs": 1,
+            "prioritizeIPv6": false,
             "interleave": 1,
             "maxConcurrentTry": 4
           },
