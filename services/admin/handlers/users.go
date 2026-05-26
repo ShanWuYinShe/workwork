@@ -146,7 +146,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			map[string]any{"tag": "reject", "protocol": "blackhole"},
 		}},
 		{"routing", map[string]any{
-			"domainStrategy": "IPIfNonMatch",
+			"domainStrategy": "AsIs",
 			"balancers": []any{map[string]any{
 				"tag":      "proxy",
 				"selector": []string{"reality", "xhttp"},
@@ -155,7 +155,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			"rules": []any{
 				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
 				map[string]any{"type": "field", "balancerTag": "proxy", "domain": autoProxyDomains()},
-				map[string]any{"type": "field", "balancerTag": "proxy", "network": "tcp,udp"},
+				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
 			},
 		}},
 		{"observatory", map[string]any{
