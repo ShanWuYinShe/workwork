@@ -32,7 +32,7 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	reality := outboundByTag(t, outbounds, "reality")
 	xhttp := outboundByTag(t, outbounds, "xhttp")
 
-	assertRealitySockopt(t, reality)
+	assertXHTTPSockopt(t, reality, "UseIP")
 	assertXHTTPSockopt(t, xhttp, "UseIP")
 
 	xhttpSettings := nestedMap(t, nestedMap(t, xhttp, "streamSettings"), "xhttpSettings")
@@ -128,21 +128,6 @@ func assertXHTTPSockopt(t *testing.T, outbound map[string]any, want string) {
 	happyEyeballs := nestedMap(t, sockopt, "happyEyeballs")
 	if happyEyeballs["tryDelayMs"] != float64(250) {
 		t.Fatalf("unexpected happyEyeballs.tryDelayMs: %#v", happyEyeballs["tryDelayMs"])
-	}
-}
-
-func assertRealitySockopt(t *testing.T, outbound map[string]any) {
-	t.Helper()
-	streamSettings := nestedMap(t, outbound, "streamSettings")
-	sockopt := nestedMap(t, streamSettings, "sockopt")
-	if sockopt["domainStrategy"] != "UseIPv6" {
-		t.Fatalf("unexpected domainStrategy for reality outbound: %#v", sockopt["domainStrategy"])
-	}
-	if _, ok := sockopt["happyEyeballs"]; ok {
-		t.Fatalf("unexpected happyEyeballs for reality outbound: %#v", sockopt["happyEyeballs"])
-	}
-	if sockopt["tcpcongestion"] != "bbr" {
-		t.Fatalf("unexpected tcpcongestion for reality outbound: %#v", sockopt["tcpcongestion"])
 	}
 }
 
