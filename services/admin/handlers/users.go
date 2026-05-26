@@ -62,12 +62,6 @@ func baseProxySockopt() map[string]any {
 func xhttpOutboundSockopt() map[string]any {
 	sockopt := baseProxySockopt()
 	sockopt["domainStrategy"] = "UseIP"
-	sockopt["happyEyeballs"] = map[string]any{
-		"tryDelayMs":       250,
-		"prioritizeIPv6":   false,
-		"interleave":       1,
-		"maxConcurrentTry": 4,
-	}
 	return sockopt
 }
 
@@ -160,7 +154,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		}},
 		{"observatory", map[string]any{
 			"subjectSelector": []string{"reality", "xhttp"},
-			"probeURL":        "https://www.gstatic.com/generate_204",
+			"probeURL":        "https://cp.cloudflare.com/generate_204",
 			"probeInterval":   "30s",
 			"enableConcurrency": true,
 		}},
