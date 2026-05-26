@@ -70,6 +70,12 @@
       "streamSettings": {
         "sockopt": {
           "domainStrategy": "UseIP",
+          "happyEyeballs": {
+            "tryDelayMs": 100,
+            "prioritizeIpv6": false,
+            "interleave": 1,
+            "maxConcurrentTry": 4
+          },
           "tcpFastOpen": true,
           "tcpKeepAliveIdle": 45,
           "tcpKeepAliveInterval": 45,
