@@ -64,7 +64,7 @@ func xhttpOutboundSockopt() map[string]any {
 	sockopt["domainStrategy"] = "UseIP"
 	sockopt["happyEyeballs"] = map[string]any{
 		"tryDelayMs":       250,
-		"prioritizeIPv6":   true,
+		"prioritizeIPv6":   false,
 		"interleave":       1,
 		"maxConcurrentTry": 4,
 	}
@@ -80,17 +80,6 @@ func autoProxyDomains() []string {
 		"geosite:google", "geosite:github", "geosite:openai",
 		"geosite:docker", "geosite:netflix", "geosite:instagram",
 		"geosite:youtube", "geosite:facebook", "geosite:twitter",
-	}
-}
-
-func autoProxyPingConfig() map[string]any {
-	return map[string]any{
-		"destination":  "https://www.gstatic.com/generate_204",
-		"connectivity": "https://cp.cloudflare.com/cdn-cgi/trace",
-		"interval":     "30s",
-		"sampling":     10,
-		"timeout":      "5s",
-		"httpMethod":   "HEAD",
 	}
 }
 
@@ -161,17 +150,19 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			"balancers": []any{map[string]any{
 				"tag":      "proxy",
 				"selector": []string{"reality", "xhttp"},
-				"strategy": map[string]any{"type": "leastPing"},
+				"strategy": map[string]any{"type": "leastLoad"},
 			}},
 			"rules": []any{
 				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
 				map[string]any{"type": "field", "balancerTag": "proxy", "domain": autoProxyDomains()},
-				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
+				map[string]any{"type": "field", "balancerTag": "proxy", "network": "tcp,udp"},
 			},
 		}},
-		{"burstObservatory", map[string]any{
+		{"observatory", map[string]any{
 			"subjectSelector": []string{"reality", "xhttp"},
-			"pingConfig":      autoProxyPingConfig(),
+			"probeURL":        "https://www.gstatic.com/generate_204",
+			"probeInterval":   "30s",
+			"enableConcurrency": true,
 		}},
 	})
 }
