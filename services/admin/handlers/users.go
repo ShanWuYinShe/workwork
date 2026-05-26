@@ -72,9 +72,7 @@ func xhttpOutboundSockopt() map[string]any {
 }
 
 func realityOutboundSockopt() map[string]any {
-	sockopt := baseProxySockopt()
-	sockopt["domainStrategy"] = "UseIPv6"
-	return sockopt
+	return xhttpOutboundSockopt()
 }
 
 func autoProxyDomains() []string {
