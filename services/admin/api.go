@@ -53,7 +53,6 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
-
 // proxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
 // Creates a per-user proxy password on first call.
 func proxyAuthForUser(username string) string {
@@ -857,7 +856,6 @@ func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip str
 		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null", ip))
 }
 
-
 // allDomainInfos returns all managed domains and their container assignments.
 // XRAY_REALITY_DOMAIN → xray, NGINX_DOMAINS (comma-separated) → nginx.
 func allDomainInfos() []struct{ Domain, Container string } {
@@ -1008,8 +1006,6 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
 
-
-
 		// Add new IPs
 		if err := addContainerIP(r.Context(), cli, xrayID, xrayIP); err != nil {
 			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
@@ -1074,7 +1070,6 @@ func parseSubnetPrefix(subnet string) (string, error) {
 	return strings.Join(parts, ":") + ":", nil
 }
 
-
 func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 	excludeSet := map[string]bool{}
 	for _, e := range exclude {
@@ -1120,8 +1115,6 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			writeError(w, "nginx container: "+err.Error(), 500)
 			return
 		}
-
-
 
 		xrayIP := getContainerIP(r.Context(), cli, xrayID)
 		if xrayIP == "" {
@@ -1332,31 +1325,56 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		// Decode Docker multiplexed stream and write as SSE
 		hdr := make([]byte, 8)
 		buf := make([]byte, 4096)
+		type frame struct {
+			data []byte
+			err  error
+		}
+		ch := make(chan frame, 1)
+
+		readFrame := func() {
+			if _, err := io.ReadFull(logs, hdr); err != nil {
+				ch <- frame{nil, err}
+				return
+			}
+			size := int(binary.BigEndian.Uint32(hdr[4:8]))
+			if size > cap(buf) {
+				buf = make([]byte, size)
+			} else {
+				buf = buf[:size]
+			}
+			if size == 0 {
+				ch <- frame{nil, nil}
+				return
+			}
+			if _, err := io.ReadFull(logs, buf[:size]); err != nil {
+				ch <- frame{nil, err}
+				return
+			}
+			ch <- frame{buf[:size], nil}
+		}
+
+		go readFrame()
 		for {
 			select {
 			case <-r.Context().Done():
 				return
-			default:
-			}
-			_, err := io.ReadFull(logs, hdr)
-			if err != nil {
-				return
-			}
-			size := int(binary.BigEndian.Uint32(hdr[4:8]))
-			if size > len(buf) {
-				buf = make([]byte, size)
-			}
-			if size > 0 {
-				_, err := io.ReadFull(logs, buf[:size])
-				if err != nil {
+			case f := <-ch:
+				if f.err != nil {
 					return
 				}
-				line := string(buf[:size])
-				line = strings.TrimRight(line, "\n\r")
+				if f.data == nil {
+					go readFrame()
+					continue
+				}
+				line := strings.TrimRight(string(f.data), "\n\r")
 				if line != "" {
-					fmt.Fprintf(w, "data: %s\n\n", line)
+					for _, part := range strings.Split(line, "\n") {
+						fmt.Fprintf(w, "data: %s\n", part)
+					}
+					fmt.Fprint(w, "\n")
 					flusher.Flush()
 				}
+				go readFrame()
 			}
 		}
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -197,29 +196,30 @@ func apiXrayDownload() http.HandlerFunc {
 			return
 		}
 
-		filename := fmt.Sprintf("xray-%s-%s", body.Version, body.Plat)
-		for _, s := range listXrayStored() {
-			if s.Filename == filename {
-				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
-				return
-			}
-		}
-
 		release := findXrayCachedRelease(body.Version)
 		if release == nil {
 			writeError(w, "Version not found in releases", 404)
 			return
 		}
 		assetURL := ""
+		filename := ""
 		for _, a := range release.Assets {
 			if parseXrayAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
+				filename = a.Name
 				break
 			}
 		}
 		if assetURL == "" {
 			writeError(w, "No asset for platform "+body.Plat+" in version "+body.Version, 400)
 			return
+		}
+
+		for _, s := range listXrayStored() {
+			if s.Filename == filename {
+				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
+				return
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
@@ -236,7 +236,7 @@ func apiXrayDownload() http.HandlerFunc {
 		sendEvent(map[string]any{"type": "start", "filename": filename})
 
 		var lastPct int64 = -1
-		size, checksum, err := downloadXrayBinary(filename, assetURL, func(bytes, total int64) {
+		size, checksum, err := downloadXrayArchive(filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
 			if total <= 0 {
 				return
 			}
@@ -260,7 +260,7 @@ func apiXrayDownload() http.HandlerFunc {
 func apiXrayServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
-		if !strings.HasPrefix(filename, "xray-") ||
+		if (!strings.HasPrefix(filename, "Xray-") && !strings.HasPrefix(filename, "xray-")) ||
 			strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 			writeError(w, "Invalid filename", 400)
 			return
@@ -268,7 +268,7 @@ func apiXrayServeDownload() http.HandlerFunc {
 		path := filepath.Join(xrayDownloadsDir, filename)
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
-		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, path)
@@ -285,7 +285,7 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 			writeError(w, "Filename required", 400)
 			return
 		}
-		if !strings.HasPrefix(body.Filename, "xray-") ||
+		if (!strings.HasPrefix(body.Filename, "Xray-") && !strings.HasPrefix(body.Filename, "xray-")) ||
 			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") {
 			writeError(w, "Invalid filename", 400)
 			return
@@ -403,7 +403,8 @@ func listXrayStored() []xrayStoredDownload {
 }
 
 func parseXrayStoredFilename(name string) (version, plat, platName string) {
-	rest := strings.TrimPrefix(name, "xray-")
+	rest := strings.TrimPrefix(name, "Xray-")
+	rest = strings.TrimSuffix(rest, ".zip")
 	plats := make([]struct{ Label, Plat string }, len(xrayPlatforms))
 	for i, p := range xrayPlatforms {
 		plats[i] = struct{ Label, Plat string }{p.Label, p.Plat}
@@ -423,13 +424,13 @@ func parseXrayStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
+func downloadXrayArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
 	os.MkdirAll(xrayDownloadsDir, 0755)
 
-	tmpZip := filepath.Join(xrayDownloadsDir, filename+".download.zip")
-	defer os.Remove(tmpZip)
+	tmpPath := filepath.Join(xrayDownloadsDir, filename+".download")
+	defer os.Remove(tmpPath)
 
-	f, err := os.Create(tmpZip)
+	f, err := os.Create(tmpPath)
 	if err != nil {
 		return 0, "", err
 	}
@@ -439,7 +440,7 @@ func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total 
 		f.Close()
 		return 0, "", fmt.Errorf("download request: %w", err)
 	}
-	resp, err := githubClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		f.Close()
 		return 0, "", fmt.Errorf("download: %w", err)
@@ -453,6 +454,7 @@ func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total 
 
 	total := resp.ContentLength
 	buf := make([]byte, 128*1024)
+	hash := sha256.New()
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buf)
@@ -461,6 +463,7 @@ func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total 
 				f.Close()
 				return 0, "", fmt.Errorf("write: %w", err)
 			}
+			hash.Write(buf[:n])
 			written += int64(n)
 			if onProgress != nil {
 				onProgress(written, total)
@@ -478,29 +481,20 @@ func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total 
 		return 0, "", fmt.Errorf("close: %w", err)
 	}
 
-	// Extract xray binary from zip
-	binaryPath := filepath.Join(xrayDownloadsDir, filename)
-	tmpBinary := binaryPath + ".tmp"
-	binarySize, err := extractXrayFromZip(tmpZip, tmpBinary)
-	if err != nil {
-		return 0, "", fmt.Errorf("extract: %w", err)
-	}
-
-	hash := sha256.New()
-	bf, err := os.Open(tmpBinary)
-	if err != nil {
-		return 0, "", err
-	}
-	io.Copy(hash, bf)
-	bf.Close()
 	checksum := hex.EncodeToString(hash.Sum(nil))
 
-	if err := os.Rename(tmpBinary, binaryPath); err != nil {
-		os.Remove(tmpBinary)
+	finalPath := filepath.Join(xrayDownloadsDir, filename)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
 		return 0, "", err
 	}
 
-	version, plat, platName := parseXrayStoredFilename(filename)
+	platName := ""
+	for _, p := range xrayPlatforms {
+		if p.Plat == plat {
+			platName = p.Label
+			break
+		}
+	}
 
 	xrayDownloadMu.Lock()
 	m := readXrayManifestLocked()
@@ -509,65 +503,14 @@ func downloadXrayBinary(filename, assetURL string, onProgress func(bytes, total 
 		Plat:         plat,
 		PlatformName: platName,
 		Filename:     filename,
-		Size:         binarySize,
+		Size:         written,
 		Checksum:     checksum,
 		DownloadedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	saveXrayManifestLocked(m)
 	xrayDownloadMu.Unlock()
 
-	return binarySize, checksum, nil
-}
-
-func extractXrayFromZip(zipPath, outputPath string) (int64, error) {
-	zr, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return 0, err
-	}
-	defer zr.Close()
-
-	// Xray binary is typically named "xray" in the zip
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		name := strings.ToLower(filepath.Base(f.Name))
-		if name == "xray" || name == "xray.exe" {
-			rc, err := f.Open()
-			if err != nil {
-				return 0, err
-			}
-			out, err := os.Create(outputPath)
-			if err != nil {
-				rc.Close()
-				return 0, err
-			}
-			n, err := io.Copy(out, rc)
-			rc.Close()
-			out.Close()
-			return n, err
-		}
-	}
-	// Fallback: take the first regular file
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return 0, err
-		}
-		out, err := os.Create(outputPath)
-		if err != nil {
-			rc.Close()
-			return 0, err
-		}
-		n, err := io.Copy(out, rc)
-		rc.Close()
-		out.Close()
-		return n, err
-	}
-	return 0, fmt.Errorf("no binary found in zip")
+	return written, checksum, nil
 }
 
 func cleanupOldXrayDownloads(maxKeep int) {

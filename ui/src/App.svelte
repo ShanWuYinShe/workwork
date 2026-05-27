@@ -615,6 +615,10 @@
     background: rgba(148, 163, 184, 0.08);
     color: var(--c-text-secondary);
   }
+  :global(.badge-yellow) {
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+  }
 
   /* ── Buttons ── */
   :global(.btn) {
