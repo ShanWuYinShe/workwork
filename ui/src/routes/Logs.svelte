@@ -11,11 +11,13 @@
   let following = $state(true);
   let search = $state('');
   let es = null;
+  let reconnectTimer = null;
+  let reconnectDelay = 1000;
   let logContainer = $state(null);
 
   onMount(() => {
     refresh();
-    return () => closeStream();
+    return () => { closeStream(); clearReconnect(); };
   });
 
   async function refresh() {
@@ -32,35 +34,64 @@
     }
   }
 
-  function startStream() {
+  function startStream(clear = true) {
     closeStream();
     if (!selectedService) return;
-    logLines = [];
+    if (clear) logLines = [];
     es = new EventSource(`/api/admin/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`);
+    es.onopen = () => {
+      reconnectDelay = 1000;
+    };
     es.onmessage = (e) => {
-      logLines = [...logLines, e.data];
-      // Keep max 5000 lines in memory
-      if (logLines.length > 5000) logLines = logLines.slice(-5000);
+      logLines.push(e.data);
+      if (logLines.length > 5000) logLines.splice(0, logLines.length - 5000);
+      logLines = logLines;
     };
     es.onerror = () => {
       closeStream();
+      if (following) {
+        scheduleReconnect();
+      }
     };
   }
 
   function closeStream() {
+    clearReconnect();
     if (es) {
       es.close();
       es = null;
     }
   }
 
+  function clearReconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function scheduleReconnect() {
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      startStream(false);
+    }, reconnectDelay);
+  }
+
   function selectService(name) {
     selectedService = name;
+    following = true;
+    reconnectDelay = 1000;
     startStream();
   }
 
   function toggleFollow() {
     following = !following;
+    if (following) {
+      reconnectDelay = 1000;
+      startStream(false);
+    } else {
+      closeStream();
+    }
   }
 
   function copyLogs() {
@@ -84,10 +115,9 @@
   }
 
   function levelClass(line) {
-    const lower = line.toLowerCase();
-    if (/error|fatal|panic|err\]/.test(lower)) return 'log-error';
-    if (/warn|warning/.test(lower)) return 'log-warn';
-    if (/info/.test(lower)) return 'log-info';
+    if (/\b(error|fatal|panic)\b/i.test(line) || /\bERR\]/i.test(line)) return 'log-error';
+    if (/\b(warn|warning)\b/i.test(line) || /\bWRN\]/i.test(line)) return 'log-warn';
+    if (/\binfo\b/i.test(line) || /\bINF\]/i.test(line)) return 'log-info';
     return '';
   }
 
@@ -172,12 +202,18 @@
           {/each}
         {/if}
         {#if !es && logLines.length > 0}
-          <div class="log-stream-ended">— 流已断开 · <button class="btn btn-sm btn-ghost" onclick={startStream}>重新连接</button> —</div>
+          <div class="log-stream-ended">
+            {#if following}
+              — 重新连接中... —
+            {:else}
+              — 流已暂停 · <button class="btn btn-sm btn-ghost" onclick={() => { following = true; reconnectDelay = 1000; startStream(false); }}>继续</button> —
+            {/if}
+          </div>
         {/if}
       </div>
       <div class="log-status">
-        <span class="badge badge-{es ? 'green' : 'red'}">
-          <span class="badge-dot"></span>{es ? '实时' : '已断开'}
+        <span class="badge badge-{es ? 'green' : following ? 'yellow' : 'red'}">
+          <span class="badge-dot"></span>{es ? '实时' : following ? '重连中' : '已暂停'}
         </span>
         <span class="log-count">{filtered.length} / {logLines.length} 行</span>
       </div>

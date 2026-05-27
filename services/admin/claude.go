@@ -1,9 +1,6 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +18,8 @@ import (
 )
 
 var githubClient = &http.Client{Timeout: 15 * time.Second}
+
+var downloadClient = &http.Client{Timeout: 10 * time.Minute}
 
 // Platform definitions matching GitHub asset naming
 var claudePlatforms = []struct {
@@ -44,8 +43,8 @@ type claudeReleaseAsset struct {
 }
 
 type claudeRelease struct {
-	Version string              `json:"version"`
-	Date    string              `json:"date"`
+	Version string               `json:"version"`
+	Date    string               `json:"date"`
 	Assets  []claudeReleaseAsset `json:"-"`
 }
 
@@ -106,7 +105,6 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 			return
 		}
 		stored := listStoredDownloads()
-		// Strip assets for JSON output (the caller only needs version/date)
 		type releaseOutput struct {
 			Version string `json:"version"`
 			Date    string `json:"date"`
@@ -136,7 +134,6 @@ func apiClaudeCodePlatforms() http.HandlerFunc {
 			writeJSON(w, map[string]any{"version": version, "platforms": []string{}})
 			return
 		}
-		// Build a set of available platforms from asset names
 		assetPlats := map[string]bool{}
 		for _, a := range release.Assets {
 			plat := parseAssetPlat(a.Name)
@@ -157,7 +154,7 @@ func apiClaudeCodePlatforms() http.HandlerFunc {
 	}
 }
 
-// GET /api/admin/claude-code/stored — viewer+ can see downloaded binaries
+// GET /api/admin/claude-code/stored — viewer+ can see downloaded files
 func apiClaudeCodeStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stored := listStoredDownloads()
@@ -208,14 +205,6 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		filename := fmt.Sprintf("claude-code-%s-%s", body.Version, body.Plat)
-		for _, s := range listStoredDownloads() {
-			if s.Filename == filename {
-				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
-				return
-			}
-		}
-
 		// Find the asset for this version+plat from cached GitHub releases
 		release := findCachedRelease(body.Version)
 		if release == nil {
@@ -224,16 +213,25 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		}
 		assetURL := ""
 		assetSize := int64(0)
+		filename := ""
 		for _, a := range release.Assets {
 			if parseAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
 				assetSize = a.Size
+				filename = a.Name
 				break
 			}
 		}
 		if assetURL == "" {
 			writeError(w, "No asset for platform "+body.Plat+" in version "+body.Version, 400)
 			return
+		}
+
+		for _, s := range listStoredDownloads() {
+			if s.Filename == filename {
+				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
+				return
+			}
 		}
 
 		// Stream progress as NDJSON
@@ -251,7 +249,7 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		sendEvent(map[string]any{"type": "start", "filename": filename})
 
 		var lastPct int64 = -1
-		size, checksum, err := downloadClaudeBinary(filename, assetURL, assetSize, func(bytes, total int64) {
+		size, checksum, err := downloadClaudeArchive(filename, body.Version, body.Plat, assetURL, assetSize, func(bytes, total int64) {
 			if total <= 0 {
 				return
 			}
@@ -275,13 +273,12 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 func apiClaudeCodeServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
-		if !strings.HasPrefix(filename, "claude-code-") ||
+		if !strings.HasPrefix(filename, "claude-") ||
 			strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}
 		path := filepath.Join(claudeDownloadsDir, filename)
-		// Stream without buffering — nginx and Cloudflare should pass bytes through immediately
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -301,7 +298,7 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			writeError(w, "Filename required", 400)
 			return
 		}
-		if !strings.HasPrefix(body.Filename, "claude-code-") ||
+		if !strings.HasPrefix(body.Filename, "claude-") ||
 			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") {
 			writeError(w, "Invalid filename", 400)
 			return
@@ -398,27 +395,14 @@ func findCachedRelease(version string) *claudeRelease {
 
 // parseAssetPlat extracts the platform identifier from a GitHub asset name like "claude-linux-x64.tar.gz"
 func parseAssetPlat(name string) string {
-	// Strip prefix and known suffixes
 	rest := strings.TrimPrefix(name, "claude-")
 	for _, suf := range []string{".tar.gz", ".zip"} {
 		rest = strings.TrimSuffix(rest, suf)
 	}
-	// Verify it matches a known platform
 	for _, p := range claudePlatforms {
 		if rest == p.Plat {
 			return p.Plat
 		}
-	}
-	return ""
-}
-
-// assetExt returns the file extension for an asset name: ".tar.gz" or ".zip"
-func assetExt(name string) string {
-	if strings.HasSuffix(name, ".tar.gz") {
-		return ".tar.gz"
-	}
-	if strings.HasSuffix(name, ".zip") {
-		return ".zip"
 	}
 	return ""
 }
@@ -429,7 +413,10 @@ func listStoredDownloads() []claudeStoredDownload {
 }
 
 func parseStoredFilename(name string) (version, plat, platName string) {
-	rest := strings.TrimPrefix(name, "claude-code-")
+	rest := strings.TrimPrefix(name, "claude-")
+	for _, suf := range []string{".tar.gz", ".zip"} {
+		rest = strings.TrimSuffix(rest, suf)
+	}
 	plats := make([]struct{ Label, Plat string }, len(claudePlatforms))
 	for i, p := range claudePlatforms {
 		plats[i] = struct{ Label, Plat string }{p.Label, p.Plat}
@@ -449,24 +436,13 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress func(bytes, total int64)) (int64, string, error) {
+func downloadClaudeArchive(filename, version, plat, assetURL string, assetSize int64, onProgress func(bytes, total int64)) (int64, string, error) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 
-	// Download archive to temp file
-	ext := assetExt(filename)
-	if ext == "" {
-		// Derive from stored filename pattern: claude-code-version-plat
-		if strings.Contains(filename, "win32-") {
-			ext = ".zip"
-		} else {
-			ext = ".tar.gz"
-		}
-	}
+	tmpPath := filepath.Join(claudeDownloadsDir, filename+".download")
+	defer os.Remove(tmpPath)
 
-	tmpArchive := filepath.Join(claudeDownloadsDir, filename+".download"+ext)
-	defer os.Remove(tmpArchive)
-
-	f, err := os.Create(tmpArchive)
+	f, err := os.Create(tmpPath)
 	if err != nil {
 		return 0, "", err
 	}
@@ -478,7 +454,7 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 		f.Close()
 		return 0, "", fmt.Errorf("download request: %w", err)
 	}
-	resp, err := githubClient.Do(req)
+	resp, err := downloadClient.Do(req)
 	if err != nil {
 		f.Close()
 		return 0, "", fmt.Errorf("download: %w", err)
@@ -492,6 +468,7 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 
 	total := resp.ContentLength
 	buf := make([]byte, 128*1024)
+	hash := sha256.New()
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buf)
@@ -500,6 +477,7 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 				f.Close()
 				return 0, "", fmt.Errorf("write: %w", err)
 			}
+			hash.Write(buf[:n])
 			written += int64(n)
 			if onProgress != nil {
 				onProgress(written, total)
@@ -517,33 +495,21 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 		return 0, "", fmt.Errorf("close: %w", err)
 	}
 
-	// Extract binary from archive
-	binaryPath := filepath.Join(claudeDownloadsDir, filename)
-	tmpBinary := binaryPath + ".tmp"
-	binarySize, err := extractBinary(tmpArchive, ext, tmpBinary)
-	if err != nil {
-		return 0, "", fmt.Errorf("extract: %w", err)
-	}
-
-	// Compute SHA256 of the extracted binary
-	hash := sha256.New()
-	bf, err := os.Open(tmpBinary)
-	if err != nil {
-		return 0, "", err
-	}
-	io.Copy(hash, bf)
-	bf.Close()
 	checksum := hex.EncodeToString(hash.Sum(nil))
 
-	if err := os.Rename(tmpBinary, binaryPath); err != nil {
-		os.Remove(tmpBinary)
+	finalPath := filepath.Join(claudeDownloadsDir, filename)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
 		return 0, "", err
 	}
 
-	// Parse version and plat from stored filename
-	version, plat, platName := parseStoredFilename(filename)
+	platName := ""
+	for _, p := range claudePlatforms {
+		if p.Plat == plat {
+			platName = p.Label
+			break
+		}
+	}
 
-	// Persist metadata (atomic)
 	claudeDownloadMu.Lock()
 	m := readDownloadsManifestLocked()
 	m.Downloads = append(m.Downloads, claudeStoredDownload{
@@ -551,94 +517,14 @@ func downloadClaudeBinary(filename, assetURL string, assetSize int64, onProgress
 		Plat:         plat,
 		PlatformName: platName,
 		Filename:     filename,
-		Size:         binarySize,
+		Size:         written,
 		Checksum:     checksum,
 		DownloadedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	saveDownloadsManifestLocked(m)
 	claudeDownloadMu.Unlock()
 
-	return binarySize, checksum, nil
-}
-
-func extractBinary(archivePath, ext, outputPath string) (int64, error) {
-	switch ext {
-	case ".tar.gz":
-		return extractTarGz(archivePath, outputPath)
-	case ".zip":
-		return extractZip(archivePath, outputPath)
-	default:
-		return 0, fmt.Errorf("unknown archive format: %s", ext)
-	}
-}
-
-func extractTarGz(archivePath, outputPath string) (int64, error) {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return 0, err
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return 0, err
-		}
-		if hdr.Typeflag == tar.TypeReg {
-			out, err := os.Create(outputPath)
-			if err != nil {
-				return 0, err
-			}
-			n, err := io.Copy(out, tr)
-			out.Close()
-			if err != nil {
-				return 0, err
-			}
-			return n, nil
-		}
-	}
-	return 0, fmt.Errorf("no binary found in tar.gz")
-}
-
-func extractZip(archivePath, outputPath string) (int64, error) {
-	zr, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return 0, err
-	}
-	defer zr.Close()
-
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return 0, err
-		}
-		out, err := os.Create(outputPath)
-		if err != nil {
-			rc.Close()
-			return 0, err
-		}
-		n, err := io.Copy(out, rc)
-		rc.Close()
-		out.Close()
-		if err != nil {
-			return 0, err
-		}
-		return n, nil
-	}
-	return 0, fmt.Errorf("no binary found in zip")
+	return written, checksum, nil
 }
 
 func cleanupOldDownloads(maxKeep int) {
