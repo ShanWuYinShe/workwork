@@ -28,6 +28,8 @@ func main() {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
 
+	go xhttpHealthChecker(cli)
+
 	mux := http.NewServeMux()
 
 	// Auth — available to all authenticated users
