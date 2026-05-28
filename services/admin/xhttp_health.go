@@ -1,0 +1,84 @@
+package main
+
+import (
+	"bufio"
+	"context"
+	"log"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
+)
+
+var xhttpPostRE = regexp.MustCompile(`"POST /proxy/query/\S+ HTTP/\S+" (\d{3})`)
+
+const (
+	checkInterval  = 5 * time.Minute
+	checkWindow    = "2m"
+	cooldownPeriod = 15 * time.Minute
+	threshold      = 3
+)
+
+func xhttpHealthChecker(cli *client.Client) {
+	var lastRestart time.Time
+
+	for range time.Tick(checkInterval) {
+		if time.Since(lastRestart) < cooldownPeriod {
+			continue
+		}
+		total, bad := countXHTTPPosts(cli)
+		if total >= threshold && total == bad {
+			log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
+			if err := restartXray(cli); err != nil {
+				log.Printf("[xhttp-health] restart failed: %v", err)
+				continue
+			}
+			lastRestart = time.Now()
+			log.Printf("[xhttp-health] xray restarted successfully")
+		}
+	}
+}
+
+func countXHTTPPosts(cli *client.Client) (total, bad int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.KeyValuePair{
+			Key: "label", Value: "com.docker.compose.service=nginx",
+		}),
+	})
+	if err != nil || len(containers) == 0 {
+		return 0, 0
+	}
+
+	logs, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
+		ShowStdout: true,
+		Since:      checkWindow,
+		Tail:       "200",
+	})
+	if err != nil {
+		return 0, 0
+	}
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "POST /proxy/query/") {
+			continue
+		}
+		m := xhttpPostRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		total++
+		if m[1] == "400" {
+			bad++
+		}
+	}
+	return total, bad
+}
