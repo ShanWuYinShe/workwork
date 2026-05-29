@@ -228,8 +228,8 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		}
 
 		for _, s := range listStoredDownloads() {
-			if s.Filename == filename {
-				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
+			if s.Version == body.Version && s.Plat == body.Plat {
+				writeJSON(w, map[string]any{"status": "already_exists", "filename": s.Filename})
 				return
 			}
 		}
