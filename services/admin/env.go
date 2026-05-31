@@ -30,8 +30,8 @@ func loadEnv() {
 					continue
 				}
 				if (strings.HasPrefix(v, `"`) && strings.HasSuffix(v, `"`)) || (strings.HasPrefix(v, `'`) && strings.HasSuffix(v, `'`)) {
-				v = v[1 : len(v)-1]
-			}
+					v = v[1 : len(v)-1]
+				}
 				envMap[k] = v
 			}
 		}

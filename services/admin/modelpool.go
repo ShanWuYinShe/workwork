@@ -64,14 +64,14 @@ func getUserPoolAccess(username string) bool {
 }
 
 func setUserPoolAccess(username string, granted bool) error {
-	return updateUsersMeta(func(doc *usersMetaDoc) error {
+	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		info, ok := doc.Users[username]
 		if !ok {
 			info = UserInfo{Role: "viewer"}
 		}
 		info.PoolAccess = granted
 		doc.Users[username] = info
-		return nil
+		return true, nil
 	})
 }
 
