@@ -55,13 +55,18 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 		t.Fatalf("expected proxy domains to include geosite:youtube, got %#v", domains)
 	}
 
-	observatory := nestedMap(t, doc, "burstObservatory")
-	pingConfig := nestedMap(t, observatory, "pingConfig")
-	if pingConfig["destination"] != "https://www.gstatic.com/generate_204" {
-		t.Fatalf("unexpected observatory destination: %#v", pingConfig["destination"])
+	observatory := nestedMap(t, doc, "observatory")
+	if observatory["subjectSelector"] == nil {
+		t.Fatalf("expected observatory subjectSelector, got %#v", observatory["subjectSelector"])
 	}
-	if pingConfig["connectivity"] != "https://cp.cloudflare.com/cdn-cgi/trace" {
-		t.Fatalf("unexpected observatory connectivity target: %#v", pingConfig["connectivity"])
+	if observatory["probeURL"] != "https://cp.cloudflare.com/generate_204" {
+		t.Fatalf("unexpected observatory probeURL: %#v", observatory["probeURL"])
+	}
+	if observatory["probeInterval"] != "30s" {
+		t.Fatalf("unexpected observatory probeInterval: %#v", observatory["probeInterval"])
+	}
+	if observatory["enableConcurrency"] != true {
+		t.Fatalf("unexpected observatory enableConcurrency: %#v", observatory["enableConcurrency"])
 	}
 }
 

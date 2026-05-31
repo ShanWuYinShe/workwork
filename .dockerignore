@@ -1,0 +1,13 @@
+.env
+.wework
+cert
+logs
+cliproxy-data
+*.md
+.git
+.gitignore
+.idea
+.vscode
+node_modules
+dev
+tests

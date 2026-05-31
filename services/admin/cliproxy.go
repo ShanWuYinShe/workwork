@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -266,7 +267,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to create config directory", 500)
 			return
 		}
-		if err := os.WriteFile(cfgPath, []byte(out), 0644); err != nil {
+		if err := os.WriteFile(cfgPath, []byte(out), 0600); err != nil {
 			writeError(w, "Failed to write config", 500)
 			return
 		}
@@ -415,7 +416,9 @@ func apiCliproxyPublicConfig(cli *client.Client) http.HandlerFunc {
 			out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
 			out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
 			out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
-			os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0644)
+			if err := os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0600); err != nil {
+				log.Printf("ERROR: failed to write cliproxy config: %v", err)
+			}
 			writeJSON(w, map[string]string{"status": "ok"})
 		}
 	}
@@ -590,29 +593,30 @@ func maskKey(key string) string {
 	return key[:4] + "****" + key[len(key)-4:]
 }
 
+var yamlReplacer = strings.NewReplacer(
+	`\`, `\\`,
+	`"`, `\"`,
+	"\n", "",
+	"\r", "",
+	":", "\\:",
+	"#", "\\#",
+	"{", "\\{",
+	"}", "\\}",
+	"[", "\\[",
+	"]", "\\]",
+	"&", "\\&",
+	"*", "\\*",
+	"!", "\\!",
+	"|", "\\|",
+	">", "\\>",
+	"'", "\\'",
+	",", "\\,",
+	"?", "\\?",
+	"%", "\\%",
+	"@", "\\@",
+	"`", "\\`",
+)
+
 func sanitizeYAML(s string) string {
-	// Escape YAML special characters to prevent injection
-	// Order matters: backslash first, then double-quote, then others
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", "")
-	s = strings.ReplaceAll(s, "\r", "")
-	s = strings.ReplaceAll(s, ":", "\\:")
-	s = strings.ReplaceAll(s, "#", "\\#")
-	s = strings.ReplaceAll(s, "{", "\\{")
-	s = strings.ReplaceAll(s, "}", "\\}")
-	s = strings.ReplaceAll(s, "[", "\\[")
-	s = strings.ReplaceAll(s, "]", "\\]")
-	s = strings.ReplaceAll(s, "&", "\\&")
-	s = strings.ReplaceAll(s, "*", "\\*")
-	s = strings.ReplaceAll(s, "!", "\\!")
-	s = strings.ReplaceAll(s, "|", "\\|")
-	s = strings.ReplaceAll(s, ">", "\\>")
-	s = strings.ReplaceAll(s, "'", "\\'")
-	s = strings.ReplaceAll(s, ",", "\\,")
-	s = strings.ReplaceAll(s, "?", "\\?")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "@", "\\@")
-	s = strings.ReplaceAll(s, "`", "\\`")
-	return s
+	return yamlReplacer.Replace(s)
 }

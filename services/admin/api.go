@@ -77,11 +77,13 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 
 		// For non-admin users, return personalized dashboard
 		if userInfo != nil && userInfo.Role != "admin" {
-			allClients, _ := handlers.ReadXrayClients()
+			allClients, err := readXrayClientMaps()
 			var myClients []map[string]string
-			for _, c := range allClients {
-				if c["owner"] == username {
-					myClients = append(myClients, c)
+			if err == nil {
+				for _, c := range allClients {
+					if c["owner"] == username {
+						myClients = append(myClients, c)
+					}
 				}
 			}
 			genJSON := handlers.GenerateClientConfig(myClients, handlers.ClientConfig{
@@ -153,6 +155,9 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		case "restart":
 			t := 10
 			err = cli.ContainerRestart(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
+			if err == nil && name == "xray" {
+				restoreRotatingIP(r.Context(), cli, containers[0].ID)
+			}
 		default:
 			writeError(w, "Unknown action", 400)
 			return
@@ -248,7 +253,11 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 func apiUsers(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
-		allClients, _ := handlers.ReadXrayClients()
+		allClients, err := readXrayClientMaps()
+		if err != nil {
+			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			return
+		}
 
 		// Filter by owner: admin sees all, viewer sees only own
 		var filtered []map[string]string
@@ -350,7 +359,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			log.Printf("ERROR: failed to regenerate xray config: %v", err)
+			writeError(w, "Failed to regenerate xray config: "+err.Error(), 500)
+			return
 		}
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after add: %v", err)
@@ -401,7 +411,8 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			log.Printf("ERROR: failed to regenerate xray config: %v", err)
+			writeError(w, "Failed to regenerate xray config: "+err.Error(), 500)
+			return
 		}
 		if err := restartXray(cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after delete: %v", err)
@@ -420,7 +431,11 @@ func apiXrayClientConfig() http.HandlerFunc {
 			return
 		}
 
-		allClients, _ := handlers.ReadXrayClients()
+		allClients, err := readXrayClientMaps()
+		if err != nil {
+			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			return
+		}
 		var client map[string]string
 		for _, c := range allClients {
 			if c["id"] == uuid {
@@ -475,7 +490,10 @@ func htpasswdAddUser(username, password string) error {
 		return err
 	}
 	newLine := strings.TrimSpace(string(out))
-	data, _ := os.ReadFile(htpasswdFile)
+	data, readErr := os.ReadFile(htpasswdFile)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
 	var lines []string
 	replaced := false
 	for _, line := range strings.Split(string(data), "\n") {
@@ -618,7 +636,12 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 
 		htpasswdMu.Lock()
-		data, _ := os.ReadFile(htpasswdFile)
+		data, readErr := os.ReadFile(htpasswdFile)
+		if readErr != nil && !os.IsNotExist(readErr) {
+			htpasswdMu.Unlock()
+			writeError(w, "Failed to read htpasswd", 500)
+			return
+		}
 		var lines []string
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
@@ -1202,11 +1225,32 @@ func restartXray(cli *client.Client) error {
 	if len(containers) == 0 {
 		return nil
 	}
+	id := containers[0].ID
+
 	t := 10
-	if err := cli.ContainerRestart(ctx, containers[0].ID, container.StopOptions{Timeout: &t}); err != nil {
+	if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t}); err != nil {
 		return fmt.Errorf("restart xray: %w", err)
 	}
+
+	// Restore the rotating IPv6 address after restart.
+	restoreRotatingIP(ctx, cli, id)
 	return nil
+}
+
+// restoreRotatingIP re-adds the dynamic rotating IPv6 address after a container restart.
+// Docker restart drops dynamically-assigned IPs added via `ip addr add`,
+// but admin knows the current IP from DNS and can re-add it.
+func restoreRotatingIP(ctx context.Context, cli *client.Client, containerID string) {
+	if getEnv("CF_API_TOKEN") == "" {
+		return
+	}
+	xrayIP, _ := loadCurrentIPs()
+	if xrayIP == "" {
+		return
+	}
+	if err := addContainerIP(ctx, cli, containerID, xrayIP); err != nil {
+		log.Printf("WARNING: failed to restore rotating IPv6 %s: %v", xrayIP, err)
+	}
 }
 
 func containerExec(ctx context.Context, cli *client.Client, containerID string, cmd ...string) error {

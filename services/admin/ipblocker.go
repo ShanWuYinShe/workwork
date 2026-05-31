@@ -82,6 +82,8 @@ func (s *ipBlockStore) add(ip, reason string, duration time.Duration) {
 			s.Entries[i].BlockedAt = time.Now().UTC().Format(time.RFC3339)
 			if duration > 0 {
 				s.Entries[i].ExpiresAt = time.Now().UTC().Add(duration).Format(time.RFC3339)
+			} else {
+				s.Entries[i].ExpiresAt = ""
 			}
 			return
 		}
