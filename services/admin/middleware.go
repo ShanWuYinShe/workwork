@@ -55,7 +55,7 @@ func readUsersMeta() (*usersMetaDoc, error) {
 	return doc, nil
 }
 
-func updateUsersMeta(fn func(doc *usersMetaDoc) error) error {
+func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 	usersMetaMu.Lock()
 	defer usersMetaMu.Unlock()
 
@@ -72,7 +72,8 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) error) error {
 		doc.Users = make(map[string]UserInfo)
 	}
 
-	if err := fn(doc); err != nil {
+	dirty, err := fn(doc)
+	if err != nil || !dirty {
 		return err
 	}
 
@@ -85,15 +86,25 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) error) error {
 }
 
 func ensureUserMeta(username string) (*UserInfo, error) {
+	doc, err := readUsersMeta()
+	if err != nil {
+		return nil, err
+	}
+	if existing, exists := doc.Users[username]; exists {
+		return &existing, nil
+	}
+
 	var info *UserInfo
-	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+	err = updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		existing, exists := doc.Users[username]
-		if !exists {
-			existing = UserInfo{Role: "viewer", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-			doc.Users[username] = existing
+		if exists {
+			info = &existing
+			return false, nil
 		}
-		info = &existing
-		return nil
+		newInfo := UserInfo{Role: "viewer", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+		doc.Users[username] = newInfo
+		info = &newInfo
+		return true, nil
 	})
 	return info, err
 }
@@ -103,16 +114,16 @@ func isProtectedAdmin(username string) bool {
 }
 
 func updateUserMeta(username string, info UserInfo) error {
-	return updateUsersMeta(func(doc *usersMetaDoc) error {
+	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		doc.Users[username] = info
-		return nil
+		return true, nil
 	})
 }
 
 func deleteUserMeta(username string) error {
-	return updateUsersMeta(func(doc *usersMetaDoc) error {
+	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		delete(doc.Users, username)
-		return nil
+		return true, nil
 	})
 }
 
@@ -124,23 +135,23 @@ func getUserFromContext(r *http.Request) (*UserInfo, string) {
 
 func getOrCreateCliproxyToken(username string) (string, error) {
 	var token string
-	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+	err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		info := doc.Users[username]
 		if info.CliproxyToken != "" {
 			token = info.CliproxyToken
-			return nil
+			return false, nil
 		}
 		b := make([]byte, 10)
 		if _, err := rand.Read(b); err != nil {
-			return err
+			return false, err
 		}
 		info.CliproxyToken = hex.EncodeToString(b)
 		if info.CreatedAt == "" {
-			info.CreatedAt = doc.Users[username].CreatedAt
+			info.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 		}
 		doc.Users[username] = info
 		token = info.CliproxyToken
-		return nil
+		return true, nil
 	})
 	return token, err
 }
@@ -148,19 +159,19 @@ func getOrCreateCliproxyToken(username string) (string, error) {
 func getOrCreateProxyPassword(username string) (string, error) {
 	var password string
 	created := false
-	err := updateUsersMeta(func(doc *usersMetaDoc) error {
+	err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		info := doc.Users[username]
 		// Admin users don't manage xray clients
 		if info.Role == "admin" {
-			return nil
+			return false, nil
 		}
 		if info.ProxyPassword != "" {
 			password = info.ProxyPassword
-			return nil
+			return false, nil
 		}
 		b := make([]byte, 12)
 		if _, err := rand.Read(b); err != nil {
-			return err
+			return false, err
 		}
 		info.ProxyPassword = hex.EncodeToString(b)
 		if info.CreatedAt == "" {
@@ -169,7 +180,7 @@ func getOrCreateProxyPassword(username string) (string, error) {
 		doc.Users[username] = info
 		password = info.ProxyPassword
 		created = true
-		return nil
+		return true, nil
 	})
 	if err != nil {
 		return "", err

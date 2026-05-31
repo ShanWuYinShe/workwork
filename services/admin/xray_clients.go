@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"admin/handlers"
 )
 
 // Xray clients are stored independently from the generated xray.json.
@@ -140,4 +142,11 @@ func migrateXrayClientsFromConfig() []xrayClientEntry {
 		}
 	}
 	return clients
+}
+
+// readXrayClientMaps reads clients with locking and returns in map format for config generation.
+func readXrayClientMaps() ([]map[string]string, error) {
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+	return handlers.ReadXrayClients()
 }

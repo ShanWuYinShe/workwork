@@ -48,8 +48,8 @@ func init() {
 	cfClient = &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:        10,
-			IdleConnTimeout:      90 * time.Second,
-			TLSHandshakeTimeout:  10 * time.Second,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
 		},
 		Timeout: 30 * time.Second,
 	}

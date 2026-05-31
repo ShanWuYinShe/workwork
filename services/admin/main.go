@@ -118,8 +118,9 @@ func main() {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
-
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
 		if isStaticAsset(r.URL.Path) {
 			w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")

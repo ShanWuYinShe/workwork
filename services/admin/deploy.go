@@ -49,7 +49,10 @@ func genXrayConfig() error {
 		return err
 	}
 
-	clients, _ := readXrayClients()
+	clients, err := readXrayClients()
+	if err != nil {
+		return fmt.Errorf("read xray clients: %w", err)
+	}
 
 	var xhttpClients, realityClients bytes.Buffer
 	enc := json.NewEncoder(&xhttpClients)
@@ -164,11 +167,12 @@ func seedAdminUser() error {
 	if adminUser == "" {
 		return nil
 	}
-	return updateUsersMeta(func(doc *usersMetaDoc) error {
+	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		if _, exists := doc.Users[adminUser]; !exists {
 			doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+			return true, nil
 		}
-		return nil
+		return false, nil
 	})
 }
 
