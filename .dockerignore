@@ -9,5 +9,3 @@ cliproxy-data
 .idea
 .vscode
 node_modules
-dev
-tests
