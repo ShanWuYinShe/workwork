@@ -170,14 +170,6 @@ service/
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件
 │
-├── dev/                     # 开发环境 CLI
-│   ├── dev.py              # 入口点
-│   ├── cli.py              # 命令解析
-│   ├── core.py             # Docker 辅助函数
-│   ├── config.py           # 分层配置
-│   ├── ipam.py             # IP 地址管理
-│   └── cmds/               # 命令实现
-│
 ├── cert/                    # TLS 证书（不提交）
 ├── logs/                    # 日志输出
 └── .wework/                # 运行时数据（不提交）
@@ -222,9 +214,6 @@ docker compose logs -f xray
 # 重启服务
 docker compose restart admin
 docker compose restart xray
-
-# 运行测试
-python3 -m pytest tests/ -v
 ```
 
 ## 部署流程

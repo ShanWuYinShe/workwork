@@ -44,11 +44,5 @@ services/admin/admin
 # SPA build output
 ui/dist/
 
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-*.egg-info/
-
 # Claude Code
 .claude/

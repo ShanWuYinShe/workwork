@@ -9,7 +9,6 @@ WorkWork is a Docker-based proxy infrastructure featuring:
 - **Nginx** reverse proxy (Cloudflare Full Proxy → nginx → admin/xray)
 - **Admin panel** (Go backend + Svelte SPA) with user management, IPv6 rotation, cliproxy orchestration, model pool, binary downloads
 - **Cliproxy** per-user API proxy containers for AI provider access
-- **Python CLI** (`dev/dev.py`) for local Docker development environment
 
 ## Hard constraint — container isolation
 
@@ -26,10 +25,6 @@ npm --prefix ui run build
 
 # Full deploy (after git push)
 ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker compose up -d"
-
-# Python CLI
-python3 dev/dev.py <command>
-python3 -m pytest tests/ -v
 ```
 
 ## RBAC — Do NOT break this
