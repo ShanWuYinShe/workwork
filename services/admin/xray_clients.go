@@ -50,7 +50,7 @@ func writeXrayClients(clients []xrayClientEntry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(xrayClientsPath, data, 0644)
+	return atomicWriteFile(xrayClientsPath, data, 0600)
 }
 
 func addXrayClient(entry xrayClientEntry) error {

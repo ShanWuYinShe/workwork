@@ -28,6 +28,10 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
+// maxDownloadSize caps the size of a single binary download (Xray, Claude Code).
+// Prevents a malicious or compromised CDN from filling the container's disk.
+const maxDownloadSize = 500 << 20 // 500 MiB
+
 type jsonResp struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
@@ -43,6 +47,15 @@ func writeError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(jsonResp{Success: false, Error: msg})
+}
+
+// writeInternalError returns a generic 500 to the client while logging the
+// full error server-side. Use this for any error whose underlying message
+// could leak internal state (file paths, docker container IDs, CF API
+// responses, JSON struct field names, etc.).
+func writeInternalError(w http.ResponseWriter, err error) {
+	log.Printf("internal error: %v", err)
+	writeError(w, "Internal error", http.StatusInternalServerError)
 }
 
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
@@ -163,7 +176,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		svcs := listServicesJSON(r.Context(), cli)
@@ -255,7 +268,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		userInfo, username := getUserFromContext(r)
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -347,7 +360,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		}
 
 		if err := addXrayClient(xrayClientEntry{ID: body.UUID, Owner: username, Email: username}); err != nil {
-			writeError(w, "Failed to save client: "+err.Error(), 500)
+			log.Printf("Failed to save client: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -359,7 +372,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			writeError(w, "Failed to regenerate xray config: "+err.Error(), 500)
+			log.Printf("Failed to regenerate xray config: : %v", err); writeInternalError(w, err)
 			return
 		}
 		if err := restartXray(cli); err != nil {
@@ -384,7 +397,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		// Check ownership before deleting
 		clients, err := readXrayClients()
 		if err != nil {
-			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
 			return
 		}
 		found := false
@@ -404,14 +417,14 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		}
 
 		if err := deleteXrayClient(body.UUID); err != nil {
-			writeError(w, "Failed to delete client: "+err.Error(), 500)
+			log.Printf("Failed to delete client: : %v", err); writeInternalError(w, err)
 			return
 		}
 
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			writeError(w, "Failed to regenerate xray config: "+err.Error(), 500)
+			log.Printf("Failed to regenerate xray config: : %v", err); writeInternalError(w, err)
 			return
 		}
 		if err := restartXray(cli); err != nil {
@@ -433,7 +446,7 @@ func apiXrayClientConfig() http.HandlerFunc {
 
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			writeError(w, "Failed to read clients: "+err.Error(), 500)
+			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
 			return
 		}
 		var client map[string]string
@@ -586,7 +599,7 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		// Create users.json entry
@@ -594,7 +607,7 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			Role:      body.Role,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -714,7 +727,7 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 		existing, _ := ensureUserMeta(body.Username)
 		existing.Role = body.Role
 		if err := updateUserMeta(body.Username, *existing); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -774,7 +787,7 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 // DNS is the authoritative source; this file serves as a fast local cache.
 func saveCurrentIPs(xrayIP, nginxIP string) {
 	_ = os.WriteFile("/app/data/rotating-ips.json",
-		[]byte(fmt.Sprintf(`{"xray":"%s","nginx":"%s"}`, xrayIP, nginxIP)), 0644)
+		[]byte(fmt.Sprintf(`{"xray":"%s","nginx":"%s"}`, xrayIP, nginxIP)), 0600)
 }
 
 // cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,
@@ -1007,7 +1020,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		// Collect assigned IPs to avoid collisions; generate separate IPs per container
 		prefix, err := parseSubnetPrefix(subnet)
 		if err != nil {
-			writeError(w, "Invalid IPV6_SUBNET: "+err.Error(), 500)
+			log.Printf("Invalid IPV6_SUBNET: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -1015,7 +1028,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
-			writeError(w, "Failed to generate xray IPv6: "+err.Error(), 500)
+			log.Printf("Failed to generate xray IPv6: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -1023,7 +1036,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
-			writeError(w, "Failed to generate nginx IPv6: "+err.Error(), 500)
+			log.Printf("Failed to generate nginx IPv6: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -1031,12 +1044,12 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		// Add new IPs
 		if err := addContainerIP(r.Context(), cli, xrayID, xrayIP); err != nil {
-			writeError(w, "Failed to add IPv6 to xray: "+err.Error(), 500)
+			log.Printf("Failed to add IPv6 to xray: : %v", err); writeInternalError(w, err)
 			return
 		}
 		if err := addContainerIP(r.Context(), cli, nginxID, nginxIP); err != nil {
 			delContainerIP(r.Context(), cli, xrayID, xrayIP)
-			writeError(w, "Failed to add IPv6 to nginx: "+err.Error(), 500)
+			log.Printf("Failed to add IPv6 to nginx: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -1130,12 +1143,12 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 		// Get actual container IPs — no local state, containers are the source of truth.
 		xrayID, err := findContainer(r.Context(), cli, "xray")
 		if err != nil {
-			writeError(w, "xray container: "+err.Error(), 500)
+			log.Printf("xray container: : %v", err); writeInternalError(w, err)
 			return
 		}
 		nginxID, err := findContainer(r.Context(), cli, "nginx")
 		if err != nil {
-			writeError(w, "nginx container: "+err.Error(), 500)
+			log.Printf("nginx container: : %v", err); writeInternalError(w, err)
 			return
 		}
 
@@ -1310,7 +1323,7 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 			Tail: tail, Timestamps: true,
 		})
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		defer logs.Close()
@@ -1351,7 +1364,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 			Tail: tail, Timestamps: true, Follow: true,
 		})
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		defer logs.Close()

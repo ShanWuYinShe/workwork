@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -84,7 +86,7 @@ func readXrayManifestLocked() xrayDownloadsManifest {
 func saveXrayManifestLocked(m xrayDownloadsManifest) {
 	os.MkdirAll(xrayDownloadsDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	os.WriteFile(xrayManifestPath, data, 0644)
+	os.WriteFile(xrayManifestPath, data, 0600)
 }
 
 // GET /api/admin/xray/releases
@@ -92,7 +94,7 @@ func apiXrayReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := fetchXrayVersions()
 		if err != nil {
-			writeError(w, "Failed to fetch versions: "+err.Error(), 500)
+			log.Printf("Failed to fetch versions: : %v", err); writeInternalError(w, err)
 			return
 		}
 		stored := listXrayStored()
@@ -165,7 +167,7 @@ func apiXrayRefresh() http.HandlerFunc {
 
 		releases, err := fetchXrayVersions()
 		if err != nil {
-			writeError(w, "Failed to refresh: "+err.Error(), 500)
+			log.Printf("Failed to refresh: : %v", err); writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
@@ -291,7 +293,7 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 			return
 		}
 		if err := os.Remove(filepath.Join(xrayDownloadsDir, body.Filename)); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		xrayDownloadMu.Lock()
@@ -435,7 +437,9 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 		return 0, "", err
 	}
 
-	req, err := http.NewRequest("GET", assetURL, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", assetURL, nil)
 	if err != nil {
 		f.Close()
 		return 0, "", fmt.Errorf("download request: %w", err)
@@ -452,19 +456,30 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 		return 0, "", fmt.Errorf("HTTP %d downloading asset", resp.StatusCode)
 	}
 
+	// Reject the download if the upstream claims a payload larger than
+	// maxDownloadSize. Without this check a malicious or compromised CDN
+	// could fill the container's disk.
 	total := resp.ContentLength
+	if total > maxDownloadSize {
+		f.Close()
+		return 0, "", fmt.Errorf("asset too large: %d bytes (max %d)", total, maxDownloadSize)
+	}
 	buf := make([]byte, 128*1024)
 	hash := sha256.New()
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			written += int64(n)
+			if written > maxDownloadSize {
+				f.Close()
+				return 0, "", fmt.Errorf("asset exceeded max size %d", maxDownloadSize)
+			}
 			if _, err := f.Write(buf[:n]); err != nil {
 				f.Close()
 				return 0, "", fmt.Errorf("write: %w", err)
 			}
 			hash.Write(buf[:n])
-			written += int64(n)
 			if onProgress != nil {
 				onProgress(written, total)
 			}

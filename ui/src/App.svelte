@@ -9,15 +9,30 @@
 
   let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
   let userInfo = $state(null);
+  let authError = $state(null);
+  let authLoading = $state(true);
   let sidebarCollapsed = $state(false);
   let mobileMenuOpen = $state(false);
 
-  onMount(async () => {
+  async function loadUser() {
+    authLoading = true;
+    authError = null;
     try {
       userInfo = await getCurrentUser();
     } catch (e) {
-      /* ignore */
+      // Don't silently swallow — surface the failure so the user can
+      // retry or report a broken auth backend. Without this, an admin
+      // who hits one bad response is permanently locked on the
+      // forbidden screen.
+      authError = e?.message || String(e);
+      userInfo = null;
+    } finally {
+      authLoading = false;
     }
+  }
+
+  onMount(() => {
+    loadUser();
     function onPopstate() {
       currentPath = window.location.pathname.replace('/admin', '') || '/';
     }
@@ -48,6 +63,19 @@
   {/if}
 
   <main class="main">
+    {#if authError}
+      <div class="auth-error-banner" role="alert">
+        <div class="auth-error-text">
+          <strong>{t('authFailedTitle')}</strong>
+          <span>{authError}</span>
+        </div>
+        <div class="auth-error-actions">
+          <button class="btn btn-ghost btn-sm" onclick={() => loadUser()} disabled={authLoading}>
+            {authLoading ? '…' : t('retry')}
+          </button>
+        </div>
+      </div>
+    {/if}
     <div class="mobile-topbar">
       <button class="hamburger-btn" onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label="Menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
@@ -930,6 +958,38 @@
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 19;
+  }
+
+  /* ── Auth error banner ── */
+  .auth-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--c-danger-bg);
+    border-bottom: 1px solid var(--c-danger);
+    color: var(--c-danger);
+    font-size: 0.8rem;
+  }
+  .auth-error-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .auth-error-text strong {
+    color: var(--c-text-heading);
+    font-weight: 600;
+  }
+  .auth-error-text span {
+    color: var(--c-text-secondary);
+    font-size: 0.75rem;
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    word-break: break-word;
+  }
+  .auth-error-actions {
+    flex-shrink: 0;
   }
 
   /* ── Responsive ── */

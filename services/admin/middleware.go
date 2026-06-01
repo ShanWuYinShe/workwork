@@ -6,8 +6,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"log"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -82,7 +85,7 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(usersMetaPath, data, 0644)
+	return atomicWriteFile(usersMetaPath, data, 0600)
 }
 
 func ensureUserMeta(username string) (*UserInfo, error) {
@@ -93,20 +96,9 @@ func ensureUserMeta(username string) (*UserInfo, error) {
 	if existing, exists := doc.Users[username]; exists {
 		return &existing, nil
 	}
-
-	var info *UserInfo
-	err = updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
-		existing, exists := doc.Users[username]
-		if exists {
-			info = &existing
-			return false, nil
-		}
-		newInfo := UserInfo{Role: "viewer", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-		doc.Users[username] = newInfo
-		info = &newInfo
-		return true, nil
-	})
-	return info, err
+	// User not in users.json — must be explicitly created by admin.
+	// Do NOT auto-provision on first request: any request could forge X-Forwarded-User.
+	return nil, nil
 }
 
 func isProtectedAdmin(username string) bool {
@@ -191,6 +183,51 @@ func getOrCreateProxyPassword(username string) (string, error) {
 	return password, nil
 }
 
+// trustedProxyCIDRs returns the set of networks allowed to forge X-Forwarded-User.
+// Configurable via TRUSTED_PROXY_CIDRS env (comma-separated CIDRs).
+// Default: loopback + the docker bridge that fronts this service.
+var trustedProxyCIDRs = sync.OnceValue(func() []*net.IPNet {
+	defaults := "127.0.0.0/8,::1/128,172.16.0.0/12"
+	raw := os.Getenv("TRUSTED_PROXY_CIDRS")
+	if raw == "" {
+		raw = defaults
+	}
+	var nets []*net.IPNet
+	for _, c := range strings.Split(raw, ",") {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			log.Printf("WARNING: ignoring bad TRUSTED_PROXY_CIDR %q: %v", c, err)
+			continue
+		}
+		nets = append(nets, n)
+	}
+	return nets
+})
+
+// isTrustedProxy reports whether the immediate caller of this service is in
+// the trusted-proxy set. Without this guard, any container on the docker bridge
+// could set X-Forwarded-User to impersonate any user.
+func isTrustedProxy(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range trustedProxyCIDRs() {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
 	internalToken := os.Getenv("INTERNAL_TOKEN")
@@ -200,12 +237,19 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			var info *UserInfo
 			var username string
 
-			// Internal services (fail2ban) authenticate via shared secret
+			// Internal services (fail2ban) authenticate via shared secret.
+			// This bypass is intentional and only requires the INTERNAL_TOKEN.
 			if internalToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 				username = "internal"
 			} else {
-				// External requests: must come through nginx (X-Forwarded-User set by basic auth)
+				// External requests must come through a trusted reverse proxy
+				// (nginx on the docker bridge), and the proxy must have set
+				// X-Forwarded-User after authenticating with basic auth.
+				if !isTrustedProxy(r.RemoteAddr) {
+					writeError(w, "Unauthorized", 401)
+					return
+				}
 				username = r.Header.Get("X-Forwarded-User")
 				if username == "" {
 					writeError(w, "Unauthorized", 401)
@@ -215,6 +259,13 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 				info, err = ensureUserMeta(username)
 				if err != nil {
 					writeError(w, "Internal error", 500)
+					return
+				}
+				if info == nil {
+					// User authenticated by nginx but not provisioned in
+					// users.json. Refuse to auto-create on first request —
+					// admin must add them via /api/admin/users/admin/add.
+					writeError(w, "User not provisioned", 403)
 					return
 				}
 			}
