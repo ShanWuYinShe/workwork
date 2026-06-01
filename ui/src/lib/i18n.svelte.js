@@ -587,10 +587,35 @@ let lang = $state(
   typeof localStorage !== 'undefined' ? localStorage.getItem('lang') || 'zh' : 'zh',
 );
 
+// Escape user-controlled values before interpolating them into translation
+// strings. Without this, a username / IP / filename containing HTML
+// (e.g. "<img src=x onerror=...>") would be rendered verbatim by Svelte
+// when the result is placed inside an {@html} block or any element, and
+// could execute script in the admin's browser.
+/**
+ * @param {unknown} v
+ */
+function escapeVar(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * @param {string} key
+ * @param {Record<string, unknown>} [vars]
+ */
 export function t(key, vars) {
-  let s = dicts[lang]?.[key] || dicts.en[key] || key;
+  const dictsAny = /** @type {Record<string, Record<string, string>>} */ (/** @type {unknown} */ (dicts));
+  let s = dictsAny[lang]?.[key] || dictsAny.en[key] || key;
   if (vars) {
-    for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v);
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.split(`{${k}}`).join(escapeVar(v));
+    }
   }
   return s;
 }

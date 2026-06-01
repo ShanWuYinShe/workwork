@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -39,7 +40,7 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			}),
 		})
 		if err != nil {
-			writeError(w, "Docker API error: "+err.Error(), 500)
+			log.Printf("Docker API error: : %v", err); writeInternalError(w, err)
 			return
 		}
 		// index containers by token label
@@ -54,7 +55,7 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 
 		doc, err := readUsersMeta()
 		if err != nil {
-			writeError(w, "Failed to read users: "+err.Error(), 500)
+			log.Printf("Failed to read users: : %v", err); writeInternalError(w, err)
 			return
 		}
 		// Only show users that exist in htpasswd
@@ -108,7 +109,7 @@ func apiCliproxyStart(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := startCliproxy(r.Context(), cli, body.Username); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -129,7 +130,7 @@ func apiCliproxyStop(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := stopCliproxy(r.Context(), cli, body.Username); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -147,7 +148,7 @@ func apiCliproxyGetConfig(cli *client.Client) http.HandlerFunc {
 		}
 		tok, err := cliproxyTokenForUser(body.Username)
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		cfgPath := cliproxyConfigPath(tok)
@@ -214,7 +215,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 
 		tok, err := cliproxyTokenForUser(body.Username)
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		tmpl, err := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
@@ -275,7 +276,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		metaPath := strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 		metaData, err := json.Marshal(map[string]any{"providers": allProviders})
 		if err == nil {
-			os.WriteFile(metaPath, metaData, 0644)
+			os.WriteFile(metaPath, metaData, 0600)
 		}
 
 		restartCliproxyIfRunning(body.Username, cli)
@@ -294,7 +295,7 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 		}
 		tok, err := cliproxyTokenForUser(body.Username)
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		conts, err := cli.ContainerList(r.Context(), container.ListOptions{
@@ -316,12 +317,12 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 		}
 		execResp, err := cli.ContainerExecCreate(r.Context(), conts[0].ID, execConfig)
 		if err != nil {
-			writeError(w, "Exec failed: "+err.Error(), 500)
+			log.Printf("Exec failed: : %v", err); writeInternalError(w, err)
 			return
 		}
 		attachResp, err := cli.ContainerExecAttach(r.Context(), execResp.ID, container.ExecStartOptions{})
 		if err != nil {
-			writeError(w, "Attach failed: "+err.Error(), 500)
+			log.Printf("Attach failed: : %v", err); writeInternalError(w, err)
 			return
 		}
 		defer attachResp.Close()
@@ -339,6 +340,20 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 	}
 }
 
+// validCliproxyOAuthName restricts OAuth upload filenames to a strict whitelist
+// so an attacker can't overwrite config.yaml or *.providers.json by uploading
+// a crafted filename. Allowed: lowercase ASCII letters/digits/underscore/dash
+// with a single .json extension, e.g. "claude-abc123.json".
+var validCliproxyOAuthName = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}\.json$`)
+
+// protectedCliproxyNames lists filenames that must never be replaced by an
+// upload, even if the whitelist above is bypassed.
+var protectedCliproxyNames = map[string]bool{
+	"config.yaml":          true,
+	"config.json":          true,
+	"config.providers.json": true,
+}
+
 func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
@@ -352,35 +367,51 @@ func apiCliproxyUploadOAuth(cli *client.Client) http.HandlerFunc {
 		}
 		tok, err := cliproxyTokenForUser(username)
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			writeError(w, "Failed to resolve user", 500)
 			return
 		}
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			writeError(w, "File required: "+err.Error(), 400)
+			writeError(w, "File required", 400)
 			return
 		}
 		defer file.Close()
 
+		// filepath.Base strips any directory components. Combined with the
+		// regex below, an attacker cannot inject "../" or use a name that
+		// would escape authDir.
 		name := filepath.Base(header.Filename)
-		if !strings.HasSuffix(name, ".json") {
-			writeError(w, "Only .json OAuth files supported", 400)
+		if !validCliproxyOAuthName.MatchString(name) {
+			writeError(w, "Invalid filename (must be lowercase ASCII, .json extension, 2-64 chars)", 400)
+			return
+		}
+		if protectedCliproxyNames[name] {
+			writeError(w, "Filename reserved", 400)
 			return
 		}
 
 		authDir := fmt.Sprintf("/app/cliproxy-data/%s", tok)
 		if err := os.MkdirAll(authDir, 0755); err != nil {
-			writeError(w, err.Error(), 500)
+			writeError(w, "Failed to create directory", 500)
 			return
 		}
-		out, err := os.Create(fmt.Sprintf("%s/%s", authDir, name))
+		dst := fmt.Sprintf("%s/%s", authDir, name)
+		// O_EXCL: refuse to overwrite an existing file, so re-uploading the
+		// same name fails loudly instead of silently replacing prior OAuth
+		// credentials.
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
-			writeError(w, err.Error(), 500)
+			if os.IsExist(err) {
+				writeError(w, "File already exists; delete it first", 409)
+				return
+			}
+			writeError(w, "Failed to create file", 500)
 			return
 		}
 		defer out.Close()
 		if _, err := io.Copy(out, io.LimitReader(file, 10<<20)); err != nil {
-			writeError(w, err.Error(), 500)
+			os.Remove(dst)
+			writeError(w, "Failed to write file", 500)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok", "file": name})

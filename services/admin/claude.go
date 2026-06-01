@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -93,7 +94,7 @@ func readDownloadsManifestLocked() claudeDownloadsManifest {
 func saveDownloadsManifestLocked(m claudeDownloadsManifest) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	os.WriteFile(claudeManifestPath, data, 0644)
+	os.WriteFile(claudeManifestPath, data, 0600)
 }
 
 // GET /api/admin/claude-code/releases — admin sees full version list from GitHub
@@ -101,7 +102,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := fetchClaudeCodeVersions()
 		if err != nil {
-			writeError(w, "Failed to fetch versions: "+err.Error(), 500)
+			log.Printf("Failed to fetch versions: : %v", err); writeInternalError(w, err)
 			return
 		}
 		stored := listStoredDownloads()
@@ -174,7 +175,7 @@ func apiClaudeCodeRefresh() http.HandlerFunc {
 
 		releases, err := fetchClaudeCodeVersions()
 		if err != nil {
-			writeError(w, "Failed to refresh: "+err.Error(), 500)
+			log.Printf("Failed to refresh: : %v", err); writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
@@ -304,7 +305,7 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			return
 		}
 		if err := os.Remove(filepath.Join(claudeDownloadsDir, body.Filename)); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 		claudeDownloadMu.Lock()
@@ -466,19 +467,30 @@ func downloadClaudeArchive(filename, version, plat, assetURL string, assetSize i
 		return 0, "", fmt.Errorf("HTTP %d downloading asset", resp.StatusCode)
 	}
 
+	// Reject the download if the upstream claims a payload larger than
+	// maxDownloadSize. Without this check a malicious or compromised CDN
+	// could fill the container's disk.
 	total := resp.ContentLength
+	if total > maxDownloadSize {
+		f.Close()
+		return 0, "", fmt.Errorf("asset too large: %d bytes (max %d)", total, maxDownloadSize)
+	}
 	buf := make([]byte, 128*1024)
 	hash := sha256.New()
 	var written int64
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			written += int64(n)
+			if written > maxDownloadSize {
+				f.Close()
+				return 0, "", fmt.Errorf("asset exceeded max size %d", maxDownloadSize)
+			}
 			if _, err := f.Write(buf[:n]); err != nil {
 				f.Close()
 				return 0, "", fmt.Errorf("write: %w", err)
 			}
 			hash.Write(buf[:n])
-			written += int64(n)
 			if onProgress != nil {
 				onProgress(written, total)
 			}

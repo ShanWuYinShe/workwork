@@ -51,7 +51,7 @@ func saveModelPool(cfg modelPoolConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(modelPoolPath, data, 0644)
+	return atomicWriteFile(modelPoolPath, data, 0600)
 }
 
 func getUserPoolAccess(username string) bool {
@@ -111,7 +111,7 @@ func apiModelPool(cli *client.Client) http.HandlerFunc {
 				return
 			}
 			if err := saveModelPool(cfg); err != nil {
-				writeError(w, err.Error(), 500)
+				writeInternalError(w, err)
 				return
 			}
 			regenerated := regeneratePoolConfigs(cfg.Providers, cli)
@@ -135,7 +135,7 @@ func apiModelPoolUsers(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := setUserPoolAccess(body.Username, body.Granted); err != nil {
-			writeError(w, err.Error(), 500)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -229,14 +229,14 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 			return false
 		}
 	}
-	if err := os.WriteFile(cfgPath, []byte(out), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte(out), 0600); err != nil {
 		return false
 	}
 
 	// Save merged providers metadata
 	metaPath = strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 	metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
-	if err := os.WriteFile(metaPath, metaData, 0644); err != nil {
+	if err := os.WriteFile(metaPath, metaData, 0600); err != nil {
 		log.Printf("WARNING: failed to write providers metadata %s: %v", metaPath, err)
 	}
 
