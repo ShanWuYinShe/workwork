@@ -24,7 +24,9 @@ go build -C services/admin -o /dev/null .
 npm --prefix ui run build
 
 # Full deploy (after git push)
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker compose up -d"
+# 注意：build 完 → image prune 清掉旧 latest 变 <none> 的镜像 → volume prune 清孤儿 volume → up
+# 这样 docker 相关文件不会持续膨胀
+ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker image prune -f && docker volume prune -f && docker compose up -d"
 ```
 
 ## RBAC — Do NOT break this
