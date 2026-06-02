@@ -107,7 +107,8 @@ func apiModelPool(cli *client.Client) http.HandlerFunc {
 		case http.MethodPost:
 			var cfg modelPoolConfig
 			if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-				writeError(w, "Invalid body: "+err.Error(), 400)
+				log.Printf("model pool config decode error: %v", err)
+				writeError(w, "Invalid request body", 400)
 				return
 			}
 			if err := saveModelPool(cfg); err != nil {
