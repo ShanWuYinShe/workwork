@@ -28,7 +28,7 @@ func main() {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
 
-	go xhttpHealthChecker(cli)
+	go xhttpHealthChecker(context.Background(), cli)
 
 	mux := http.NewServeMux()
 

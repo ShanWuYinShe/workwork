@@ -22,28 +22,35 @@ const (
 	threshold      = 3
 )
 
-func xhttpHealthChecker(cli *client.Client) {
+func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
 	var lastRestart time.Time
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
 
-	for range time.Tick(checkInterval) {
-		if time.Since(lastRestart) < cooldownPeriod {
-			continue
-		}
-		total, bad := countXHTTPPosts(cli)
-		if total >= threshold && total == bad {
-			log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
-			if err := restartXray(cli); err != nil {
-				log.Printf("[xhttp-health] restart failed: %v", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if time.Since(lastRestart) < cooldownPeriod {
 				continue
 			}
-			lastRestart = time.Now()
-			log.Printf("[xhttp-health] xray restarted successfully")
+			total, bad := countXHTTPPosts(ctx, cli)
+			if total >= threshold && total == bad {
+				log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
+				if err := restartXray(ctx, cli); err != nil {
+					log.Printf("[xhttp-health] restart failed: %v", err)
+					continue
+				}
+				lastRestart = time.Now()
+				log.Printf("[xhttp-health] xray restarted successfully")
+			}
 		}
 	}
 }
 
-func countXHTTPPosts(cli *client.Client) (total, bad int) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{

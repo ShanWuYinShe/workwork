@@ -211,10 +211,10 @@ func genProxyHtpasswd() {
 	}
 	os.MkdirAll("/app/data", 0755)
 	if len(entries) == 0 {
-		os.WriteFile("/app/data/proxy-htpasswd", []byte{}, 0644)
+		os.WriteFile("/app/data/proxy-htpasswd", []byte{}, 0600)
 		return
 	}
-	os.WriteFile("/app/data/proxy-htpasswd", []byte(strings.Join(entries, "\n")+"\n"), 0644)
+	os.WriteFile("/app/data/proxy-htpasswd", []byte(strings.Join(entries, "\n")+"\n"), 0600)
 }
 
 func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {

@@ -149,6 +149,12 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		action := r.PathValue("action")
+
+		// 校验服务名格式，仅允许小写字母、数字、连字符
+		if !regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(name) {
+			writeError(w, "Invalid service name", 400)
+			return
+		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
 			Filters: filters.NewArgs(filters.KeyValuePair{
@@ -268,7 +274,8 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		userInfo, username := getUserFromContext(r)
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to read clients: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -360,7 +367,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		}
 
 		if err := addXrayClient(xrayClientEntry{ID: body.UUID, Owner: username, Email: username}); err != nil {
-			log.Printf("Failed to save client: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to save client: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -372,10 +380,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			log.Printf("Failed to regenerate xray config: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to regenerate xray config: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
-		if err := restartXray(cli); err != nil {
+		if err := restartXray(r.Context(), cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after add: %v", err)
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -397,7 +406,8 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		// Check ownership before deleting
 		clients, err := readXrayClients()
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to read clients: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		found := false
@@ -417,17 +427,19 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		}
 
 		if err := deleteXrayClient(body.UUID); err != nil {
-			log.Printf("Failed to delete client: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to delete client: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
 		xrayConfigMu.Lock()
 		defer xrayConfigMu.Unlock()
 		if err := genXrayConfig(); err != nil {
-			log.Printf("Failed to regenerate xray config: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to regenerate xray config: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
-		if err := restartXray(cli); err != nil {
+		if err := restartXray(r.Context(), cli); err != nil {
 			log.Printf("WARNING: failed to restart xray after delete: %v", err)
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -446,7 +458,8 @@ func apiXrayClientConfig() http.HandlerFunc {
 
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to read clients: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		var client map[string]string
@@ -667,7 +680,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		content := strings.Join(lines, "\n") + "\n"
 		tmp := htpasswdFile + ".tmp"
-		if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(tmp, []byte(content), 0600); err != nil {
 			htpasswdMu.Unlock()
 			writeError(w, "Failed to write htpasswd", 500)
 			return
@@ -725,6 +738,10 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 		}
 
 		existing, _ := ensureUserMeta(body.Username)
+		if existing == nil {
+			writeError(w, "User not found", 404)
+			return
+		}
 		existing.Role = body.Role
 		if err := updateUserMeta(body.Username, *existing); err != nil {
 			writeInternalError(w, err)
@@ -737,6 +754,10 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 func apiWhoAmI(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info, username := getUserFromContext(r)
+		if info == nil {
+			writeError(w, "Unauthorized", 401)
+			return
+		}
 		writeJSON(w, map[string]any{
 			"username":   username,
 			"role":       info.Role,
@@ -786,8 +807,8 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 // saveCurrentIPs persists the working rotating IPs locally for use during next rotation's cleanup.
 // DNS is the authoritative source; this file serves as a fast local cache.
 func saveCurrentIPs(xrayIP, nginxIP string) {
-	_ = os.WriteFile("/app/data/rotating-ips.json",
-		[]byte(fmt.Sprintf(`{"xray":"%s","nginx":"%s"}`, xrayIP, nginxIP)), 0600)
+	data, _ := json.Marshal(map[string]string{"xray": xrayIP, "nginx": nginxIP})
+	_ = os.WriteFile("/app/data/rotating-ips.json", data, 0600)
 }
 
 // cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,
@@ -1020,7 +1041,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		// Collect assigned IPs to avoid collisions; generate separate IPs per container
 		prefix, err := parseSubnetPrefix(subnet)
 		if err != nil {
-			log.Printf("Invalid IPV6_SUBNET: : %v", err); writeInternalError(w, err)
+			log.Printf("Invalid IPV6_SUBNET: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -1028,7 +1050,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
-			log.Printf("Failed to generate xray IPv6: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to generate xray IPv6: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -1036,7 +1059,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
-			log.Printf("Failed to generate nginx IPv6: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to generate nginx IPv6: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -1044,12 +1068,14 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		// Add new IPs
 		if err := addContainerIP(r.Context(), cli, xrayID, xrayIP); err != nil {
-			log.Printf("Failed to add IPv6 to xray: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to add IPv6 to xray: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		if err := addContainerIP(r.Context(), cli, nginxID, nginxIP); err != nil {
 			delContainerIP(r.Context(), cli, xrayID, xrayIP)
-			log.Printf("Failed to add IPv6 to nginx: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to add IPv6 to nginx: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -1064,7 +1090,8 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
 				delContainerIP(r.Context(), cli, xrayID, xrayIP)
 				delContainerIP(r.Context(), cli, nginxID, nginxIP)
-				writeError(w, fmt.Sprintf("DNS update failed for %s: %s", di.Domain, err.Error()), 500)
+				log.Printf("DNS update failed for %s: %v", di.Domain, err)
+				writeError(w, fmt.Sprintf("DNS update failed for %s", di.Domain), 500)
 				return
 			}
 			updated = append(updated, fmt.Sprintf("%s → %s", di.Domain, ip))
@@ -1143,12 +1170,14 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 		// Get actual container IPs — no local state, containers are the source of truth.
 		xrayID, err := findContainer(r.Context(), cli, "xray")
 		if err != nil {
-			log.Printf("xray container: : %v", err); writeInternalError(w, err)
+			log.Printf("xray container: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		nginxID, err := findContainer(r.Context(), cli, "nginx")
 		if err != nil {
-			log.Printf("nginx container: : %v", err); writeInternalError(w, err)
+			log.Printf("nginx container: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 
@@ -1225,8 +1254,7 @@ func getContainerIP(ctx context.Context, cli *client.Client, containerID string)
 	return ""
 }
 
-func restartXray(cli *client.Client) error {
-	ctx := context.Background()
+func restartXray(ctx context.Context, cli *client.Client) error {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		Filters: filters.NewArgs(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=xray",
@@ -1380,20 +1408,27 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Decode Docker multiplexed stream and write as SSE
-		hdr := make([]byte, 8)
+		const maxFrameSize = 1 << 20 // 1MB 上限防止 OOM
 		buf := make([]byte, 4096)
 		type frame struct {
 			data []byte
 			err  error
 		}
 		ch := make(chan frame, 1)
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel() // 客户端断开时通知 readFrame 退出
 
 		readFrame := func() {
+			hdr := make([]byte, 8)
 			if _, err := io.ReadFull(logs, hdr); err != nil {
 				ch <- frame{nil, err}
 				return
 			}
 			size := int(binary.BigEndian.Uint32(hdr[4:8]))
+			if size > maxFrameSize {
+				ch <- frame{nil, fmt.Errorf("frame too large: %d bytes", size)}
+				return
+			}
 			if size > cap(buf) {
 				buf = make([]byte, size)
 			} else {
@@ -1407,13 +1442,17 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 				ch <- frame{nil, err}
 				return
 			}
-			ch <- frame{buf[:size], nil}
+			select {
+			case <-ctx.Done():
+				// 客户端已断开，丢弃数据并退出
+			case ch <- frame{buf[:size], nil}:
+			}
 		}
 
 		go readFrame()
 		for {
 			select {
-			case <-r.Context().Done():
+			case <-ctx.Done():
 				return
 			case f := <-ch:
 				if f.err != nil {
@@ -1426,7 +1465,9 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 				line := strings.TrimRight(string(f.data), "\n\r")
 				if line != "" {
 					for _, part := range strings.Split(line, "\n") {
-						fmt.Fprintf(w, "data: %s\n", part)
+						// 转义 \r 防止 SSE 注入
+						escaped := strings.ReplaceAll(part, "\r", "")
+						fmt.Fprintf(w, "data: %s\n", escaped)
 					}
 					fmt.Fprint(w, "\n")
 					flusher.Flush()
