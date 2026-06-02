@@ -1,12 +1,6 @@
 const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
 
-function signalFromTimeout(ms, controller) {
-  if (!controller) controller = new AbortController();
-  setTimeout(() => controller.abort(), ms);
-  return controller.signal;
-}
-
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
   const headers = { ...opts.headers };
@@ -15,17 +9,22 @@ async function req(path, opts = {}) {
   }
   const ctrl = new AbortController();
   const timeout = opts.timeout || FETCH_TIMEOUT;
-  const signal = opts.signal || signalFromTimeout(timeout, ctrl);
-  const r = await fetch(BASE + path, {
-    credentials: 'same-origin',
-    ...opts,
-    signal,
-    headers,
-  });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  const json = await r.json();
-  if (!json.success) throw new Error(json.error || 'API error');
-  return json.data;
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  const signal = opts.signal || ctrl.signal;
+  try {
+    const r = await fetch(BASE + path, {
+      credentials: 'same-origin',
+      ...opts,
+      signal,
+      headers,
+    });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    const json = await r.json();
+    if (!json.success) throw new Error(json.error || 'API error');
+    return json.data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function getCurrentUser() {
