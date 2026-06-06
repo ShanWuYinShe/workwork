@@ -280,7 +280,7 @@
             <th>{t('size')}</th>
             {#if isAdmin}<th>{t('uploader')}</th>{/if}
             <th>{t('expiresAt')}</th>
-            <th>{t('downloads')}</th>
+            <th>{t('downloadCount')}</th>
             <th>{t('shareLink')}</th>
             <th></th>
           </tr>
