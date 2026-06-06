@@ -130,7 +130,8 @@ func cleanupExpiredTransferFiles() {
 		}
 	}
 
-	if freed > 0 {
+	removed := len(m.Files) - len(kept)
+	if removed > 0 {
 		m.Files = kept
 		m.TotalSize -= freed
 		if m.TotalSize < 0 {

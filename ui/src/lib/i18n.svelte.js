@@ -296,7 +296,6 @@ const zh = {
   linkCopied: '链接已复制',
   downloadCount: '下载次数',
   uploader: '上传者',
-  expiresAt: '过期时间',
   storageUsed: '已用空间',
   totalFiles: '文件总数',
   fileDeleted: '文件已删除',
@@ -305,8 +304,6 @@ const zh = {
   dragOrClick: '拖拽文件到此处或点击选择',
   uploading: '上传中...',
   upload: '上传',
-  filename: '文件名',
-  size: '大小',
   sharedFiles: '已分享的文件',
   noTransferFiles: '暂无分享文件。上传一个试试。',
   maxDownloads: '下载上限',
@@ -315,7 +312,6 @@ const zh = {
   '3d': '3 天',
   '7d': '7 天',
   '30d': '30 天',
-  copyFailed: '复制失败',
 };
 
 const en = {
@@ -617,7 +613,6 @@ const en = {
   linkCopied: 'Link copied',
   downloadCount: 'Downloads',
   uploader: 'Uploader',
-  expiresAt: 'Expires At',
   storageUsed: 'Storage Used',
   totalFiles: 'Total Files',
   fileDeleted: 'File deleted',
@@ -626,8 +621,6 @@ const en = {
   dragOrClick: 'Drop files here or click to select',
   uploading: 'Uploading...',
   upload: 'Upload',
-  filename: 'Filename',
-  size: 'Size',
   sharedFiles: 'Shared Files',
   noTransferFiles: 'No shared files yet. Upload one to get started.',
   maxDownloads: 'Max Downloads',
@@ -636,7 +629,6 @@ const en = {
   '3d': '3 days',
   '7d': '7 days',
   '30d': '30 days',
-  copyFailed: 'Copy failed',
 };
 
 const dicts = { zh, en };
