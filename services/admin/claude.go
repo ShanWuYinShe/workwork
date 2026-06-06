@@ -213,13 +213,15 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 		assetURL := ""
-		assetSize := int64(0)
 		filename := ""
 		for _, a := range release.Assets {
 			if parseAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
-				assetSize = a.Size
-				filename = a.Name
+				ext := ".tar.gz"
+				if strings.HasSuffix(a.Name, ".zip") {
+					ext = ".zip"
+				}
+				filename = fmt.Sprintf("claude-%s-%s%s", body.Version, body.Plat, ext)
 				break
 			}
 		}
@@ -250,7 +252,7 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		sendEvent(map[string]any{"type": "start", "filename": filename})
 
 		var lastPct int64 = -1
-		size, checksum, err := downloadClaudeArchive(filename, body.Version, body.Plat, assetURL, assetSize, func(bytes, total int64) {
+		size, checksum, err := downloadClaudeArchive(filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
 			if total <= 0 {
 				return
 			}
@@ -437,7 +439,7 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeArchive(filename, version, plat, assetURL string, assetSize int64, onProgress func(bytes, total int64)) (int64, string, error) {
+func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 
 	tmpPath := filepath.Join(claudeDownloadsDir, filename+".download")

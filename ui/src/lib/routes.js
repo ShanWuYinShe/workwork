@@ -7,6 +7,7 @@ import Cliproxy from '../routes/Cliproxy.svelte';
 import Settings from '../routes/Settings.svelte';
 import ModelPool from '../routes/ModelPool.svelte';
 import Downloads from '../routes/Downloads.svelte';
+import Transfer from '../routes/Transfer.svelte';
 import Logs from '../routes/Logs.svelte';
 
 export const routes = [
@@ -19,6 +20,7 @@ export const routes = [
   { path: '/settings', component: Settings, adminOnly: true },
   { path: '/model-pool', component: ModelPool, adminOnly: true },
   { path: '/downloads', component: Downloads },
+  { path: '/transfer', component: Transfer },
   { path: '/logs', component: Logs, adminOnly: true },
 ];
 
@@ -45,6 +47,7 @@ export const navSections = [
     key: 'downloads',
     items: [
       { path: '/downloads', key: 'downloads', icon: 'download' },
+      { path: '/transfer', key: 'transfer', icon: 'upload' },
     ],
   },
   {
@@ -68,5 +71,6 @@ export const routeTitles = {
   '/settings': 'settings',
   '/model-pool': 'modelPool',
   '/downloads': 'downloads',
+  '/transfer': 'transfer',
   '/logs': 'logs',
 };
