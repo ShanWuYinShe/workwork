@@ -208,7 +208,7 @@ func apiXrayDownload() http.HandlerFunc {
 		for _, a := range release.Assets {
 			if parseXrayAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
-				filename = a.Name
+				filename = fmt.Sprintf("Xray-%s-%s.zip", body.Version, body.Plat)
 				break
 			}
 		}
@@ -218,8 +218,8 @@ func apiXrayDownload() http.HandlerFunc {
 		}
 
 		for _, s := range listXrayStored() {
-			if s.Filename == filename {
-				writeJSON(w, map[string]any{"status": "already_exists", "filename": filename})
+			if s.Version == body.Version && s.Plat == body.Plat {
+				writeJSON(w, map[string]any{"status": "already_exists", "filename": s.Filename})
 				return
 			}
 		}

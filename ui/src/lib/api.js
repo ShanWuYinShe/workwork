@@ -283,3 +283,15 @@ export async function downloadXrayVersion(version, plat, onProgress) {
 export async function deleteXrayDownload(filename) {
   return req('/xray/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
 }
+
+// ── File transfer ──
+
+export async function getTransferFiles() {
+  return req('/transfer/files');
+}
+
+export async function deleteTransferFile(code) {
+  return req('/transfer/files', { method: 'DELETE', body: JSON.stringify({ code }) });
+}
+
+export const transferUploadUrl = BASE + '/transfer/upload';
