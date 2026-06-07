@@ -21,8 +21,12 @@ RUN CGO_ENABLED=0 go build -o admin .
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates apache2-utils bash
+
 COPY --from=go-builder /build/admin /app/admin
 COPY --from=ui-builder /ui/dist /app/ui
 
 WORKDIR /app
+# 不使用 USER appuser：服务器用户 uid=1001，Dockerfile 中 appuser uid=1000，
+# .wework/ 下的文件由 root 或 uid=1001 创建，appuser(1000) 无法读写。
+# 安全保护由 docker-compose 中 cap_drop:ALL + no-new-privileges 实现。
 ENTRYPOINT ["/app/admin"]

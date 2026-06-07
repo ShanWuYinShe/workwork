@@ -15,6 +15,10 @@ COPY --from=builder /tmp/cli-proxy-api /usr/local/bin/cli-proxy-api
 
 WORKDIR /CLIProxyAPI
 
+# 不使用 USER appuser：同 admin Dockerfile 原因，uid 不匹配服务器用户。
+# bind mount 覆盖 /root/.cli-proxy-api 目录，Dockerfile 内的 chown 无实际意义。
+# 安全保护由 docker-compose 中 cap_drop:ALL + no-new-privileges 实现。
+
 EXPOSE 8317
 
 CMD ["cli-proxy-api", "run", "--config", "/CLIProxyAPI/config.yaml"]

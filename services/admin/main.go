@@ -102,12 +102,12 @@ func main() {
 	// Rate limit management (admin only)
 	mux.HandleFunc("GET /api/admin/security/rate-limit", requireRole("admin")(apiRateLimitStatus()))
 	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", requireRole("admin")(apiRateLimitUnblock()))
-		// File transfer station — viewer+ uploads/lists, public download via share code
-		mux.HandleFunc("POST /api/admin/transfer/upload", requireRole("viewer")(apiTransferUpload()))
-		mux.HandleFunc("GET /api/admin/transfer/files", requireRole("viewer")(apiTransferList()))
-		mux.HandleFunc("DELETE /api/admin/transfer/files", requireRole("viewer")(apiTransferDelete()))
-		// Public transfer download — no auth required
-		mux.HandleFunc("GET /api/transfer/{code}", apiTransferPublicDownload())
+	// File transfer station — viewer+ uploads/lists, public download via share code
+	mux.HandleFunc("POST /api/admin/transfer/upload", requireRole("viewer")(apiTransferUpload()))
+	mux.HandleFunc("GET /api/admin/transfer/files", requireRole("viewer")(apiTransferList()))
+	mux.HandleFunc("DELETE /api/admin/transfer/files", requireRole("viewer")(apiTransferDelete()))
+	// Public transfer download — no auth required
+	mux.HandleFunc("GET /api/transfer/{code}", apiTransferPublicDownload())
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("/admin/", serveSPA)
@@ -128,9 +128,9 @@ func main() {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		// Transfer upload handles its own body limit (2GB); skip the global 1MB cap.
-			if !strings.HasPrefix(r.URL.Path, "/api/admin/transfer/upload") {
-				r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
-			}
+		if !strings.HasPrefix(r.URL.Path, "/api/admin/transfer/upload") {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
+		}
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
 		if isStaticAsset(r.URL.Path) {
 			w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")

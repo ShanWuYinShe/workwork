@@ -355,19 +355,21 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Regular users can only create one client
-		if userInfo != nil && userInfo.Role != "admin" {
-			allClients, _ := readXrayClients()
-			for _, c := range allClients {
-				if c.Owner == username {
-					writeError(w, "You can only create one client. Delete the existing one first.", 400)
-					return
-				}
+		isAdmin := userInfo == nil || userInfo.Role == "admin"
+		entry := xrayClientEntry{ID: body.UUID, Owner: username, Email: username}
+		var err error
+		if isAdmin {
+			err = addXrayClient(entry)
+		} else {
+			var added bool
+			added, err = addXrayClientIfOwnerUnique(entry)
+			if !added && err == nil {
+				writeError(w, "You can only create one client. Delete the existing one first.", 400)
+				return
 			}
 		}
-
-		if err := addXrayClient(xrayClientEntry{ID: body.UUID, Owner: username, Email: username}); err != nil {
-			log.Printf("Failed to save client: : %v", err)
+		if err != nil {
+			log.Printf("Failed to save client: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -377,8 +379,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			log.Printf("WARNING: failed to create proxy password for %s: %v", username, err)
 		}
 
-		xrayConfigMu.Lock()
-		defer xrayConfigMu.Unlock()
+		// genXrayConfig() internally holds xrayClientsMu for the entire read+write,
+		// so add/delete operations naturally serialize through the clients lock.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: : %v", err)
 			writeInternalError(w, err)
@@ -403,37 +405,29 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Check ownership before deleting
-		clients, err := readXrayClients()
+		// deleteXrayClientIfOwner 原子地检查所有权并删除，避免 TOCTOU 竞态
+		isAdmin := userInfo == nil || userInfo.Role == "admin"
+		ownerFilter := ""
+		if !isAdmin {
+			ownerFilter = username
+		}
+		deleted, err := deleteXrayClientIfOwner(body.UUID, ownerFilter)
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err)
+			if err == errForbidden {
+				writeError(w, "Forbidden: not your client", 403)
+				return
+			}
+			log.Printf("Failed to delete client: %v", err)
 			writeInternalError(w, err)
 			return
 		}
-		found := false
-		for _, c := range clients {
-			if c.ID == body.UUID {
-				if userInfo != nil && userInfo.Role != "admin" && c.Owner != username {
-					writeError(w, "Forbidden: not your client", 403)
-					return
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !deleted {
 			writeError(w, "Client not found", 404)
 			return
 		}
 
-		if err := deleteXrayClient(body.UUID); err != nil {
-			log.Printf("Failed to delete client: : %v", err)
-			writeInternalError(w, err)
-			return
-		}
-
-		xrayConfigMu.Lock()
-		defer xrayConfigMu.Unlock()
+		// genXrayConfig() internally holds xrayClientsMu for the entire read+write,
+		// so add/delete operations naturally serialize through the clients lock.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: : %v", err)
 			writeInternalError(w, err)
@@ -495,7 +489,9 @@ func apiXrayClientConfig() http.HandlerFunc {
 }
 
 var htpasswdFile = "/app/htpasswd"
-var xrayConfigMu sync.Mutex
+
+// ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转
+var ipv6RotateMu sync.Mutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -1015,8 +1011,8 @@ func startupRotateIPv6(cli *client.Client) {
 
 func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		xrayConfigMu.Lock()
-		defer xrayConfigMu.Unlock()
+		ipv6RotateMu.Lock()
+		defer ipv6RotateMu.Unlock()
 
 		subnet := getEnv("IPV6_SUBNET")
 		xrayStatic := getEnv("XRAY_IPV6")

@@ -129,8 +129,9 @@ func clientIP(r *http.Request) string {
 
 func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Authenticated users (verified by nginx basic auth) bypass IP blocking
-		if r.Header.Get("X-Forwarded-User") != "" {
+		// 已认证用户（来自可信代理且 nginx basic auth 已设置 X-Forwarded-User）跳过 IP 封锁
+		// 必须同时验证 isTrustedProxy，否则外部攻击者可伪造 X-Forwarded-User 绕过
+		if isTrustedProxy(r.RemoteAddr) && r.Header.Get("X-Forwarded-User") != "" {
 			next(w, r)
 			return
 		}
