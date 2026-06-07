@@ -3,9 +3,7 @@ import Services from '../routes/Services.svelte';
 import Clients from '../routes/Clients.svelte';
 import Users from '../routes/Users.svelte';
 import Security from '../routes/Security.svelte';
-import Cliproxy from '../routes/Cliproxy.svelte';
 import Settings from '../routes/Settings.svelte';
-import ModelPool from '../routes/ModelPool.svelte';
 import Downloads from '../routes/Downloads.svelte';
 import Transfer from '../routes/Transfer.svelte';
 import Logs from '../routes/Logs.svelte';
@@ -16,9 +14,7 @@ export const routes = [
   { path: '/clients', component: Clients },
   { path: '/users', component: Users, adminOnly: true },
   { path: '/security', component: Security, adminOnly: true },
-  { path: '/cliproxy', component: Cliproxy, adminOnly: true },
   { path: '/settings', component: Settings, adminOnly: true },
-  { path: '/model-pool', component: ModelPool, adminOnly: true },
   { path: '/downloads', component: Downloads },
   { path: '/transfer', component: Transfer },
   { path: '/logs', component: Logs, adminOnly: true },
@@ -34,13 +30,6 @@ export const navSections = [
     items: [
       { path: '/clients', key: 'clients', icon: 'users' },
       { path: '/services', key: 'services', icon: 'box', adminOnly: true },
-    ],
-  },
-  {
-    key: 'ai',
-    items: [
-      { path: '/cliproxy', key: 'cliproxy', icon: 'zap', adminOnly: true },
-      { path: '/model-pool', key: 'modelPool', icon: 'layers', adminOnly: true },
     ],
   },
   {
@@ -67,9 +56,7 @@ export const routeTitles = {
   '/clients': 'clients',
   '/users': 'users',
   '/security': 'security',
-  '/cliproxy': 'cliproxy',
   '/settings': 'settings',
-  '/model-pool': 'modelPool',
   '/downloads': 'downloads',
   '/transfer': 'transfer',
   '/logs': 'logs',

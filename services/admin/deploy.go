@@ -24,9 +24,6 @@ func generateConfigs() error {
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
 	}
-	if err := genCliproxyConfig(); err != nil {
-		return fmt.Errorf("cliproxy config: %w", err)
-	}
 	if err := genHtpasswd(); err != nil {
 		return fmt.Errorf("htpasswd: %w", err)
 	}
@@ -146,30 +143,6 @@ func genHtpasswd() error {
 		return err
 	}
 	return atomicWriteFile("/app/htpasswd", []byte(out), 0600)
-}
-
-func genCliproxyConfig() error {
-	tmpl, err := os.ReadFile("/app/configs/cliproxy.yaml.tmpl")
-	if err != nil {
-		return err
-	}
-	keys := getEnv("CLIPROXY_PUBLIC_API_KEYS")
-	var keysYAML strings.Builder
-	if keys != "" {
-		for _, k := range strings.Split(keys, ",") {
-			k = strings.TrimSpace(k)
-			if k != "" {
-				fmt.Fprintf(&keysYAML, "  - \"%s\"\n", k)
-			}
-		}
-	}
-	out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
-	out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
-	out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
-	if existing, err := os.ReadFile("/app/configs/cliproxy.yaml"); err == nil && string(existing) == out {
-		return nil
-	}
-	return atomicWriteFile("/app/configs/cliproxy.yaml", []byte(out), 0644)
 }
 
 func seedAdminUser() error {

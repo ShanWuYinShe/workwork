@@ -349,10 +349,9 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		// Build adminUsers with role info
 		doc, _ := readUsersMeta()
 		type adminUserJSON struct {
-			Username   string `json:"username"`
-			Role       string `json:"role"`
-			CreatedAt  string `json:"created_at"`
-			PoolAccess bool   `json:"pool_access"`
+			Username  string `json:"username"`
+			Role      string `json:"role"`
+			CreatedAt string `json:"created_at"`
 		}
 		var adminUsers []adminUserJSON
 		if userInfo != nil && userInfo.Role == "admin" {
@@ -361,14 +360,13 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 				if info, ok := doc.Users[u]; ok {
 					au.Role = info.Role
 					au.CreatedAt = info.CreatedAt
-					au.PoolAccess = info.PoolAccess
 				}
 				adminUsers = append(adminUsers, au)
 			}
 		} else {
 			// Regular users only see themselves
 			if curInfo, ok := doc.Users[username]; ok {
-				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt, PoolAccess: curInfo.PoolAccess}}
+				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
 			} else {
 				adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
 			}
@@ -731,7 +729,6 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		htpasswdMu.Unlock()
 		deleteUserMeta(body.Username)
-		cleanupCliproxyForUser(r.Context(), cli, body.Username)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }

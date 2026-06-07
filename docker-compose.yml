@@ -88,34 +88,6 @@ services:
       timeout: 5s
       retries: 3
 
-  cliproxy-public:
-    build:
-      context: ./services/cliproxy
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    labels:
-      - "app=cliproxy"
-      - "cliproxy.user=public"
-    volumes:
-      - ./services/cliproxy/config.yaml:/CLIProxyAPI/config.yaml:ro
-      - ./cliproxy-data/public:/root/.cli-proxy-api
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8317/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
   admin:
     build:
       context: .
@@ -146,9 +118,6 @@ services:
       - ./.wework:/app/data
       - ./services/xray/config.json:/app/configs/xray.json:rw
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
-      - ./services/cliproxy/config.yaml:/app/configs/cliproxy.yaml:rw
-      - ./services/cliproxy/config.yaml.tmpl:/app/configs/cliproxy.yaml.tmpl:ro
-      - ./cliproxy-data:/app/cliproxy-data
     depends_on:
       - nginx
     healthcheck:
