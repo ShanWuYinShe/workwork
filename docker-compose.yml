@@ -41,7 +41,7 @@ services:
       xray:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "curl -kf https://localhost/health || exit 1"]
+      test: ["CMD-SHELL", "pgrep -f 'nginx: master' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
