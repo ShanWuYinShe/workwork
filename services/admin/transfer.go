@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,20 +54,12 @@ var validTransferFilename = regexp.MustCompile(`^[a-zA-Z0-9_\-. ]+$`)
 
 func loadTransferManifestLocked() transferManifest {
 	var m transferManifest
-	data, err := os.ReadFile(transferManifestPath)
-	if err != nil {
-		return m
-	}
-	json.Unmarshal(data, &m)
+	loadJSONFile(transferManifestPath, &m)
 	return m
 }
 
 func saveTransferManifestLocked(m transferManifest) {
-	os.MkdirAll(transferDir, 0755)
-	data, _ := json.MarshalIndent(m, "", "  ")
-	if err := atomicWriteFile(transferManifestPath, data, 0600); err != nil {
-		log.Printf("ERROR: saveTransferManifestLocked: %v", err)
-	}
+	saveJSONFile(transferManifestPath, m)
 }
 
 func generateTransferCode() (string, error) {
@@ -183,6 +175,12 @@ func apiTransferUpload() http.HandlerFunc {
 			return
 		}
 
+		// 单文件大小预检（header.Size 可靠时直接拒绝超大文件）
+		if header.Size > transferMaxFile {
+			writeError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
+			return
+		}
+
 		// 解析有效期
 		expiresIn := r.FormValue("expires_in")
 		duration := transferDefaultExp
@@ -195,42 +193,14 @@ func apiTransferUpload() http.HandlerFunc {
 		// 解析最大下载次数
 		maxDL := 0
 		if v := r.FormValue("max_downloads"); v != "" {
-			if n, err := parseInt(v); err == nil && n >= 0 {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 				maxDL = n
 			}
 		}
 
-		transferMu.Lock()
-		defer transferMu.Unlock()
-
-		m := loadTransferManifestLocked()
-
-		// 检查容量
-		fileSize := header.Size
-		if fileSize <= 0 {
-			// 尝试读取文件获取大小
-			var buf [0]byte
-			n, _ := file.Read(buf[:])
-			_ = n
-			// 使用 Content-Length 作为近似值
-			fileSize = r.ContentLength
-		}
-		if m.TotalSize+fileSize > transferMaxTotal {
-			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
-			return
-		}
-
-		// 生成分享码
-		code, err := generateUniqueTransferCode(m)
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
-
-		// 保存文件到磁盘
+		// Phase 1: 文件写入磁盘（在锁外进行，避免阻塞其他 transfer 操作）
 		os.MkdirAll(transferDir, 0755)
-		dstPath := transferFilePath(code, name)
-		tmpPath := dstPath + ".tmp"
+		tmpPath := filepath.Join(transferDir, fmt.Sprintf(".upload-%d.tmp", time.Now().UnixNano()))
 		dst, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
 			writeInternalError(w, err)
@@ -244,7 +214,40 @@ func apiTransferUpload() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+
+		// 截断检测：写入量达到上限时，尝试再读 1 字节判断是否还有数据
+		if written >= transferMaxFile {
+			var probe [1]byte
+			n, _ := file.Read(probe[:])
+			if n > 0 {
+				os.Remove(tmpPath)
+				writeError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
+				return
+			}
+		}
+
+		// Phase 2: 加锁 — 用实际写入量做容量检查 + 生成分享码 + 重命名 + 更新 manifest
+		transferMu.Lock()
+		m := loadTransferManifestLocked()
+
+		if m.TotalSize+written > transferMaxTotal {
+			transferMu.Unlock()
+			os.Remove(tmpPath)
+			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
+			return
+		}
+
+		code, err := generateUniqueTransferCode(m)
+		if err != nil {
+			transferMu.Unlock()
+			os.Remove(tmpPath)
+			writeInternalError(w, err)
+			return
+		}
+
+		dstPath := transferFilePath(code, name)
 		if err := os.Rename(tmpPath, dstPath); err != nil {
+			transferMu.Unlock()
 			os.Remove(tmpPath)
 			writeInternalError(w, err)
 			return
@@ -266,6 +269,7 @@ func apiTransferUpload() http.HandlerFunc {
 		m.Files = append(m.Files, entry)
 		m.TotalSize += written
 		saveTransferManifestLocked(m)
+		transferMu.Unlock()
 
 		writeJSON(w, map[string]any{
 			"status": "ok",
@@ -279,9 +283,6 @@ func apiTransferUpload() http.HandlerFunc {
 func apiTransferList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
-
-		// 先清理过期文件
-		cleanupExpiredTransferFiles()
 
 		transferMu.Lock()
 		m := loadTransferManifestLocked()
@@ -408,32 +409,25 @@ func apiTransferPublicDownload() http.HandlerFunc {
 			return
 		}
 
-		// 增加下载计数
-		target.Downloads++
-		saveTransferManifestLocked(m)
+		// Range 请求（分段下载的后续部分）不计入下载计数，避免下载管理器耗尽限额
+		if r.Header.Get("Range") == "" {
+			target.Downloads++
+			saveTransferManifestLocked(m)
+		}
+		filePath := transferFilePath(code, target.Filename)
+		filename := sanitizeHeaderValue(target.Filename)
 		transferMu.Unlock()
 
-		// 提供文件下载
-		filePath := transferFilePath(code, target.Filename)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", sanitizeHeaderValue(target.Filename)))
+		// 注意：unlock 与 ServeFile 之间存在微小 TOCTOU 窗口——
+		// 并发删除可能在 ServeFile 前移除磁盘文件，导致 404。
+		// 下载计数已递增但不影响限额准确性（删除操作会覆盖 manifest）。
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, filePath)
 	}
-}
-
-// parseInt 安全解析正整数
-func parseInt(s string) (int, error) {
-	var n int
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("invalid digit: %c", c)
-		}
-		n = n*10 + int(c-'0')
-	}
-	return n, nil
 }
 
 // formatBytes 格式化字节大小

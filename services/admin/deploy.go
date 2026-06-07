@@ -42,9 +42,11 @@ func generateConfigs() error {
 
 // genXrayConfig generates xray.json from the template + persisted client data.
 // Always regenerates — client data lives in /app/data/xray-clients.json.
-// Holds xrayClientsMu for the entire generation so concurrent addXrayClient /
-// deleteXrayClient calls cannot interleave between the client read and the
-// config file write.
+// Reads clients under xrayClientsMu, copies, then releases the lock before
+// generating the config. This avoids blocking concurrent client add/delete
+// operations during the (potentially slow) template processing + file write.
+// The brief inconsistency window is benign: the next add/delete call triggers
+// another genXrayConfig that will include the latest client set.
 func genXrayConfig() error {
 	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
 	if err != nil {
@@ -52,23 +54,27 @@ func genXrayConfig() error {
 	}
 
 	xrayClientsMu.Lock()
-	defer xrayClientsMu.Unlock()
 	clients, err := readXrayClientsNoLock()
 	if err != nil {
+		xrayClientsMu.Unlock()
 		return fmt.Errorf("read xray clients: %w", err)
 	}
+	// 复制切片以在锁外安全使用
+	clientsCopy := make([]xrayClientEntry, len(clients))
+	copy(clientsCopy, clients)
+	xrayClientsMu.Unlock()
 
 	var xhttpClients, realityClients bytes.Buffer
 	enc := json.NewEncoder(&xhttpClients)
 	enc.SetEscapeHTML(false)
-	for _, c := range clients {
+	for _, c := range clientsCopy {
 		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner})
 		xhttpClients.Truncate(xhttpClients.Len() - 1)
 		xhttpClients.WriteByte(',')
 	}
 	enc = json.NewEncoder(&realityClients)
 	enc.SetEscapeHTML(false)
-	for _, c := range clients {
+	for _, c := range clientsCopy {
 		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner})
 		realityClients.Truncate(realityClients.Len() - 1)
 		realityClients.WriteByte(',')
@@ -101,7 +107,7 @@ func genXrayConfig() error {
 	if string(existing) == out {
 		return nil
 	}
-	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clients), strings.Contains(out, `"dns"`))
+	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
 	return atomicWriteFile("/app/configs/xray.json", []byte(out), 0600)
 }
 
