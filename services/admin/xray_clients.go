@@ -2,11 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync"
 
 	"admin/handlers"
+)
+
+var (
+	errForbidden = errors.New("forbidden: not your client")
+	errNotFound  = errors.New("client not found")
 )
 
 // Xray clients are stored independently from the generated xray.json.
@@ -26,7 +32,11 @@ var (
 func readXrayClients() ([]xrayClientEntry, error) {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
+	return readXrayClientsNoLock()
+}
 
+// readXrayClientsNoLock assumes the caller already holds xrayClientsMu.
+func readXrayClientsNoLock() ([]xrayClientEntry, error) {
 	data, err := os.ReadFile(xrayClientsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -41,10 +51,7 @@ func readXrayClients() ([]xrayClientEntry, error) {
 	return clients, nil
 }
 
-func writeXrayClients(clients []xrayClientEntry) error {
-	xrayClientsMu.Lock()
-	defer xrayClientsMu.Unlock()
-
+func writeXrayClientsNoLock(clients []xrayClientEntry) error {
 	os.MkdirAll("/app/data", 0755)
 	data, err := json.MarshalIndent(clients, "", "  ")
 	if err != nil {
@@ -53,44 +60,88 @@ func writeXrayClients(clients []xrayClientEntry) error {
 	return atomicWriteFile(xrayClientsPath, data, 0600)
 }
 
+func writeXrayClients(clients []xrayClientEntry) error {
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+	return writeXrayClientsNoLock(clients)
+}
+
+// addXrayClient 在单次锁获取内完成 read-modify-write，避免并发 last-writer-wins。
 func addXrayClient(entry xrayClientEntry) error {
-	clients, err := readXrayClients()
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+
+	clients, err := readXrayClientsNoLock()
 	if err != nil {
 		return err
 	}
 	clients = append(clients, entry)
-	return writeXrayClients(clients)
+	return writeXrayClientsNoLock(clients)
 }
 
-func deleteXrayClient(id string) error {
-	clients, err := readXrayClients()
+// addXrayClientIfOwnerUnique 原子地检查 owner 唯一性并添加 client。
+// 如果 owner 已有 client 返回 (false, nil)，用于 viewer 的单 client 限制。
+func addXrayClientIfOwnerUnique(entry xrayClientEntry) (bool, error) {
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+
+	clients, err := readXrayClientsNoLock()
 	if err != nil {
-		return err
+		return false, err
 	}
-	var kept []xrayClientEntry
 	for _, c := range clients {
-		if c.ID != id {
-			kept = append(kept, c)
+		if c.Owner == entry.Owner {
+			return false, nil
 		}
 	}
-	return writeXrayClients(kept)
+	clients = append(clients, entry)
+	return true, writeXrayClientsNoLock(clients)
+}
+
+// deleteXrayClientIfOwner 在单次锁获取内完成所有权检查和删除。
+// ownerFilter 为空表示不检查所有权（admin）；非空则只允许删除属于该 owner 的 client。
+func deleteXrayClientIfOwner(id string, ownerFilter string) (bool, error) {
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+
+	clients, err := readXrayClientsNoLock()
+	if err != nil {
+		return false, err
+	}
+
+	var kept []xrayClientEntry
+	found := false
+	for _, c := range clients {
+		if c.ID == id {
+			if ownerFilter != "" && c.Owner != ownerFilter {
+				return false, errForbidden
+			}
+			found = true
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if !found {
+		return false, errNotFound
+	}
+	return true, writeXrayClientsNoLock(kept)
 }
 
 // ensureXrayClients initializes the data file on first run.
-// If data file is empty, migrates from existing xray.json; falls back to env var UUIDs.
 func ensureXrayClients() error {
-	clients, err := readXrayClients()
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+
+	clients, err := readXrayClientsNoLock()
 	if err != nil {
 		return err
 	}
 	if len(clients) > 0 {
-		return nil // already initialized
+		return nil
 	}
 
-	// Try to extract clients from existing xray.json (migration from old format)
 	clients = migrateXrayClientsFromConfig()
 	if len(clients) == 0 {
-		// Fallback: seed from env var
 		ids := getEnv("XRAY_CLIENT_IDS")
 		owner := getEnv("AUTH_USER")
 		for _, u := range strings.Split(ids, ",") {
@@ -104,11 +155,9 @@ func ensureXrayClients() error {
 	if len(clients) == 0 {
 		return nil
 	}
-	return writeXrayClients(clients)
+	return writeXrayClientsNoLock(clients)
 }
 
-// migrateXrayClientsFromConfig extracts client entries from existing xray.json.
-// One-time migration: old format stored clients inside the generated config.
 func migrateXrayClientsFromConfig() []xrayClientEntry {
 	data, err := os.ReadFile("/app/configs/xray.json")
 	if err != nil {
@@ -144,7 +193,6 @@ func migrateXrayClientsFromConfig() []xrayClientEntry {
 	return clients
 }
 
-// readXrayClientMaps reads clients with locking and returns in map format for config generation.
 func readXrayClientMaps() ([]map[string]string, error) {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()

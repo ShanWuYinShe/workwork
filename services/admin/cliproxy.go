@@ -40,7 +40,8 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 			}),
 		})
 		if err != nil {
-			log.Printf("Docker API error: : %v", err); writeInternalError(w, err)
+			log.Printf("Docker API error: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		// index containers by token label
@@ -55,7 +56,8 @@ func apiCliproxyInstances(cli *client.Client) http.HandlerFunc {
 
 		doc, err := readUsersMeta()
 		if err != nil {
-			log.Printf("Failed to read users: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to read users: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		// Only show users that exist in htpasswd
@@ -317,12 +319,14 @@ func apiCliproxyCodexLogin(cli *client.Client) http.HandlerFunc {
 		}
 		execResp, err := cli.ContainerExecCreate(r.Context(), conts[0].ID, execConfig)
 		if err != nil {
-			log.Printf("Exec failed: : %v", err); writeInternalError(w, err)
+			log.Printf("Exec failed: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		attachResp, err := cli.ContainerExecAttach(r.Context(), execResp.ID, container.ExecStartOptions{})
 		if err != nil {
-			log.Printf("Attach failed: : %v", err); writeInternalError(w, err)
+			log.Printf("Attach failed: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		defer attachResp.Close()
@@ -349,8 +353,8 @@ var validCliproxyOAuthName = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}\.json$`)
 // protectedCliproxyNames lists filenames that must never be replaced by an
 // upload, even if the whitelist above is bypassed.
 var protectedCliproxyNames = map[string]bool{
-	"config.yaml":          true,
-	"config.json":          true,
+	"config.yaml":           true,
+	"config.json":           true,
 	"config.providers.json": true,
 }
 

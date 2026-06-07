@@ -301,7 +301,7 @@ func apiTransferList() http.HandlerFunc {
 		}
 
 		writeJSON(w, map[string]any{
-			"files":     files,
+			"files":      files,
 			"total_size": m.TotalSize,
 			"max_total":  transferMaxTotal,
 		})
@@ -446,8 +446,9 @@ func formatBytes(b int64) string {
 
 // sanitizeHeaderValue 移除 HTTP header 值中的危险字符
 func sanitizeHeaderValue(s string) string {
-	s = strings.ReplaceAll(s, "\"", "\\\"")
+	// 先转义反斜杠再转义双引号，否则第一步插入的 \ 会被第二步二次转义
 	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
 	s = strings.ReplaceAll(s, "\n", "")
 	s = strings.ReplaceAll(s, "\r", "")
 	return s
