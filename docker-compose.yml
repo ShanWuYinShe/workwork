@@ -35,6 +35,8 @@ services:
       - ALL
     cap_add:
       - NET_ADMIN
+      # CHOWN: nginx master 进程需要 chown /var/cache/nginx/* 给 worker (uid 101)
+      - CHOWN
     depends_on:
       xray:
         condition: service_started
