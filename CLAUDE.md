@@ -1,139 +1,130 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板 / Cliproxy。
 
-## Project Overview
+通用约束（Git 规范、验证流程、工具链偏好）见全局 `~/.claude/CLAUDE.md`。
 
-WorkWork is a Docker-based proxy infrastructure featuring:
-- **Xray** VLESS Reality + XHTTP proxy (dual-stack IPv6/ipvlan + IPv4/bridge)
-- **Nginx** reverse proxy (Cloudflare Full Proxy → nginx → admin/xray)
-- **Admin panel** (Go backend + Svelte SPA) with user management, IPv6 rotation, cliproxy orchestration, model pool, binary downloads
-- **Cliproxy** per-user API proxy containers for AI provider access
+## 硬约束
 
-## Hard constraint — container isolation
+**所有服务功能必须隔离在 Docker 容器内。** 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务通过 `docker.sock` 和 `containerExec()` 操作其他容器。
 
-All service functionality MUST be isolated within Docker containers. Do NOT modify host environment settings (iptables, sysctl, network config) except for creating Docker networks. IPv4 routing goes through Docker bridge NAT; IPv6 routing through ipvlan L3. The admin service manipulates other containers via docker.sock and `containerExec()`.
-
-## Commands
+## 构建 & 部署
 
 ```bash
-# Go admin service — build & compile check
+# Go 编译检查
 go build -C services/admin -o /dev/null .
 
-# Svelte frontend — build
-npm --prefix ui run build
+# Go 验证
+go vet ./services/admin/...            # 静态检查
+gofmt -l services/admin/               # 格式化检查（列出不符合的文件）
+go test ./services/admin/...           # 单元测试
 
-# Full deploy (after git push)
-# 注意：build 完 → image prune 清掉旧 latest 变 <none> 的镜像 → volume prune 清孤儿 volume → up
+# Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
+npm --prefix ui run build              # 构建
+
+# 部署（git push 后在服务器执行，人工触发；Claude 不应主动执行 SSH 部署）
+# 注意顺序：build → image prune 清旧 latest → volume prune 清孤儿 volume → up
 # 这样 docker 相关文件不会持续膨胀
 ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker image prune -f && docker volume prune -f && docker compose up -d"
 ```
 
-## RBAC — Do NOT break this
+## 架构
 
-All access control works through a **three-layer chain**:
+### services/admin/ — Go 管理面板（端口 8318，内部）
 
-### Layer 1: nginx basic auth
-- `/admin/` and `/api/admin/` require HTTP basic auth via `.htpasswd`
-- nginx sets `X-Forwarded-User` header from auth username
-- nginx sets `X-Real-IP` from `CF-Connecting-IP` (Cloudflare Full Proxy)
+| 文件 | 职责 |
+|------|------|
+| main.go | 路由注册、中间件链、SPA 托管 |
+| api.go | Dashboard、Services、Users、Network、IPv6 轮换、DNS 同步 |
+| middleware.go | `requireRole` 认证、`isInternalRequest`、UserInfo |
+| ratelimit.go | Per-IP 限流（20 req/10s → 自动封禁 30min） |
+| ipblocker.go | 持久 IP 黑名单中间件 |
+| xray_clients.go | Xray 客户端存储（xray-clients.json）、CRUD |
+| handlers/users.go | 客户端配置生成（Reality + XHTTP） |
+| xray.go | Xray 二进制下载 + SHA256 校验 |
+| claude.go | Claude Code 二进制下载 + SHA256 校验 |
+| cliproxy.go | Per-user cliproxy 容器管理 |
+| modelpool.go | 公共 AI 模型池 |
+| cloudflare.go | Cloudflare DNS API（AAAA 记录 upsert/find） |
+| deploy.go | 启动时生成：xray.json、nginx.conf、cliproxy.yaml、internal token |
 
-### Layer 2: Go middleware chain
-Request flows: `rateLimitMiddleware → ipBlockMiddleware → requireRole → handler`
+### ui/ — Svelte 5 SPA
 
-- **`requireRole("admin")`**: Only users with `role=admin` in `/app/data/users.json`
-- **`requireRole("viewer")`**: Any authenticated user (admin or viewer)
-- **`X-Internal-Token` bypass**: Internal services (fail2ban) use shared `INTERNAL_TOKEN` env var to call admin API. This is the ONLY bypass. Never use `RemoteAddr` checks — all requests come through Docker bridge (172.20.x.x).
+Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile: node → golang → alpine）。
 
-### Layer 3: Frontend guards
-- Nav items with `adminOnly: true` are hidden from non-admin
-- Route guards check `isAdmin` before rendering admin components
-- `/api/admin/` endpoints MUST match their UI route's adminOnly status
+### services/xray/ — Xray VLESS 代理
 
-### Page/API access matrix
+- IPv4 via bridge，IPv6 via ipvlan
+- Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
+- **XHTTP 模式必须是 `packet-up`**——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
+- Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
 
-| Page | Nav | Route | API endpoints | Role |
-|------|-----|-------|--------------|------|
-| Dashboard | all | all | `GET /api/admin/dashboard` | viewer+ (admin gets stats, viewer gets personal data) |
-| Services | admin | admin | `GET /api/admin/services`, `POST /api/admin/services/{name}/{action}` | admin |
-| Clients | all | all | `GET /api/admin/users`, `POST /api/admin/users/xray/add`, `POST /api/admin/users/xray/delete` | viewer+ (own clients only) |
-| Users | admin | admin | `POST /api/admin/users/admin/add`, `POST /api/admin/users/admin/delete`, `POST /api/admin/users/roles/set` | admin |
-| Security | admin | admin | `GET /api/admin/security/blocked`, `POST /api/admin/security/block`, `POST /api/admin/security/unblock` | admin |
-| Cliproxy | admin | admin | `/api/admin/cliproxy/*` | admin |
-| Settings | admin | admin | `GET /api/admin/network/status`, `POST /api/admin/network/rotate-ipv6`, `POST /api/admin/network/sync-dns` | admin |
-| Model Pool | admin | admin | `GET/POST /api/admin/model-pool`, `POST /api/admin/model-pool/users` | admin |
-| Downloads | all | all | `GET /api/admin/claude-code/stored`, `GET /api/admin/claude-code/downloads/{filename}` | viewer+ |
-| Downloads mgmt | admin | admin | `GET /api/admin/claude-code/releases`, `POST /api/admin/claude-code/download`, `DELETE /api/admin/claude-code/downloads/` | admin |
-| Xray binary | all | all | `GET /api/admin/xray/stored`, `GET /api/admin/xray/downloads/{filename}` | viewer+ |
-| Xray binary mgmt | admin | admin | `GET /api/admin/xray/releases`, `POST /api/admin/xray/download`, `DELETE /api/admin/xray/downloads/` | admin |
+### services/nginx/ — Nginx + fail2ban
 
-*Downloads page is visible to all but admin-only controls (download/delete) are hidden for viewers.
+托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray:8447。fail2ban 通过 `X-Internal-Token` 调用 admin API 封禁真实客户端 IP。
 
-## Service Architecture
+### docker-compose.yml
 
-### `services/admin/` — Go admin panel (port 8318, internal)
+4 服务: nginx, xray, cliproxy-public, admin。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。
 
-Single `main` package with `handlers/` sub-package.
+## Security — 多层防御
 
-| File | Purpose |
-|------|---------|
-| `main.go` | HTTP route registration, middleware chain, SPA serving |
-| `api.go` | Dashboard, Services, Users, Network status, IPv6 rotation, DNS sync |
-| `middleware.go` | `requireRole` auth, `isInternalRequest`, UserInfo from `users.json` |
-| `ratelimit.go` | Per-IP rate limiter (20 req/10s → auto-ban 30min) |
-| `ipblocker.go` | Persistent IP blocklist middleware |
-| `xray_clients.go` | Xray client storage (xray-clients.json), CRUD operations |
-| `handlers/users.go` | Client config generation (Reality + XHTTP, ordered JSON) |
-| `xray.go` | Xray binary download from GitHub with SHA256 verification |
-| `claude.go` | Claude Code binary download from official CDN with SHA256 verification |
-| `cliproxy.go` | Per-user cliproxy containers, config get/set |
-| `modelpool.go` | Public AI model pool: providers config + per-user pool access grants |
-| `cloudflare.go` | Cloudflare DNS API (AAAA record upsert/find) |
-| `deploy.go` | Startup config generation: xray.json, nginx.conf, cliproxy.yaml, internal token |
-| `env.go` | Env var helpers |
+1. **Cloudflare Authenticated Origin Pulls (mTLS)**: 只接受 CF Origin Pull 证书。证书: `cert/cloudflare-origin-pull.pem`
+2. **Go rate limiter**: 20 req/10s per IP → 429 → 自动封禁 30min
+3. **Go IP blocker**: 持久黑名单 → 403
+4. **fail2ban in nginx**: 通过 `INTERNAL_TOKEN` 调用 admin API 封禁真实 IP
+5. **Cloudflare DDoS/WAF** 在边缘
+6. **htpasswd bcrypt** (`$2y$`): 所有密码用 bcrypt 哈希
 
-### `ui/` — Svelte 5 SPA
+> "Never use `RemoteAddr`" 的原因就在这里——所有流量经 Docker bridge (172.20.x.x)，基于 RemoteAddr 的判断会全部失败。必须用 `X-Forwarded-User`（nginx 设置）或 `X-Internal-Token`（内部服务）。
 
-Built with Vite, served by admin Go binary from `/app/ui` (built into Docker image via multi-stage Dockerfile: node → golang → alpine).
+## RBAC — 不要破坏这个
 
-Routes map to API endpoints:
-- `Dashboard.svelte` — system stats (admin) or personal info + config (viewer)
-- `Services.svelte` — Docker container management
-- `Clients.svelte` — Xray UUID management, client config download
-- `Users.svelte` — user CRUD, role management
-- `Security.svelte` — IP blocklist + rate limit status
-- `Cliproxy.svelte` — cliproxy container management
-- `ModelPool.svelte` — model pool config
-- `Settings.svelte` — network status, IPv6 rotation, DNS sync
-- `Downloads.svelte` — Claude Code + Xray binary downloads (tabbed)
+三层链：nginx basic auth → Go middleware chain → 前端路由守卫。
 
-### `services/xray/` — Xray VLESS proxy
+### 请求流
 
-- `config.json.tmpl` / `entrypoint.sh` — IPv4 via bridge, IPv6 via ipvlan
-- Inbounds: `xhttp-in` (8447, via Cloudflare) + `reality-in` (443, Reality direct)
-- XHTTP mode: `packet-up` — 上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
-- Clients have `email` field (=owner username) for per-user policy/traffic stats
-- `migrateXrayClients()` ensures all clients have email on startup
+```
+rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
+```
 
-### `services/nginx/` — Nginx + fail2ban
+- `requireRole("admin")`: users.json 中 role=admin
+- `requireRole("viewer")`: 任何已认证用户
+- `X-Internal-Token` bypass: 内部服务（fail2ban）通过共享 `INTERNAL_TOKEN` 调用 admin API，**这是唯一的绕过方式**
 
-- Serves admin SPA, proxies `/api/admin/` to admin:8318, `/proxy/query` to xray:8447
-- fail2ban watches auth log for 401s, calls admin API with `X-Internal-Token` to block real client IPs
+### 页面/API 访问矩阵
 
-### IPv6 addressing
+| 页面 | API 端点 | 角色 |
+|------|---------|------|
+| Dashboard | `GET /api/admin/dashboard` | viewer+（admin 看统计，viewer 看个人数据） |
+| Services | `GET/POST /api/admin/services/*` | admin |
+| Clients | `GET/POST /api/admin/users/xray/*` | viewer+（仅自己的客户端） |
+| Users | `POST /api/admin/users/admin/*`, `/roles/set` | admin |
+| Security | `GET/POST /api/admin/security/*` | admin |
+| Cliproxy | `/api/admin/cliproxy/*` | admin |
+| Settings | `GET/POST /api/admin/network/*` | admin |
+| Model Pool | `GET/POST /api/admin/model-pool*` | admin |
+| Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
+| Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
+| Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |
+| Xray 管理 | `GET/POST/DELETE /api/admin/xray/*` | admin |
 
-- Subnet: `/64` from `IPV6_SUBNET` env var
-- Static range: `{prefix}:1::/80` — Docker-assigned IPs (nginx, xray primary)
-- Rotating range: `{prefix}:f::/80` — 5th hextet = `000f`, DNS points here
-- `xray.yinghuoren.com` → rotating IP (reality uses domain, not raw IP)
-- Client config: reality outbound uses `xray.yinghuoren.com`, xhttp uses `yinghuoren.com`
+*Downloads 页面对所有用户可见，但 admin-only 的操作（download/delete）只对 admin 展示。
 
-### Cliproxy config format
+## IPv6 寻址
+
+- 子网: `/64` from `IPV6_SUBNET` env var
+- 静态范围: `{prefix}:1::/80` — Docker 分配（nginx、xray 主 IP）
+- 轮换范围: `{prefix}:f::/80` — 第 5 个 hextet = `000f`，DNS 指向此处
+- `xray.yinghuoren.com` → 轮换 IP（reality 用域名，非裸 IP）
+- 客户端配置: reality 出站用 `xray.yinghuoren.com`，xhttp 用 `yinghuoren.com`
+
+## Cliproxy 配置格式
 
 ```yaml
-api-keys:                    # User-facing keys to ACCESS cliproxy
+api-keys:                    # 用户访问 cliproxy 的密钥
   - "key-value"
-openai-compatibility:        # OpenAI API format providers
+openai-compatibility:        # OpenAI API 格式 provider
   - name: "provider-name"
     base-url: "https://..."
     api-key-entries:
@@ -141,7 +132,7 @@ openai-compatibility:        # OpenAI API format providers
     models:
       - name: "*"
         alias: "prefix/*"
-claude-api-key:              # Anthropic API format providers
+claude-api-key:              # Anthropic API 格式 provider
   - api-key: "sk-ant-xxx"
     base-url: "https://..."
     models:
@@ -149,25 +140,16 @@ claude-api-key:              # Anthropic API format providers
         alias: "model-alias"
 ```
 
-### `docker-compose.yml`
+## 关键约定
 
-4 services: nginx, xray, cliproxy-public, admin. Networks: `ipvlan_docker` (external, IPv6 L3) + `internal_docker` (bridge, 172.20.0.0/16).
-
-## Security — Multi-layer defense
-
-1. **Cloudflare Authenticated Origin Pulls (mTLS)**: Only CF servers with the Origin Pull certificate. Certificate: `cert/cloudflare-origin-pull.pem`
-2. **Go rate limiter**: 20 req/10s per IP → 429 → auto-ban 30min
-3. **Go IP blocker**: Persistent blocklist → 403
-4. **fail2ban in nginx**: calls admin API with `INTERNAL_TOKEN` → blocks real IP
-5. **Cloudflare DDoS/WAF** at the edge
-6. **htpasswd bcrypt** (`$2y$`): All passwords hashed with bcrypt
-
-## Key Conventions
-
-- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker、cliproxy 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag（如 Xray `infra/conf/` 下的结构体定义）或官方文档。
-- **Git**: linear history on main, one commit per feature. Push → SSH pull → `docker compose build` → `docker compose up -d`
-- **Never use `RemoteAddr`** for auth — all traffic on Docker bridge looks internal
-- **Internal auth**: `INTERNAL_TOKEN` (auto-generated at startup, stored in `.wework/.internal-token`)
-- **Secrets**: gitignored `configs/`, `cert/`, `.wework/`. Local `.env` overrides defaults
-- **API key distinction**: `api-keys:` = cliproxy access keys (user-facing); `api-key-entries:` = upstream provider keys
-- **Xray client ownership**: Non-admin users can only manage their own Xray clients (one per user). Admin sees all clients.
+- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker、cliproxy 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档。
+- **Never use `RemoteAddr` for auth** — 所有流量经 Docker bridge，看起来都是内网地址。
+- **Internal auth**: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）。
+- **Secrets**: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
+- **API key 区分**: `api-keys:` = cliproxy 访问密钥（用户侧）；`api-key-entries:` = 上游 provider 密钥。
+- **Xray 客户端归属**: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
+- **Git**: linear history on main，one commit per feature。Push → SSH pull → build → up。
+- **配置文件写入**：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
+- **错误响应**：业务错误用 `writeError(w, msg, code)`（msg 返回客户端）；内部错误（文件 I/O、Docker API、第三方 API 等可能泄露内部状态的）必须用 `writeInternalError(w, err)`（只返回固定 "Internal error"，真实错误记日志）。
+- **新增 API 端点**：在 `main.go` 的 `mux.HandleFunc(...)` 区域注册，所有认证端点用 `requireRole("viewer")` 或 `requireRole("admin")` 包裹；健康检查用无认证的裸 handler。
+- **环境变量**：通过 `getEnv()` 读取（见 `env.go`），不直接用 `os.Getenv`。
