@@ -6,6 +6,8 @@ services:
       context: ./services/nginx
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
     ulimits:
       nofile:
         soft: 65535
@@ -29,13 +31,15 @@ services:
       - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
       - ./.wework/.internal-token:/etc/fail2ban/.internal-token:ro
       - /dev/shm:/dev/shm
+    cap_drop:
+      - ALL
     cap_add:
       - NET_ADMIN
     depends_on:
       xray:
         condition: service_started
     healthcheck:
-      test: ["CMD", "pgrep", "nginx"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -45,6 +49,8 @@ services:
       context: ./services/xray
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "443:443"
     ulimits:
@@ -56,8 +62,15 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    cap_drop:
+      - ALL
     cap_add:
+      # NET_ADMIN: entrypoint.sh 中 ip route 需要
+      # SETGID+SETUID: su-exec 降权到 appuser 需要
+      # NET_BIND_SERVICE 不需要：容器内 ip_unprivileged_port_start=0，所有端口对非 root 开放
       - NET_ADMIN
+      - SETGID
+      - SETUID
     entrypoint: ["/entrypoint.sh"]
     networks:
       ipvlan_docker:
@@ -70,7 +83,7 @@ services:
       - ./services/xray/config.json:/etc/xray/config.json:ro
       - /dev/shm:/dev/shm
     healthcheck:
-      test: ["CMD", "pgrep", "xray"]
+      test: ["CMD-SHELL", "nc -z localhost 443 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -80,6 +93,8 @@ services:
       context: ./services/cliproxy
       dockerfile: Dockerfile
     restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
     logging:
       driver: "json-file"
       options:
@@ -87,6 +102,8 @@ services:
         max-file: "3"
     networks:
       - internal_docker
+    cap_drop:
+      - ALL
     labels:
       - "app=cliproxy"
       - "cliproxy.user=public"
@@ -104,6 +121,8 @@ services:
       context: .
       dockerfile: ./services/admin/Dockerfile
     restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
     logging:
       driver: "json-file"
       options:
@@ -111,6 +130,8 @@ services:
         max-file: "3"
     networks:
       - internal_docker
+    cap_drop:
+      - ALL
     environment:
       - HTPASSWD_FILE=/app/htpasswd
       - CF_API_TOKEN=${CF_API_TOKEN:-}

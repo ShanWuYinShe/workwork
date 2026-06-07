@@ -8,7 +8,8 @@ RUN apk add --no-cache curl unzip \
     && chmod +x /tmp/xray/xray
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates iproute2
+RUN apk add --no-cache ca-certificates iproute2 su-exec \
+    && adduser -D -H -u 1000 appuser
 COPY --from=downloader /tmp/xray/xray /usr/local/bin/xray
 COPY --from=downloader /tmp/xray/geosite.dat /usr/local/bin/geosite.dat
 COPY --from=downloader /tmp/xray/geoip.dat /usr/local/bin/geoip.dat

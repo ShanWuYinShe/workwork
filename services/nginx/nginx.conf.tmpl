@@ -26,6 +26,10 @@ server {
     ssl_session_timeout 1d;
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
     # Cloudflare Authenticated Origin Pulls (mTLS)
     ssl_client_certificate /etc/nginx/cloudflare-origin-pull.pem;
@@ -205,6 +209,11 @@ server {
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
 
+    # cliproxy per-user proxy. The path token is a routing selector, NOT the
+    # auth credential. The cliproxy container validates the request via its
+    # own api-keys list, which the admin service seeds with the user's token
+    # (see cliproxy.go getOrCreateCliproxyToken). The client must send
+    # `Authorization: Bearer <token>` matching the api-keys entry.
     location ~ ^/api/cliproxy/user/([a-f0-9]+)(/.*)?$ {
         set $cp_user $1;
         set $cp_path $2;

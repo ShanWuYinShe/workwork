@@ -132,8 +132,9 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		// Authenticated users (verified by nginx basic auth) bypass rate limiting
-		if r.Header.Get("X-Forwarded-User") != "" {
+		// 已认证用户（来自可信代理且 nginx basic auth 已设置 X-Forwarded-User）跳过速率限制
+		// 必须同时验证 isTrustedProxy，否则外部攻击者可伪造 X-Forwarded-User 绕过
+		if isTrustedProxy(r.RemoteAddr) && r.Header.Get("X-Forwarded-User") != "" {
 			next(w, r)
 			return
 		}

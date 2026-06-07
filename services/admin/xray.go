@@ -94,7 +94,8 @@ func apiXrayReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := fetchXrayVersions()
 		if err != nil {
-			log.Printf("Failed to fetch versions: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to fetch versions: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		stored := listXrayStored()
@@ -167,7 +168,8 @@ func apiXrayRefresh() http.HandlerFunc {
 
 		releases, err := fetchXrayVersions()
 		if err != nil {
-			log.Printf("Failed to refresh: : %v", err); writeInternalError(w, err)
+			log.Printf("Failed to refresh: : %v", err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
