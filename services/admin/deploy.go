@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -136,11 +135,11 @@ func genHtpasswd() error {
 	if user == "" || pass == "" {
 		return nil
 	}
-	out, err := exec.Command("htpasswd", "-nbB", user, pass).Output()
+	out, err := bcryptHtpasswdLine(user, pass)
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile("/app/htpasswd", bytes.TrimSpace(out), 0600)
+	return atomicWriteFile("/app/htpasswd", []byte(out), 0600)
 }
 
 func genCliproxyConfig() error {
@@ -209,12 +208,12 @@ func genProxyHtpasswd() {
 		if info.ProxyPassword == "" {
 			continue
 		}
-		out, err := exec.Command("htpasswd", "-nbB", username, info.ProxyPassword).Output()
+		out, err := bcryptHtpasswdLine(username, info.ProxyPassword)
 		if err != nil {
-			log.Printf("ERROR: genProxyHtpasswd: htpasswd for %s: %v", username, err)
+			log.Printf("ERROR: genProxyHtpasswd: bcrypt for %s: %v", username, err)
 			continue
 		}
-		entries = append(entries, strings.TrimSpace(string(out)))
+		entries = append(entries, out)
 	}
 	os.MkdirAll("/app/data", 0755)
 	data := []byte(strings.Join(entries, "\n") + "\n")

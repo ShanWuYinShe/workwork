@@ -1,6 +1,6 @@
 FROM nginx:stable-alpine
 
-RUN apk add --no-cache fail2ban supervisor curl logrotate apache2-utils
+RUN apk add --no-cache fail2ban supervisor curl logrotate
 
 # Cloudflare Authenticated Origin Pulls — shared public CA certificate
 RUN curl -sS -o /etc/nginx/cloudflare-origin-pull.pem \
