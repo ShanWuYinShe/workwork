@@ -230,14 +230,14 @@ func regenerateUserPoolConfig(username string, poolProviders []modelPoolProvider
 			return false
 		}
 	}
-	if err := os.WriteFile(cfgPath, []byte(out), 0600); err != nil {
+	if err := atomicWriteFile(cfgPath, []byte(out), 0600); err != nil {
 		return false
 	}
 
 	// Save merged providers metadata
 	metaPath = strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 	metaData, _ := json.Marshal(map[string]any{"providers": allProviders})
-	if err := os.WriteFile(metaPath, metaData, 0600); err != nil {
+	if err := atomicWriteFile(metaPath, metaData, 0600); err != nil {
 		log.Printf("WARNING: failed to write providers metadata %s: %v", metaPath, err)
 	}
 

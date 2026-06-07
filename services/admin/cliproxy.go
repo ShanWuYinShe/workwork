@@ -270,7 +270,7 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Failed to create config directory", 500)
 			return
 		}
-		if err := os.WriteFile(cfgPath, []byte(out), 0600); err != nil {
+		if err := atomicWriteFile(cfgPath, []byte(out), 0600); err != nil {
 			writeError(w, "Failed to write config", 500)
 			return
 		}
@@ -278,7 +278,9 @@ func apiCliproxySetConfig(cli *client.Client) http.HandlerFunc {
 		metaPath := strings.TrimSuffix(cfgPath, ".yaml") + ".providers.json"
 		metaData, err := json.Marshal(map[string]any{"providers": allProviders})
 		if err == nil {
-			os.WriteFile(metaPath, metaData, 0600)
+			if err := atomicWriteFile(metaPath, metaData, 0600); err != nil {
+				log.Printf("ERROR: write providers meta: %v", err)
+			}
 		}
 
 		restartCliproxyIfRunning(body.Username, cli)
@@ -451,7 +453,7 @@ func apiCliproxyPublicConfig(cli *client.Client) http.HandlerFunc {
 			out := strings.ReplaceAll(string(tmpl), "__CLIPROXY_PUBLIC_API_KEYS_YAML__", keysYAML.String())
 			out = strings.ReplaceAll(out, "__CLIPROXY_OPENAI_COMPAT_YAML__", "# no custom providers")
 			out = strings.ReplaceAll(out, "__CLIPROXY_CLAUDE_API_KEY_YAML__", "# no custom providers")
-			if err := os.WriteFile("/app/configs/cliproxy.yaml", []byte(out), 0600); err != nil {
+			if err := atomicWriteFile("/app/configs/cliproxy.yaml", []byte(out), 0600); err != nil {
 				log.Printf("ERROR: failed to write cliproxy config: %v", err)
 			}
 			writeJSON(w, map[string]string{"status": "ok"})

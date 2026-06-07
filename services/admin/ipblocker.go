@@ -45,14 +45,8 @@ func (s *ipBlockStore) save() {
 		log.Printf("ERROR: failed to marshal blocked IPs: %v", err)
 		return
 	}
-	os.MkdirAll("/app/data", 0755)
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0600); err != nil {
+	if err := atomicWriteFile(s.path, b, 0600); err != nil {
 		log.Printf("ERROR: failed to write blocked IPs: %v", err)
-		return
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		log.Printf("ERROR: failed to rename blocked IPs: %v", err)
 	}
 }
 

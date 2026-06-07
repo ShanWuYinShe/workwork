@@ -86,7 +86,9 @@ func readXrayManifestLocked() xrayDownloadsManifest {
 func saveXrayManifestLocked(m xrayDownloadsManifest) {
 	os.MkdirAll(xrayDownloadsDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	os.WriteFile(xrayManifestPath, data, 0600)
+	if err := atomicWriteFile(xrayManifestPath, data, 0600); err != nil {
+		log.Printf("ERROR: saveXrayManifestLocked: %v", err)
+	}
 }
 
 // GET /api/admin/xray/releases
