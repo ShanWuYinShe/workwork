@@ -75,20 +75,12 @@ func loadXrayManifest() xrayDownloadsManifest {
 
 func readXrayManifestLocked() xrayDownloadsManifest {
 	var m xrayDownloadsManifest
-	data, err := os.ReadFile(xrayManifestPath)
-	if err != nil {
-		return m
-	}
-	json.Unmarshal(data, &m)
+	loadJSONFile(xrayManifestPath, &m)
 	return m
 }
 
 func saveXrayManifestLocked(m xrayDownloadsManifest) {
-	os.MkdirAll(xrayDownloadsDir, 0755)
-	data, _ := json.MarshalIndent(m, "", "  ")
-	if err := atomicWriteFile(xrayManifestPath, data, 0600); err != nil {
-		log.Printf("ERROR: saveXrayManifestLocked: %v", err)
-	}
+	saveJSONFile(xrayManifestPath, m)
 }
 
 // GET /api/admin/xray/releases
@@ -275,7 +267,7 @@ func apiXrayServeDownload() http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeHeaderValue(filename)))
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, path)
 	}

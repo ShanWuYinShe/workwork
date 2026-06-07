@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -127,8 +126,9 @@ func main() {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		// Transfer upload handles its own body limit (2GB); skip the global 1MB cap.
-		if !strings.HasPrefix(r.URL.Path, "/api/admin/transfer/upload") {
+		// Transfer upload handles its own body limit via ParseMultipartForm (2GB);
+		// use exact match to avoid false positives on similar paths.
+		if r.URL.Path != "/api/admin/transfer/upload" {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 		}
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
@@ -156,11 +156,12 @@ func main() {
 
 	authRateLimiter.start()
 
-	go transferCleanupLoop(context.Background())
-
-	// Graceful shutdown
+	// Graceful shutdown — context 创建在 cleanup goroutine 之前，
+	// 这样 transferCleanupLoop 能响应 SIGTERM 信号优雅退出。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go transferCleanupLoop(ctx)
 
 	go func() {
 		log.Printf("Admin panel listening on %s", srv.Addr)
