@@ -106,45 +106,6 @@ export async function unblockIP(ip) {
   return req('/security/unblock', { method: 'POST', body: JSON.stringify({ ip }) });
 }
 
-export async function getCliproxyInstances() {
-  return req('/cliproxy/instances');
-}
-
-export async function cliproxyStart(username) {
-  return req('/cliproxy/start', { method: 'POST', body: JSON.stringify({ username }) });
-}
-
-export async function cliproxyStop(username) {
-  return req('/cliproxy/stop', { method: 'POST', body: JSON.stringify({ username }) });
-}
-
-export async function cliproxyGetConfig(username) {
-  return req('/cliproxy/get-config', { method: 'POST', body: JSON.stringify({ username }) });
-}
-
-export async function cliproxySetConfig(username, providers) {
-  return req('/cliproxy/set-config', {
-    method: 'POST',
-    body: JSON.stringify({ username, providers }),
-  });
-}
-
-export async function cliproxyCodexLogin(username) {
-  return req('/cliproxy/codex-login', { method: 'POST', body: JSON.stringify({ username }) });
-}
-
-export async function getModelPool() {
-  return req('/model-pool');
-}
-
-export async function setModelPool(providers) {
-  return req('/model-pool', { method: 'POST', body: JSON.stringify({ providers }) });
-}
-
-export async function setModelPoolUser(username, granted) {
-  return req('/model-pool/users', { method: 'POST', body: JSON.stringify({ username, granted }) });
-}
-
 export async function refreshClaudeVersions() {
   return req('/claude-code/refresh', { method: 'POST' });
 }

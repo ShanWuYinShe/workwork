@@ -23,8 +23,6 @@ const usernameCtxKey ctxKey = "username"
 type UserInfo struct {
 	Role          string `json:"role"`
 	CreatedAt     string `json:"created_at"`
-	CliproxyToken string `json:"cliproxy_token"`
-	PoolAccess    bool   `json:"pool_access"`
 	ProxyPassword string `json:"proxy_password"` // plaintext, for xhttp client config
 }
 
@@ -123,29 +121,6 @@ func getUserFromContext(r *http.Request) (*UserInfo, string) {
 	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
 	username, _ := r.Context().Value(usernameCtxKey).(string)
 	return info, username
-}
-
-func getOrCreateCliproxyToken(username string) (string, error) {
-	var token string
-	err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
-		info := doc.Users[username]
-		if info.CliproxyToken != "" {
-			token = info.CliproxyToken
-			return false, nil
-		}
-		b := make([]byte, 10)
-		if _, err := rand.Read(b); err != nil {
-			return false, err
-		}
-		info.CliproxyToken = hex.EncodeToString(b)
-		if info.CreatedAt == "" {
-			info.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-		}
-		doc.Users[username] = info
-		token = info.CliproxyToken
-		return true, nil
-	})
-	return token, err
 }
 
 func getOrCreateProxyPassword(username string) (string, error) {

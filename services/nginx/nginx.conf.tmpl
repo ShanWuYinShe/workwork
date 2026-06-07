@@ -208,24 +208,4 @@ server {
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }
-
-    # cliproxy per-user proxy. The path token is a routing selector, NOT the
-    # auth credential. The cliproxy container validates the request via its
-    # own api-keys list, which the admin service seeds with the user's token
-    # (see cliproxy.go getOrCreateCliproxyToken). The client must send
-    # `Authorization: Bearer <token>` matching the api-keys entry.
-    location ~ ^/api/cliproxy/user/([a-f0-9]+)(/.*)?$ {
-        set $cp_user $1;
-        set $cp_path $2;
-        if ($cp_path = '') {
-            set $cp_path /;
-        }
-        set $cliprox_upstream cliproxy-$cp_user:8317;
-        proxy_pass http://$cliprox_upstream$cp_path$is_args$args;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }
 }
