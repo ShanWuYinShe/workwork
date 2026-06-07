@@ -53,8 +53,9 @@ services:
     restart: unless-stopped
     security_opt:
       - "no-new-privileges:true"
+    # 绑定到 [::] 同时覆盖 IPv6 和 IPv4（短语法 443:443 仅 IPv4）
     ports:
-      - "443:443"
+      - "[::]:443:443"
     ulimits:
       nofile:
         soft: 65535
@@ -110,6 +111,10 @@ services:
       - HTPASSWD_FILE=/app/htpasswd
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
+      # IPv6 轮换（startupRotateIPv6 必需）
+      - IPV6_SUBNET=${IPV6_SUBNET:-}
+      - XRAY_IPV6=${XRAY_IPV6:-}
+      - NGINX_IPV6=${NGINX_IPV6:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:ro
