@@ -83,20 +83,12 @@ func loadDownloadsManifest() claudeDownloadsManifest {
 
 func readDownloadsManifestLocked() claudeDownloadsManifest {
 	var m claudeDownloadsManifest
-	data, err := os.ReadFile(claudeManifestPath)
-	if err != nil {
-		return m
-	}
-	json.Unmarshal(data, &m)
+	loadJSONFile(claudeManifestPath, &m)
 	return m
 }
 
 func saveDownloadsManifestLocked(m claudeDownloadsManifest) {
-	os.MkdirAll(claudeDownloadsDir, 0755)
-	data, _ := json.MarshalIndent(m, "", "  ")
-	if err := atomicWriteFile(claudeManifestPath, data, 0600); err != nil {
-		log.Printf("ERROR: saveDownloadsManifestLocked: %v", err)
-	}
+	saveJSONFile(claudeManifestPath, m)
 }
 
 // GET /api/admin/claude-code/releases — admin sees full version list from GitHub
@@ -289,7 +281,7 @@ func apiClaudeCodeServeDownload() http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeHeaderValue(filename)))
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, path)
 	}

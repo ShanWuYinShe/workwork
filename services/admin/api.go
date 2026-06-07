@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -65,6 +66,24 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// loadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
+func loadJSONFile(path string, dest any) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	json.Unmarshal(data, dest)
+}
+
+// saveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
+func saveJSONFile(path string, v any) {
+	os.MkdirAll(filepath.Dir(path), 0755)
+	data, _ := json.MarshalIndent(v, "", "  ")
+	if err := atomicWriteFile(path, data, 0600); err != nil {
+		log.Printf("ERROR: saveJSONFile %s: %v", path, err)
+	}
 }
 
 // bcryptHtpasswdLine 返回与 `htpasswd -nbB user pass` 相同格式的行：`<user>:<bcrypt-hash>`。
@@ -173,7 +192,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		action := r.PathValue("action")
 
 		// 校验服务名格式，仅允许小写字母、数字、连字符
-		if !regexp.MustCompile(`^[a-z][a-z0-9-]*$`).MatchString(name) {
+		if !validServiceName.MatchString(name) {
 			writeError(w, "Invalid service name", 400)
 			return
 		}
@@ -401,8 +420,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			log.Printf("WARNING: failed to create proxy password for %s: %v", username, err)
 		}
 
-		// genXrayConfig() internally holds xrayClientsMu for the entire read+write,
-		// so add/delete operations naturally serialize through the clients lock.
+		// genXrayConfig() reads clients under xrayClientsMu and releases it before
+		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: : %v", err)
 			writeInternalError(w, err)
@@ -448,8 +467,8 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// genXrayConfig() internally holds xrayClientsMu for the entire read+write,
-		// so add/delete operations naturally serialize through the clients lock.
+		// genXrayConfig() reads clients under xrayClientsMu and releases it before
+		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: : %v", err)
 			writeInternalError(w, err)
@@ -517,6 +536,7 @@ var ipv6RotateMu sync.Mutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var validServiceName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 func isValidUsername(username string) bool {
 	return username != "" && validUsername.MatchString(username) && len(username) <= 64
