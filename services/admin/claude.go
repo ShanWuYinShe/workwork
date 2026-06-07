@@ -94,7 +94,9 @@ func readDownloadsManifestLocked() claudeDownloadsManifest {
 func saveDownloadsManifestLocked(m claudeDownloadsManifest) {
 	os.MkdirAll(claudeDownloadsDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	os.WriteFile(claudeManifestPath, data, 0600)
+	if err := atomicWriteFile(claudeManifestPath, data, 0600); err != nil {
+		log.Printf("ERROR: saveDownloadsManifestLocked: %v", err)
+	}
 }
 
 // GET /api/admin/claude-code/releases — admin sees full version list from GitHub

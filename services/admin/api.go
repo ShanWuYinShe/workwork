@@ -12,12 +12,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 	"time"
 
 	"admin/handlers"
@@ -64,6 +65,27 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// bcryptHtpasswdLine 返回与 `htpasswd -nbB user pass` 相同格式的行：`<user>:<bcrypt-hash>`。
+// 用于替代对 htpasswd 二进制的依赖。
+func bcryptHtpasswdLine(user, pass string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return user + ":" + string(hash), nil
+}
+
+// verifyHtpasswdLine 验证 (user, pass) 是否匹配 htpasswd 格式文件中该用户的行。
+// bcrypt 格式跨 $2a$/$2y$ 兼容。
+func verifyHtpasswdLine(user, pass, line string) bool {
+	prefix := user + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return false
+	}
+	hash := strings.TrimPrefix(line, prefix)
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil
 }
 
 // proxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
@@ -507,11 +529,10 @@ func htpasswdAddUser(username, password string) error {
 	htpasswdMu.Lock()
 	defer htpasswdMu.Unlock()
 
-	out, err := exec.Command("htpasswd", "-nbB", username, password).Output()
+	newLine, err := bcryptHtpasswdLine(username, password)
 	if err != nil {
 		return err
 	}
-	newLine := strings.TrimSpace(string(out))
 	data, readErr := os.ReadFile(htpasswdFile)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return readErr
@@ -535,11 +556,7 @@ func htpasswdAddUser(username, password string) error {
 	}
 	// Atomic write via temp file + rename
 	content := strings.Join(lines, "\n") + "\n"
-	tmp := htpasswdFile + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, htpasswdFile)
+	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
 }
 
 func apiChangePassword(cli *client.Client) http.HandlerFunc {
@@ -565,8 +582,20 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 				writeError(w, "Old password required", 400)
 				return
 			}
-			out, err := exec.Command("htpasswd", "-v", "-b", htpasswdFile, body.Username, body.OldPassword).Output()
-			if err != nil || !strings.Contains(string(out), "login succeeded") {
+			data, err := os.ReadFile(htpasswdFile)
+			if err != nil {
+				writeError(w, "Invalid old password", 401)
+				return
+			}
+			prefix := body.Username + ":"
+			verified := false
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.HasPrefix(line, prefix) && verifyHtpasswdLine(body.Username, body.OldPassword, line) {
+					verified = true
+					break
+				}
+			}
+			if !verified {
 				writeError(w, "Invalid old password", 401)
 				return
 			}
@@ -675,15 +704,9 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		content := strings.Join(lines, "\n") + "\n"
-		tmp := htpasswdFile + ".tmp"
-		if err := os.WriteFile(tmp, []byte(content), 0600); err != nil {
+		if err := atomicWriteFile(htpasswdFile, []byte(content), 0600); err != nil {
 			htpasswdMu.Unlock()
 			writeError(w, "Failed to write htpasswd", 500)
-			return
-		}
-		if err := os.Rename(tmp, htpasswdFile); err != nil {
-			htpasswdMu.Unlock()
-			writeError(w, "Failed to update htpasswd", 500)
 			return
 		}
 		htpasswdMu.Unlock()
@@ -804,7 +827,9 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 // DNS is the authoritative source; this file serves as a fast local cache.
 func saveCurrentIPs(xrayIP, nginxIP string) {
 	data, _ := json.Marshal(map[string]string{"xray": xrayIP, "nginx": nginxIP})
-	_ = os.WriteFile("/app/data/rotating-ips.json", data, 0600)
+	if err := atomicWriteFile("/app/data/rotating-ips.json", data, 0600); err != nil {
+		log.Printf("ERROR: saveCurrentIPs: %v", err)
+	}
 }
 
 // cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -64,7 +65,9 @@ func loadTransferManifestLocked() transferManifest {
 func saveTransferManifestLocked(m transferManifest) {
 	os.MkdirAll(transferDir, 0755)
 	data, _ := json.MarshalIndent(m, "", "  ")
-	os.WriteFile(transferManifestPath, data, 0600)
+	if err := atomicWriteFile(transferManifestPath, data, 0600); err != nil {
+		log.Printf("ERROR: saveTransferManifestLocked: %v", err)
+	}
 }
 
 func generateTransferCode() (string, error) {
