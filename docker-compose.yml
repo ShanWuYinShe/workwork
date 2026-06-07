@@ -53,9 +53,8 @@ services:
     restart: unless-stopped
     security_opt:
       - "no-new-privileges:true"
-    # 绑定到 [::] 同时覆盖 IPv6 和 IPv4（短语法 443:443 仅 IPv4）
     ports:
-      - "[::]:443:443"
+      - "443:443"
     ulimits:
       nofile:
         soft: 65535
