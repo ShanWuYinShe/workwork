@@ -60,25 +60,12 @@ func main() {
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
 	mux.HandleFunc("POST /api/admin/security/unblock", requireRole("admin")(apiUnblockIP()))
-	mux.HandleFunc("GET /api/admin/cliproxy/instances", requireRole("admin")(apiCliproxyInstances(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/start", requireRole("admin")(apiCliproxyStart(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/stop", requireRole("admin")(apiCliproxyStop(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/get-config", requireRole("admin")(apiCliproxyGetConfig(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/set-config", requireRole("admin")(apiCliproxySetConfig(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/codex-login", requireRole("admin")(apiCliproxyCodexLogin(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/upload-oauth", requireRole("admin")(apiCliproxyUploadOAuth(cli)))
-	mux.HandleFunc("GET /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
-	mux.HandleFunc("POST /api/admin/cliproxy/public-config", requireRole("admin")(apiCliproxyPublicConfig(cli)))
 
 	// Health check (no auth required)
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]string{"status": "ok"})
 	})
 
-	// Model pool management
-	mux.HandleFunc("GET /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
-	mux.HandleFunc("POST /api/admin/model-pool", requireRole("admin")(apiModelPool(cli)))
-	mux.HandleFunc("POST /api/admin/model-pool/users", requireRole("admin")(apiModelPoolUsers(cli)))
 	// Claude Code downloads — admin manages, viewer can see + download stored
 	mux.HandleFunc("GET /api/admin/claude-code/releases", requireRole("admin")(apiClaudeCodeReleases()))
 	mux.HandleFunc("POST /api/admin/claude-code/refresh", requireRole("admin")(apiClaudeCodeRefresh()))

@@ -7,7 +7,6 @@
     deleteAdminUser,
     changePassword,
     setUserRole,
-    setModelPoolUser,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -88,17 +87,6 @@
     }
   }
 
-  async function togglePool(username, granted) {
-    try {
-      await setModelPoolUser(username, granted);
-      toast(granted ? t('poolAccessGranted', { user: username }) : t('poolAccessRevoked', { user: username }), 'success');
-      const d = await getUsers();
-      adminUsers = d.adminUsers || [];
-    } catch (e) {
-      toast(e.message, 'error');
-    }
-  }
-
   function EyeIcon({ open }) {
     return `<svg style="width:16px;height:16px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
   }
@@ -121,7 +109,7 @@
     {:else if adminUsers.length}
       <table>
         <thead
-          ><tr><th>{t('username')}</th><th>{t('role')}</th><th>{t('pool')}</th><th>{t('created')}</th><th>{t('actions')}</th></tr
+          ><tr><th>{t('username')}</th><th>{t('role')}</th><th>{t('created')}</th><th>{t('actions')}</th></tr
           ></thead
         >
         <tbody>
@@ -143,13 +131,6 @@
               <td>
                 <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
               </td>
-              <td>
-                {#if u.pool_access}
-                  <span class="badge badge-purple"><span class="badge-dot"></span>pool</span>
-                {:else}
-                  <span class="badge badge-gray">—</span>
-                {/if}
-              </td>
               <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
               <td>
                 {#if u.role !== 'admin'}
@@ -158,20 +139,6 @@
                       class="btn btn-primary btn-sm"
                       onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
                     >
-                    {#if u.pool_access}
-                      <button
-                        class="btn btn-ghost btn-sm"
-                        onclick={() => togglePool(u.username, false)}
-                        title={t('noPool')}>{t('noPool')}</button
-                      >
-                    {:else}
-                      <button
-                        class="btn btn-sm"
-                        style="background:#7c3aed;color:#fff;"
-                        onclick={() => togglePool(u.username, true)}
-                        title={t('grantPool')}>{t('grantPool')}</button
-                      >
-                    {/if}
                     <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
                       >{t('delete')}</button
                     >
