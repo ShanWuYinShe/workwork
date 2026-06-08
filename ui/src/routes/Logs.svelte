@@ -1,6 +1,7 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { getServices } from '../lib/api.js';
+  import { copyToClipboard } from '../lib/clipboard.js';
   import { t } from '../lib/i18n.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
@@ -10,8 +11,8 @@
   let loading = $state(true);
   let following = $state(true);
   let search = $state('');
-  let es = null;
-  let reconnectTimer = null;
+  let es = $state(null);
+  let reconnectTimer = $state(null);
   let reconnectDelay = 1000;
   let logContainer = $state(null);
 
@@ -25,8 +26,10 @@
     try {
       const s = await getServices();
       services = s.services || [];
-      if (services.length && !selectedService) selectedService = services[0].name;
-      if (selectedService) startStream();
+      if (services.length && (!selectedService || !services.some((svc) => svc.name === selectedService))) {
+        selectedService = services[0].name;
+      }
+      if (selectedService && following) startStream();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -94,13 +97,13 @@
     }
   }
 
-  function copyLogs() {
+  async function copyLogs() {
     const text = logLines.join('\n');
-    navigator.clipboard.writeText(text).then(() => {
+    if (await copyToClipboard(text)) {
       toast(t('copied'), 'success', 2000);
-    }).catch(() => {
+    } else {
       toast(t('copyFailed'), 'error');
-    });
+    }
   }
 
   function downloadLogs() {
@@ -140,6 +143,9 @@
   <div class="page-header">
     <h1 class="page-title">{t('serviceLogs')}</h1>
     <div class="page-actions">
+      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}>
+        {t('refresh')}
+      </button>
       <button class="btn btn-sm btn-ghost" onclick={copyLogs} disabled={!logLines.length}>
         {t('copy')}
       </button>
@@ -176,7 +182,7 @@
           <input
             class="log-search"
             type="text"
-            placeholder="搜索..."
+            placeholder={t('searchLogs')}
             bind:value={search}
           />
           <button
@@ -184,9 +190,9 @@
             class:btn-primary={following}
             class:btn-ghost={!following}
             onclick={toggleFollow}
-            title={following ? '自动滚动中' : '已暂停滚动'}
+            title={following ? t('live') : t('paused')}
           >
-            {following ? '⊡ 实时' : '⊡ 暂停'}
+            {following ? '⊡ ' + t('live') : '⊡ ' + t('paused')}
           </button>
         </div>
       </div>
@@ -194,7 +200,7 @@
       <div class="log-container" bind:this={logContainer}>
         {#if filtered.length === 0}
           <span class="log-empty">
-            {search ? '无匹配日志' : t('noLogEntries')}
+            {search ? t('noMatchingLogs') : t('noLogEntries')}
           </span>
         {:else}
           {#each filtered as line}
@@ -204,18 +210,18 @@
         {#if !es && logLines.length > 0}
           <div class="log-stream-ended">
             {#if following}
-              — 重新连接中... —
+              — {t('reconnecting')}... —
             {:else}
-              — 流已暂停 · <button class="btn btn-sm btn-ghost" onclick={() => { following = true; reconnectDelay = 1000; startStream(false); }}>继续</button> —
+              — {t('streamPaused')} · <button class="btn btn-sm btn-ghost" onclick={() => { following = true; reconnectDelay = 1000; startStream(false); }}>{t('resume')}</button> —
             {/if}
           </div>
         {/if}
       </div>
       <div class="log-status">
         <span class="badge badge-{es ? 'green' : following ? 'yellow' : 'red'}">
-          <span class="badge-dot"></span>{es ? '实时' : following ? '重连中' : '已暂停'}
+          <span class="badge-dot"></span>{es ? t('live') : following ? t('reconnecting') : t('paused')}
         </span>
-        <span class="log-count">{filtered.length} / {logLines.length} 行</span>
+        <span class="log-count">{t('linesCount', { filtered: filtered.length, total: logLines.length })}</span>
       </div>
     </div>
   {/if}

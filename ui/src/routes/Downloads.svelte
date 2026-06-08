@@ -8,6 +8,7 @@
     downloadXrayVersion, deleteXrayDownload, refreshXrayVersions,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let tab = $state('claude');
@@ -132,6 +133,7 @@
   }
 
   async function doDelete(filename) {
+    if (!(await showConfirm(t('confirmDeleteDownload', { filename })))) return;
     deletingFile = filename;
     try {
       const fn = tab === 'claude' ? deleteClaudeDownload : deleteXrayDownload;

@@ -10,8 +10,9 @@ export async function copyToClipboard(text) {
     document.body.appendChild(ta);
     ta.select();
     try {
-      document.execCommand('copy');
-      return true;
+      return document.execCommand('copy');
+    } catch {
+      return false;
     } finally {
       document.body.removeChild(ta);
     }

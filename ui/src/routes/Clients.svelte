@@ -12,6 +12,7 @@
   let isAdmin = $state(false);
   let currentUser = $state('');
   let deletingId = $state('');
+  let creating = $state(false);
   let selectedUUID = $state('');
   let configLoading = $state(false);
 
@@ -35,8 +36,7 @@
   });
 
   async function loadData() {
-    const d = await getUsers();
-    const user = await getCurrentUser();
+    const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
     const allClients = d.xrayClients || [];
     isAdmin = user.role === 'admin';
     currentUser = user.username;
@@ -46,6 +46,17 @@
     if (selectedUUID && !clients.find((c) => c.id === selectedUUID)) {
       selectedUUID = '';
       generatedJSON = '';
+    }
+  }
+
+  async function refresh() {
+    loading = true;
+    try {
+      await loadData();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      loading = false;
     }
   }
 
@@ -63,14 +74,19 @@
   }
 
   async function generateAndAdd() {
+    if (creating || hasOwnClient) return;
     const uuid = crypto.randomUUID();
+    creating = true;
     try {
       await addXrayClient(uuid);
       await loadData();
       selectedUUID = uuid;
       await loadConfig(uuid);
+      toast(t('clientCreated'), 'success');
     } catch (e) {
       toast(e.message, 'error');
+    } finally {
+      creating = false;
     }
   }
 
@@ -84,6 +100,7 @@
         generatedJSON = '';
       }
       await loadData();
+      toast(t('clientDeleted'), 'success');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -115,6 +132,9 @@
 <div class="page">
   <div class="page-header">
     <h1 class="page-title">{t('clients')}</h1>
+    <div class="page-actions">
+      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading || creating}>{t('refresh')}</button>
+    </div>
   </div>
 
   {#if !isAdmin}
@@ -126,8 +146,8 @@
         {#if hasOwnClient}
           <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('oneClientLimit')}</span>
         {:else}
-          <button class="btn btn-success" onclick={generateAndAdd} disabled={loading}>
-            {loading ? t('generating') : t('generateAndAdd')}
+          <button class="btn btn-success" onclick={generateAndAdd} disabled={loading || creating}>
+            {creating ? t('generating') : t('generateAndAdd')}
           </button>
           <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('generateDesc')}</span>
         {/if}

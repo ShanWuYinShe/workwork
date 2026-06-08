@@ -58,8 +58,7 @@
   <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} {mobileMenuOpen} />
 
   {#if mobileMenuOpen}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="mobile-overlay" onclick={() => mobileMenuOpen = false}></div>
+    <button class="mobile-overlay" type="button" aria-label="Close menu" onclick={() => mobileMenuOpen = false}></button>
   {/if}
 
   <main class="main">
@@ -330,6 +329,7 @@
     font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
+    text-decoration: none;
     transition: all var(--transition);
     background: none;
     border: none;
@@ -470,7 +470,7 @@
     display: flex;
     flex-direction: column;
   }
-  .sidebar.collapsed ~ .main {
+  .layout.collapsed .main {
     margin-left: var(--sidebar-collapsed);
   }
 
@@ -957,6 +957,8 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
+    border: 0;
+    padding: 0;
     z-index: 19;
   }
 
