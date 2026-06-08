@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { serviceDisplayName } from '../lib/services.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
@@ -33,12 +34,13 @@
   }
 
   async function act(name, action) {
-    if (!(await showConfirm(t(confirmKey(action), { name })))) return;
+    const displayName = serviceDisplayName(name);
+    if (!(await showConfirm(t(confirmKey(action), { name: displayName })))) return;
     actingService = name;
     try {
       const d = await serviceAction(name, action);
       services = d.services || services;
-      toast(t('serviceActionDone', { name, action: t(action) }), 'success', 2000);
+      toast(t('serviceActionDone', { name: displayName, action: t(action) }), 'success', 2000);
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -116,7 +118,7 @@
           <tbody>
             {#each services as s}
               <tr>
-                <td style="font-weight:500;">{s.name}</td>
+                <td style="font-weight:500;">{serviceDisplayName(s.name)}</td>
                 <td>
                   <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
                     <span class="badge-dot"></span>{s.state}

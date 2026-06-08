@@ -45,6 +45,20 @@ server {
     ssl_client_certificate /etc/nginx/cloudflare-origin-pull.pem;
     ssl_verify_client on;
 
+    set $admin_upstream admin:__ADMIN_PORT__;
+    set $media_upstream media_server:8787;
+    set $proxy_forwarded_prefix "";
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-User $remote_user;
+    proxy_set_header X-Forwarded-Prefix $proxy_forwarded_prefix;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
     location = / {
         return 308 /admin/;
     }
@@ -53,67 +67,25 @@ server {
         return 308 /admin/;
     }
 
-    # Media server public HTTP API. Keep the original /api/* paths so clients
-    # can use the site root as their base URL.
-    location = /api/search {
-        set $media_upstream media_server:8787;
-        proxy_pass http://$media_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
+    location = /api/media {
+        return 308 /api/media/categories;
     }
 
-    location = /api/categories {
-        set $media_upstream media_server:8787;
+    location = /api/media/asset {
+        set $proxy_forwarded_prefix /api/media;
+        rewrite ^/api/media(/.*)$ /api$1 break;
         proxy_pass http://$media_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    location /api/categories/ {
-        set $media_upstream media_server:8787;
-        proxy_pass http://$media_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    location /api/videos/ {
-        set $media_upstream media_server:8787;
-        proxy_pass http://$media_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    location = /api/asset {
-        set $media_upstream media_server:8787;
-        proxy_pass http://$media_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+    }
+
+    location /api/media/ {
+        set $proxy_forwarded_prefix /api/media;
+        rewrite ^/api/media(/.*)$ /api$1 break;
+        proxy_pass http://$media_upstream;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
     }
 
     location /proxy/query {
@@ -122,9 +94,6 @@ server {
         client_max_body_size 0;
         client_body_timeout 3600s;
         proxy_pass http://unix:/dev/shm/xrxh.socket;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_request_buffering off;
@@ -136,75 +105,16 @@ server {
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         access_log /var/log/nginx/admin-access.log auth_log;
         access_log /dev/stdout auth_log;
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
     }
 
-    # Download progress (NDJSON streaming): no buffering, runtime DNS.
-    location = /api/admin/claude-code/download {
+    # Binary/NDJSON downloads stream for both Claude Code and Xray.
+    location ~ ^/api/admin/(?:claude-code|xray)/(?:download$|downloads/) {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
         proxy_buffering off;
         proxy_cache off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    # Xray download (NDJSON streaming) — same pattern
-    location = /api/admin/xray/download {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    # Large file downloads: stream without buffering, runtime DNS.
-    location /api/admin/claude-code/downloads/ {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_buffering off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        send_timeout 600s;
-    }
-
-    # Xray file downloads — same pattern
-    location /api/admin/xray/downloads/ {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_buffering off;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
         send_timeout 600s;
@@ -212,11 +122,7 @@ server {
 
     # Transfer public download — no authentication required
     location /api/transfer/ {
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
         proxy_buffering off;
         proxy_read_timeout 600s;
         send_timeout 600s;
@@ -226,12 +132,7 @@ server {
     location = /api/admin/transfer/upload {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
         client_max_body_size 2g;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
@@ -243,49 +144,14 @@ server {
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         access_log /var/log/nginx/admin-access.log auth_log;
         access_log /dev/stdout auth_log;
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-User $remote_user;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
     }
 
     # Static assets with fingerprint hashes — cache forever
-    location /assets/ {
+    location ~ ^/(?:assets/|favicon\.svg$|icons\.svg$) {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
         proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-User $remote_user;
-        expires 30d;
-        add_header Cache-Control "public, max-age=2592000, immutable";
-    }
-
-    location /favicon.svg {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-User $remote_user;
-        expires 30d;
-        add_header Cache-Control "public, max-age=2592000, immutable";
-    }
-
-    location /icons.svg {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        set $admin_upstream admin:__ADMIN_PORT__;
-        proxy_pass http://$admin_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-User $remote_user;
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
     }

@@ -3,6 +3,7 @@
   import { getServices } from '../lib/api.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { serviceDisplayName } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let services = $state([]);
@@ -168,7 +169,7 @@
               class:btn-ghost={selectedService !== s.name}
               onclick={() => selectService(s.name)}
             >
-              {s.name}
+              {serviceDisplayName(s.name)}
               <span
                 class="badge badge-{s.state === 'running' ? 'green' : 'red'}"
                 style="margin-left:4px;"
