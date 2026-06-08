@@ -104,9 +104,43 @@ services:
       retries: 3
       start_period: 10s
 
+  vod_extractor:
+    build:
+      context: ./services/vod_extractor
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8790
+      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
+      - VOD_EXTRACTOR_MAX_OUTPUT_BYTES=${VOD_EXTRACTOR_MAX_OUTPUT_BYTES:-20971520}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=2).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   media_server:
     build:
-      context: ./services/media_center/media_server
+      context: ./services/media_server
       dockerfile: Dockerfile
     restart: unless-stopped
     security_opt:
@@ -123,7 +157,8 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8787
-      - VOD_EXTRACTOR_BIN=yt-dlp
+      - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
+      - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
       - BACKEND_CACHE_DIR=/cache
       - BACKEND_CACHE_MAX_BYTES=${MEDIA_SERVER_CACHE_MAX_BYTES:-53687091200}
       - CATEGORY_REFRESH_INTERVAL_MS=${MEDIA_SERVER_CATEGORY_REFRESH_INTERVAL_MS:-1800000}
@@ -131,9 +166,15 @@ services:
       - PROVIDER_SEARCH_TIMEOUT_MS=${MEDIA_SERVER_PROVIDER_SEARCH_TIMEOUT_MS:-15000}
       - SEARCH_DETAIL_TIMEOUT_MS=${MEDIA_SERVER_SEARCH_DETAIL_TIMEOUT_MS:-8000}
       - DETAIL_RESOLVE_TIMEOUT_MS=${MEDIA_SERVER_DETAIL_RESOLVE_TIMEOUT_MS:-35000}
-      - VOD_EXTRACTOR_TIMEOUT_MS=${MEDIA_SERVER_VOD_EXTRACTOR_TIMEOUT_MS:-30000}
+      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
     volumes:
       - media_server_cache:/cache
+      - ./.wework/generated/media_center:/config:ro
+    depends_on:
+      admin:
+        condition: service_healthy
+      vod_extractor:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -180,6 +221,7 @@ services:
       - ./services/nginx/nginx.conf.tmpl:/app/configs/nginx.conf.tmpl:ro
       - ./.wework:/app/data
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
+      - ./services/media_server/src/contentCategories.json:/app/configs/media-center-content-categories.json:ro
       - ./services/nginx:/app/legacy-nginx:ro
       - ./services/xray:/app/legacy-xray:ro
     healthcheck:

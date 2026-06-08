@@ -22,8 +22,14 @@ func generateConfigs() error {
 	if err := ensureXrayClients(); err != nil {
 		return fmt.Errorf("xray clients init: %w", err)
 	}
+	if err := ensureMediaCenterConfig(); err != nil {
+		return fmt.Errorf("media center config init: %w", err)
+	}
 	if err := genXrayConfig(); err != nil {
 		return fmt.Errorf("xray config: %w", err)
+	}
+	if err := genMediaCenterCategories(); err != nil {
+		return fmt.Errorf("media center categories: %w", err)
 	}
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
@@ -47,6 +53,7 @@ func runtimeFilesReady() error {
 	required := []string{
 		xrayConfigPath,
 		nginxConfigPath,
+		mediaCenterCategoriesPath,
 		htpasswdFile,
 		proxyHtpasswdPath,
 		"/app/data/.internal-token",
@@ -64,7 +71,13 @@ func runtimeFilesReady() error {
 }
 
 func ensureRuntimeDirs() error {
-	for _, dir := range []string{"/app/data/generated/xray", "/app/data/generated/nginx", nginxAuthDir} {
+	for _, dir := range []string{
+		"/app/data/generated/xray",
+		"/app/data/generated/nginx",
+		"/app/data/generated/media_center",
+		"/app/data/media-center",
+		nginxAuthDir,
+	} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
@@ -152,6 +165,11 @@ func genNginxConfig() error {
 		return err
 	}
 	out := string(tmpl)
+	mediaCfg, err := readMediaCenterConfig()
+	if err != nil {
+		return err
+	}
+	out = renderNginxConfigWithMediaCenter(out, mediaCfg)
 	// XHTTP proxy auth: always use per-user proxy htpasswd
 	proxyAuth := "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
 	out = strings.ReplaceAll(out, "__XHTTP_PROXY_AUTH__", proxyAuth)

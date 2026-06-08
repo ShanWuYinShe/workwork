@@ -12,6 +12,7 @@ const zh = {
   users: '用户管理',
   security: '安全',
   settings: '设置',
+  mediaCenter: '媒体中心',
   downloads: '下载',
   downloadsClaude: 'Claude Code',
   downloadsXray: 'Xray',
@@ -126,7 +127,8 @@ const zh = {
   syncAllDNS: '同步全部 DNS',
   dnsSyncFailed: '同步失败',
   ipv6Rotation: 'IPv6 旋转',
-  rotateDesc: '在轮转范围 ({range}) 中生成两个新 IPv6 地址，分别分配给 xray 和 nginx，同步更新所有域名的 Cloudflare DNS 记录后移除旧地址。',
+  rotateDesc:
+    '在轮转范围 ({range}) 中生成两个新 IPv6 地址，分别分配给 xray 和 nginx，同步更新所有域名的 Cloudflare DNS 记录后移除旧地址。',
   range: '范围',
   rotateAll: '轮转所有 IPv6',
   rotating: '轮转中...',
@@ -143,6 +145,34 @@ const zh = {
   rotatingRangeUsage: 'xray + nginx 对外 IPv6',
   internalDockerViaNginx: '经由 nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: '经由 nginx /proxy/query',
+  mediaCenterSubtitle: '配置媒体服务内部 upstream、nginx 公开前缀和分类搜索规则。',
+  mediaServiceRuntime: '服务与代理',
+  mediaServiceRuntimeDesc: 'Media Server 只在 Docker 内部网络提供服务，App 始终通过 nginx 公开前缀访问。',
+  nginxUpstream: 'Nginx 上游',
+  publicApiPrefix: '公开 API 前缀',
+  appApiBaseUrl: 'App API 地址（经 nginx）',
+  runtimeCategoryFile: '运行时分类文件',
+  mediaCategories: '媒体分类',
+  mediaCategoriesDesc: 'searchQuery 控制分类搜索词；keywords 用于相关性评分；excludes 用于过滤。',
+  resetDefaults: '恢复默认分类',
+  addCategory: '添加分类',
+  newCategory: '新分类',
+  newCategoryDesc: '自定义媒体分类',
+  newCategoryKeyword: '关键词',
+  confirmDeleteCategory: '删除分类 "{title}"？',
+  confirmResetCategories: '恢复内置默认分类？当前分类编辑会被替换。',
+  categoryId: '分类 ID',
+  categoryTitle: '分类标题',
+  categoryDescription: '分类描述',
+  searchQuery: '搜索词',
+  keywordsOnePerLine: '关键词（每行一个）',
+  excludesOnePerLine: '排除词（每行一个）',
+  noMediaCategories: '暂无媒体分类。',
+  saveAndApply: '保存并应用',
+  saving: '保存中...',
+  warnings: '警告',
+  mediaCenterSaved: 'Media Center 配置已保存并应用。',
+  mediaCenterSavedWithWarnings: '配置已保存，但有服务未自动重启。',
   // Security
   blockedIPs: '已封禁 IP',
   ipAddress: 'IP 地址',
@@ -301,6 +331,7 @@ const en = {
   users: 'Users',
   security: 'Security',
   settings: 'Settings',
+  mediaCenter: 'Media Center',
   downloads: 'Downloads',
   downloadsClaude: 'Claude Code',
   downloadsXray: 'Xray',
@@ -348,7 +379,8 @@ const en = {
   openSecurity: 'Security Blocks',
   openLogs: 'View Logs',
   adminDashboardHint: 'Check service health first, then handle network and security operations.',
-  viewerDashboardHint: 'Create a client, copy its config, then use transfer and downloads from Daily.',
+  viewerDashboardHint:
+    'Create a client, copy its config, then use transfer and downloads from Daily.',
   clientsActionDesc: 'Create or copy Reality + XHTTP configuration',
   transferActionDesc: 'Upload temporary files and copy share links',
   downloadsActionDesc: 'Download Claude Code / Xray bundles',
@@ -433,6 +465,37 @@ const en = {
   rotatingRangeUsage: 'xray + nginx public IPv6',
   internalDockerViaNginx: 'via nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: 'via nginx /proxy/query',
+  mediaCenterSubtitle:
+    'Configure the media service internal upstream, nginx public prefix, and category search rules.',
+  mediaServiceRuntime: 'Service & Proxy',
+  mediaServiceRuntimeDesc:
+    'Media Server only serves the Docker internal network; apps always access it through the nginx public prefix.',
+  nginxUpstream: 'Nginx upstream',
+  publicApiPrefix: 'Public API prefix',
+  appApiBaseUrl: 'App API URL (via nginx)',
+  runtimeCategoryFile: 'Runtime category file',
+  mediaCategories: 'Media Categories',
+  mediaCategoriesDesc:
+    'searchQuery drives category search; keywords score relevance; excludes filter matches.',
+  resetDefaults: 'Reset defaults',
+  addCategory: 'Add category',
+  newCategory: 'New Category',
+  newCategoryDesc: 'Custom media category',
+  newCategoryKeyword: 'keyword',
+  confirmDeleteCategory: 'Delete category "{title}"?',
+  confirmResetCategories: 'Reset to bundled categories? Current category edits will be replaced.',
+  categoryId: 'Category ID',
+  categoryTitle: 'Category title',
+  categoryDescription: 'Category description',
+  searchQuery: 'Search query',
+  keywordsOnePerLine: 'Keywords (one per line)',
+  excludesOnePerLine: 'Excludes (one per line)',
+  noMediaCategories: 'No media categories.',
+  saveAndApply: 'Save & Apply',
+  saving: 'Saving...',
+  warnings: 'Warnings',
+  mediaCenterSaved: 'Media Center config saved and applied.',
+  mediaCenterSavedWithWarnings: 'Config saved, but some services were not restarted automatically.',
   // Security
   blockedIPs: 'Blocked IPs',
   ipAddress: 'IP Address',
@@ -541,7 +604,8 @@ const en = {
   anthropicLower: 'anthropic',
   badgeDownLoaded: 'downloaded',
   logsSuffix: 'Logs',
-  oneClientLimit: 'Each user can only create one client. Delete the existing one before adding a new one.',
+  oneClientLimit:
+    'Each user can only create one client. Delete the existing one before adding a new one.',
   clickClientToView: 'Click a client row to view its configuration.',
   noClientsYetDesc: 'You have no proxy clients yet. Add one above.',
   confirmUnblock: 'Unblock {ip}?',
@@ -605,7 +669,9 @@ function escapeVar(v) {
  * @param {Record<string, unknown>} [vars]
  */
 export function t(key, vars) {
-  const dictsAny = /** @type {Record<string, Record<string, string>>} */ (/** @type {unknown} */ (dicts));
+  const dictsAny = /** @type {Record<string, Record<string, string>>} */ (
+    /** @type {unknown} */ (dicts)
+  );
   let s = dictsAny[lang]?.[key] || dictsAny.en[key] || key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {

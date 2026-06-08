@@ -46,7 +46,7 @@ server {
     ssl_verify_client on;
 
     set $admin_upstream admin:__ADMIN_PORT__;
-    set $media_upstream media_server:8787;
+    set $media_upstream __MEDIA_CENTER_UPSTREAM__;
     set $proxy_forwarded_prefix "";
 
     proxy_http_version 1.1;
@@ -67,22 +67,22 @@ server {
         return 308 /admin/;
     }
 
-    location = /api/media {
-        return 308 /api/media/categories;
+    location = __MEDIA_CENTER_PUBLIC_PATH__ {
+        return 308 __MEDIA_CENTER_PUBLIC_PATH__/categories;
     }
 
-    location = /api/media/asset {
-        set $proxy_forwarded_prefix /api/media;
-        rewrite ^/api/media(/.*)$ /api$1 break;
+    location = __MEDIA_CENTER_PUBLIC_PATH__/asset {
+        set $proxy_forwarded_prefix __MEDIA_CENTER_PUBLIC_PATH__;
+        rewrite ^__MEDIA_CENTER_PUBLIC_PATH_REGEX__(/.*)$ /api$1 break;
         proxy_pass http://$media_upstream;
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
 
-    location /api/media/ {
-        set $proxy_forwarded_prefix /api/media;
-        rewrite ^/api/media(/.*)$ /api$1 break;
+    location __MEDIA_CENTER_PUBLIC_PATH__/ {
+        set $proxy_forwarded_prefix __MEDIA_CENTER_PUBLIC_PATH__;
+        rewrite ^__MEDIA_CENTER_PUBLIC_PATH_REGEX__(/.*)$ /api$1 break;
         proxy_pass http://$media_upstream;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
