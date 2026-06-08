@@ -26,26 +26,26 @@ export const navSections = [
     items: [{ path: '/', key: 'dashboard', icon: 'grid' }],
   },
   {
-    key: 'proxy',
+    key: 'dailyOps',
     items: [
       { path: '/clients', key: 'clients', icon: 'users' },
-      { path: '/services', key: 'services', icon: 'box', adminOnly: true },
-    ],
-  },
-  {
-    key: 'downloads',
-    items: [
-      { path: '/downloads', key: 'downloads', icon: 'download' },
       { path: '/transfer', key: 'transfer', icon: 'upload' },
+      { path: '/downloads', key: 'downloads', icon: 'download' },
     ],
   },
   {
-    key: 'system',
+    key: 'operations',
+    items: [
+      { path: '/services', key: 'services', icon: 'box', adminOnly: true },
+      { path: '/settings', key: 'settings', icon: 'settings', adminOnly: true },
+      { path: '/logs', key: 'logs', icon: 'file-text', adminOnly: true },
+    ],
+  },
+  {
+    key: 'accessControl',
     items: [
       { path: '/users', key: 'users', icon: 'user-circle', adminOnly: true },
       { path: '/security', key: 'security', icon: 'shield', adminOnly: true },
-      { path: '/settings', key: 'settings', icon: 'settings', adminOnly: true },
-      { path: '/logs', key: 'logs', icon: 'file-text', adminOnly: true },
     ],
   },
 ];

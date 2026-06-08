@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { getTransferFiles, deleteTransferFile, transferUploadUrl, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { copyToClipboard } from '../lib/clipboard.js';
+  import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let files = $state([]);
@@ -17,6 +19,7 @@
   let expiresIn = $state('168h');
   let maxDownloads = $state(0);
   let dragOver = $state(false);
+  let lastUploadedLink = $state('');
 
   onMount(async () => {
     try {
@@ -103,6 +106,9 @@
       });
 
       toast(t('uploadSuccess'), 'success');
+      if (result?.code) {
+        lastUploadedLink = shareUrl(result.code);
+      }
       selectedFile = null;
       if (fileInput) fileInput.value = '';
       await loadFiles();
@@ -115,6 +121,8 @@
   }
 
   async function doDelete(code) {
+    const target = files.find((f) => f.code === code);
+    if (!(await showConfirm(t('confirmDeleteTransferFile', { filename: target?.filename || code })))) return;
     deletingCode = code;
     try {
       await deleteTransferFile(code);
@@ -127,13 +135,24 @@
     }
   }
 
-  function copyLink(code) {
-    const url = window.location.origin + '/api/transfer/' + code;
-    navigator.clipboard.writeText(url).then(() => {
+  function shareUrl(code) {
+    return window.location.origin + '/api/transfer/' + code;
+  }
+
+  async function copyLink(code) {
+    if (await copyToClipboard(shareUrl(code))) {
       toast(t('linkCopied'), 'success');
-    }).catch(() => {
+    } else {
       toast(t('copyFailed'), 'error');
-    });
+    }
+  }
+
+  async function copyLastUploadedLink() {
+    if (await copyToClipboard(lastUploadedLink)) {
+      toast(t('linkCopied'), 'success');
+    } else {
+      toast(t('copyFailed'), 'error');
+    }
   }
 
   function formatSize(bytes) {
@@ -210,9 +229,17 @@
     <div
       class="drop-zone"
       class:drag-over={dragOver}
-      ondragover="{(e) => { e.preventDefault(); dragOver = true; }}"
-      ondragleave="{() => { dragOver = false; }}"
+      role="button"
+      tabindex="0"
+      ondragover={(e) => { e.preventDefault(); dragOver = true; }}
+      ondragleave={() => { dragOver = false; }}
       ondrop={onDrop}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          fileInput?.click();
+        }
+      }}
     >
       <input type="file" bind:this={fileInput} onchange={onFileChange} style="display:none;" id="transfer-file-input" />
       <label for="transfer-file-input" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0.5rem;padding:1.5rem;">
@@ -262,6 +289,14 @@
         <div style="font-size:0.65rem;color:var(--c-text-muted);margin-top:2px;">
           {formatSize(uploadProgress.bytes)} / {uploadProgress.total ? formatSize(uploadProgress.total) : '?'}
         </div>
+      </div>
+    {/if}
+    {#if lastUploadedLink}
+      <div class="upload-result">
+        <span class="td-mono">{lastUploadedLink}</span>
+        <button class="btn btn-ghost btn-sm" onclick={copyLastUploadedLink}>
+          {t('copyLink')}
+        </button>
       </div>
     {/if}
   </div>
@@ -343,5 +378,24 @@
     background: var(--c-accent);
     border-radius: 3px;
     transition: width 0.2s ease;
+  }
+  .upload-result {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--c-accent-border);
+    border-radius: var(--radius);
+    background: var(--c-accent-bg);
+    color: var(--c-text-secondary);
+    overflow: hidden;
+  }
+  .upload-result .td-mono {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

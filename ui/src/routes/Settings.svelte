@@ -17,6 +17,7 @@
   });
   let loading = $state(true);
   let rotating = $state(false);
+  let syncing = $state(false);
   let syncMsg = $state('');
   let result = $state({ ok: false, msg: '' });
 
@@ -36,6 +37,7 @@
   }
 
   async function doSyncDNS() {
+    syncing = true;
     syncMsg = t('syncing');
     try {
       const d = await syncDNS();
@@ -43,6 +45,8 @@
       await refresh();
     } catch (e) {
       toast(t('syncFailed', { error: e.message }), 'error');
+    } finally {
+      syncing = false;
     }
   }
 
@@ -156,7 +160,7 @@
             <tr>
               <td style="font-weight:500;">{dns.domain}</td>
               <td class="td-mono">{dns.record?.content || '—'}</td>
-              <td class="td-mono">{dns.record?.content || '—'}</td>
+              <td class="td-mono">{dns.expected_ip || '—'}</td>
               <td>
                 {#if dns.error}
                   <span class="badge badge-red">{dns.error}</span>
@@ -174,7 +178,10 @@
       </table>
     {/if}
     <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem;flex-wrap:wrap;">
-      <button class="btn btn-sm btn-primary" onclick={doSyncDNS}>{t('syncAllDNS')}</button>
+      <button class="btn btn-sm btn-primary" onclick={doSyncDNS} disabled={syncing || loading || !net.cf_configured}>
+        {#if syncing}<span class="spinner" style="margin-right:0.25rem;"></span>{/if}
+        {t('syncAllDNS')}
+      </button>
       {#if syncMsg}<span style="font-size:0.78rem;color:var(--c-text-secondary);">{syncMsg}</span
         >{/if}
     </div>
@@ -188,7 +195,7 @@
       {t('rotateDesc', { range: net.rotating_range })}
     </p>
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick={doRotate} disabled={rotating}>
+      <button class="btn btn-primary" onclick={doRotate} disabled={rotating || loading || !net.cf_configured}>
         {#if rotating}<span class="spinner" style="margin-right:0.35rem;"></span>{/if}
         {rotating ? t('rotating') : t('rotateAll')}
       </button>

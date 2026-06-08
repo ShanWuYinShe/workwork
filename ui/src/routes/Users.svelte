@@ -15,6 +15,7 @@
   let adminUsers = $state([]);
   let loading = $state(true);
   let isAdmin = $state(false);
+  let currentUsername = $state('');
   let newUser = $state(''),
     newPass = $state(''),
     newRole = $state('viewer');
@@ -31,6 +32,8 @@
       adminUsers = d.adminUsers || [];
       const me = await getCurrentUser();
       isAdmin = me?.role === 'admin';
+      currentUsername = me?.username || '';
+      pwUser = currentUsername;
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -57,6 +60,7 @@
     if (!(await showConfirm(t('confirmDeleteUser', { username })))) return;
     try {
       await deleteAdminUser(username);
+      toast(t('userDeleted', { user: username }), 'success');
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
@@ -77,6 +81,8 @@
   }
 
   async function changeRole(username, role) {
+    const roleLabel = role === 'admin' ? t('Admin') : t('Viewer');
+    if (!(await showConfirm(t('confirmRoleChange', { username, role: roleLabel })))) return;
     try {
       await setUserRole(username, role);
       toast(t('roleSetTo', { user: username, role }), 'success');
@@ -133,8 +139,10 @@
               </td>
               <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
               <td>
-                {#if u.role !== 'admin'}
-                  <div class="td-actions">
+                <div class="td-actions">
+                  {#if u.username === currentUsername}
+                    <span class="badge badge-gray">{t('currentUser')}</span>
+                  {:else if u.role !== 'admin'}
                     <button
                       class="btn btn-primary btn-sm"
                       onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
@@ -142,10 +150,16 @@
                     <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
                       >{t('delete')}</button
                     >
-                  </div>
-                {:else}
-                  <span style="color:var(--c-text-muted);font-size:0.78rem;">—</span>
-                {/if}
+                  {:else}
+                    <button
+                      class="btn btn-ghost btn-sm"
+                      onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
+                    >
+                    <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                      >{t('delete')}</button
+                    >
+                  {/if}
+                </div>
               </td>
             </tr>
           {/each}

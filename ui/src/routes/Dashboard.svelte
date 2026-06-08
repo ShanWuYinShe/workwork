@@ -21,6 +21,18 @@
   let generatedJSON = $state('');
   let loading = $state(true);
   let isAdmin = $state(false);
+  const viewerQuickActions = [
+    { path: '/clients', label: 'openClients', desc: 'clientsActionDesc', primary: true },
+    { path: '/transfer', label: 'openTransfer', desc: 'transferActionDesc' },
+    { path: '/downloads', label: 'openDownloads', desc: 'downloadsActionDesc' },
+  ];
+  const adminQuickActions = [
+    { path: '/services', label: 'openServices', desc: 'servicesActionDesc', primary: true },
+    { path: '/settings', label: 'openSettings', desc: 'settingsActionDesc' },
+    { path: '/security', label: 'openSecurity', desc: 'securityActionDesc' },
+    { path: '/logs', label: 'openLogs', desc: 'logsActionDesc' },
+  ];
+  let quickActions = $derived(isAdmin ? adminQuickActions : viewerQuickActions);
 
   onMount(async () => {
     try {
@@ -136,6 +148,23 @@
 
     <div class="card">
       <div class="card-header">
+        <div>
+          <div class="card-title">{t('quickActions')}</div>
+          <div class="card-subtitle">{t('adminDashboardHint')}</div>
+        </div>
+      </div>
+      <div class="quick-actions">
+        {#each quickActions as action}
+          <a class="quick-action" class:primary={action.primary} href={'/admin' + action.path}>
+            <span class="quick-action-title">{t(action.label)}</span>
+            <span class="quick-action-desc">{t(action.desc)}</span>
+          </a>
+        {/each}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
         <div class="card-title">
           {t('servicesCount')}
           {#if services.length}<span class="card-title-count">{services.length}</span>{/if}
@@ -169,6 +198,23 @@
       <div>
         <div class="welcome-title">{t('welcomeTitle', { username })}</div>
         <div class="welcome-sub">{t('welcomeSubTitle')}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">{t('quickActions')}</div>
+          <div class="card-subtitle">{t('viewerDashboardHint')}</div>
+        </div>
+      </div>
+      <div class="quick-actions">
+        {#each quickActions as action}
+          <a class="quick-action" class:primary={action.primary} href={'/admin' + action.path}>
+            <span class="quick-action-title">{t(action.label)}</span>
+            <span class="quick-action-desc">{t(action.desc)}</span>
+          </a>
+        {/each}
       </div>
     </div>
 
@@ -283,5 +329,43 @@
   .welcome-sub {
     font-size: 0.78rem;
     color: var(--c-text-secondary);
+  }
+  .quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  .quick-action {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    background: var(--c-bg-surface);
+    text-decoration: none;
+    transition:
+      border-color var(--transition),
+      transform var(--transition),
+      background var(--transition);
+  }
+  .quick-action:hover {
+    border-color: var(--c-border-strong);
+    background: var(--c-bg-hover);
+    transform: translateY(-1px);
+  }
+  .quick-action.primary {
+    border-color: var(--c-accent-border);
+    background: var(--c-accent-bg);
+  }
+  .quick-action-title {
+    color: var(--c-text-heading);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+  .quick-action-desc {
+    color: var(--c-text-muted);
+    font-size: 0.72rem;
+    line-height: 1.4;
   }
 </style>
