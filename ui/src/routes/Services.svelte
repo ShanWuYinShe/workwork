@@ -60,7 +60,7 @@
   </div>
 
   {#if loading}
-    <div class="loading-skeleton" style="height:200px;"></div>
+    <div class="card"><div class="loading-skeleton" style="height:200px;"></div></div>
   {:else}
     <div class="stats">
       <div class="stat">
@@ -88,7 +88,7 @@
         <div class="value">{runningCount}</div>
       </div>
       <div class="stat">
-        <div class="stat-icon" style="background:rgba(239,68,68,0.1);color:#f87171;">
+        <div class="stat-icon red">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             ><path
               stroke-linecap="round"
@@ -118,7 +118,7 @@
           <tbody>
             {#each services as s}
               <tr>
-                <td style="font-weight:500;">{serviceDisplayName(s.name)}</td>
+                <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                 <td>
                   <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
                     <span class="badge-dot"></span>{s.state}

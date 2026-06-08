@@ -171,8 +171,7 @@
             >
               {serviceDisplayName(s.name)}
               <span
-                class="badge badge-{s.state === 'running' ? 'green' : 'red'}"
-                style="margin-left:4px;"
+                class="badge badge-{s.state === 'running' ? 'green' : 'red'} badge-inline"
               >
                 <span class="badge-dot"></span>{s.state}
               </span>
@@ -181,7 +180,7 @@
         </div>
         <div class="log-controls">
           <input
-            class="log-search"
+            class="log-search input-compact"
             type="text"
             placeholder={t('searchLogs')}
             bind:value={search}
@@ -248,18 +247,7 @@
     align-items: center;
   }
   .log-search {
-    background: var(--c-bg-surface);
-    border: 1px solid var(--c-border);
-    color: var(--c-text);
-    padding: 0.3rem 0.5rem;
-    border-radius: var(--radius-sm);
-    font-size: 0.75rem;
     width: 140px;
-    outline: none;
-  }
-  .log-search:focus {
-    border-color: var(--c-accent);
-    box-shadow: 0 0 0 3px var(--c-accent-bg);
   }
   .log-container {
     background: var(--c-bg-deep);

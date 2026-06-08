@@ -68,7 +68,7 @@
           type="text"
           bind:value={newIP}
           placeholder="1.2.3.4"
-          style="width:160px;"
+          class="input-w-sm"
         />
       </div>
       <div class="form-group form-group-grow">

@@ -130,7 +130,7 @@
           >
         </div>
         <div class="label">{t('dockerEngine')}</div>
-        <div class="value" style="font-size:0.9rem">{stats.dockerVersion}</div>
+        <div class="value value-sm">{stats.dockerVersion}</div>
       </div>
       <div class="stat">
         <div class="stat-icon orange">
@@ -143,7 +143,7 @@
           >
         </div>
         <div class="label">{t('cpuMemory')}</div>
-        <div class="value" style="font-size:0.85rem">{stats.cpu} / {stats.memory}</div>
+        <div class="value value-xs">{stats.cpu} / {stats.memory}</div>
       </div>
     </div>
 
@@ -177,7 +177,7 @@
           <tbody>
             {#each services as s}
               <tr>
-                <td style="font-weight:500;">{serviceDisplayName(s.name)}</td>
+                <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                 <td>
                   <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
                     <span class="badge-dot"></span>{s.state}
@@ -277,7 +277,7 @@
             >
           </div>
         </div>
-        <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+        <div class="badge-list config-badges">
           <span class="badge badge-gray">{t('socks5')} :10808</span>
           <span class="badge badge-gray">{t('http')} :10809</span>
           <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
@@ -287,8 +287,8 @@
     {:else}
       <div class="card">
         <div class="empty-state">
-          <p style="margin-bottom:0.5rem;">{t('noProxyClientsYet')}</p>
-          <p style="font-size:0.78rem;">
+          <p class="empty-state-title">{t('noProxyClientsYet')}</p>
+          <p class="empty-state-copy">
             {t('goToClients')}
           </p>
         </div>

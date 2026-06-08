@@ -88,15 +88,15 @@
         <thead><tr><th>{t('service')}</th><th>{t('staticIP')}</th><th>{t('rotatingIP')}</th><th>{t('roleCol')}</th></tr></thead>
         <tbody>
           <tr>
-            <td style="font-weight:500;">nginx (xhttp)</td>
+            <td class="cell-strong">nginx (xhttp)</td>
             <td class="td-mono">{net.nginx_ip}</td>
-            <td class="td-mono" style="color:#93c5fd;">{net.nginx_rotating || '—'}</td>
+            <td class="td-mono text-accent">{net.nginx_rotating || '—'}</td>
             <td class="td-muted">{t('webGateway')}</td>
           </tr>
           <tr>
-            <td style="font-weight:500;">xray (reality)</td>
+            <td class="cell-strong">xray (reality)</td>
             <td class="td-mono">{net.xray_static || '—'}</td>
-            <td class="td-mono" style="color:#93c5fd;">{net.xray_ip}</td>
+            <td class="td-mono text-accent">{net.xray_ip}</td>
             <td class="td-muted">{t('realityDesc')}</td>
           </tr>
         </tbody>
@@ -134,12 +134,12 @@
         <thead><tr><th>{t('service')}</th><th>{t('port')}</th><th>{t('access')}</th></tr></thead>
         <tbody>
           <tr
-            ><td style="font-weight:500;">admin</td><td class="td-mono">8318</td><td
+            ><td class="cell-strong">admin</td><td class="td-mono">8318</td><td
               class="td-muted">{t('internalDockerViaNginx')}</td
             ></tr
           >
           <tr
-            ><td style="font-weight:500;">xray xhttp</td><td class="td-mono">8447</td><td
+            ><td class="cell-strong">xray xhttp</td><td class="td-mono">8447</td><td
               class="td-muted">{t('internalDockerViaProxyQuery')}</td
             ></tr
           >
@@ -158,7 +158,7 @@
         <tbody>
           {#each net.dns_records as dns}
             <tr>
-              <td style="font-weight:500;">{dns.domain}</td>
+              <td class="cell-strong">{dns.domain}</td>
               <td class="td-mono">{dns.record?.content || '—'}</td>
               <td class="td-mono">{dns.expected_ip || '—'}</td>
               <td>
@@ -177,12 +177,12 @@
         </tbody>
       </table>
     {/if}
-    <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.75rem;flex-wrap:wrap;">
+    <div class="inline-actions card-footer-actions">
       <button class="btn btn-sm btn-primary" onclick={doSyncDNS} disabled={syncing || loading || !net.cf_configured}>
-        {#if syncing}<span class="spinner" style="margin-right:0.25rem;"></span>{/if}
+        {#if syncing}<span class="spinner"></span>{/if}
         {t('syncAllDNS')}
       </button>
-      {#if syncMsg}<span style="font-size:0.78rem;color:var(--c-text-secondary);">{syncMsg}</span
+      {#if syncMsg}<span class="helper-text">{syncMsg}</span
         >{/if}
     </div>
   </div>
@@ -191,12 +191,12 @@
     <div class="card-header">
       <div class="card-title">{t('ipv6Rotation')}</div>
     </div>
-    <p style="color:var(--c-text-secondary);font-size:0.78rem;margin-bottom:1rem;line-height:1.6;">
+    <p class="section-copy">
       {t('rotateDesc', { range: net.rotating_range })}
     </p>
-    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+    <div class="inline-actions">
       <button class="btn btn-primary" onclick={doRotate} disabled={rotating || loading || !net.cf_configured}>
-        {#if rotating}<span class="spinner" style="margin-right:0.35rem;"></span>{/if}
+        {#if rotating}<span class="spinner"></span>{/if}
         {rotating ? t('rotating') : t('rotateAll')}
       </button>
       {#if result.msg}
