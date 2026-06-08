@@ -20,7 +20,8 @@ RUN CGO_ENABLED=0 go build -o admin .
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates bash
+RUN apk add --no-cache ca-certificates bash \
+    && mkdir -p /app/configs /app/data
 
 COPY --from=go-builder /build/admin /app/admin
 COPY --from=ui-builder /ui/dist /app/ui

@@ -35,6 +35,14 @@ server {
     ssl_client_certificate /etc/nginx/cloudflare-origin-pull.pem;
     ssl_verify_client on;
 
+    location = / {
+        return 308 /admin/;
+    }
+
+    location = /admin {
+        return 308 /admin/;
+    }
+
     location /proxy/query {
         __XHTTP_PROXY_AUTH__
         access_log /dev/stdout auth_log;

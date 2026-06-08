@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板 / Cliproxy。
+Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
 
 通用约束（Git 规范、验证流程、工具链偏好）见全局 `~/.claude/CLAUDE.md`。
 
@@ -15,9 +15,9 @@ Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / G
 go build -C services/admin -o /dev/null .
 
 # Go 验证
-go vet ./services/admin/...            # 静态检查
+go vet -C services/admin ./...         # 静态检查
 gofmt -l services/admin/               # 格式化检查（列出不符合的文件）
-go test ./services/admin/...           # 单元测试
+go test -C services/admin ./...        # 单元测试
 
 # Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
 npm --prefix ui run build              # 构建
@@ -43,10 +43,8 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | handlers/users.go | 客户端配置生成（Reality + XHTTP） |
 | xray.go | Xray 二进制下载 + SHA256 校验 |
 | claude.go | Claude Code 二进制下载 + SHA256 校验 |
-| cliproxy.go | Per-user cliproxy 容器管理 |
-| modelpool.go | 公共 AI 模型池 |
 | cloudflare.go | Cloudflare DNS API（AAAA 记录 upsert/find） |
-| deploy.go | 启动时生成：xray.json、nginx.conf、cliproxy.yaml、internal token |
+| deploy.go | 启动时生成：xray.json、nginx.conf、htpasswd、internal token |
 
 ### ui/ — Svelte 5 SPA
 
@@ -65,7 +63,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### docker-compose.yml
 
-4 服务: nginx, xray, cliproxy-public, admin。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。
+3 服务: admin, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。
 
 ## Security — 多层防御
 
@@ -101,9 +99,7 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 | Clients | `GET/POST /api/admin/users/xray/*` | viewer+（仅自己的客户端） |
 | Users | `POST /api/admin/users/admin/*`, `/roles/set` | admin |
 | Security | `GET/POST /api/admin/security/*` | admin |
-| Cliproxy | `/api/admin/cliproxy/*` | admin |
 | Settings | `GET/POST /api/admin/network/*` | admin |
-| Model Pool | `GET/POST /api/admin/model-pool*` | admin |
 | Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
 | Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
 | Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |
@@ -119,34 +115,12 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 - `xray.yinghuoren.com` → 轮换 IP（reality 用域名，非裸 IP）
 - 客户端配置: reality 出站用 `xray.yinghuoren.com`，xhttp 用 `yinghuoren.com`
 
-## Cliproxy 配置格式
-
-```yaml
-api-keys:                    # 用户访问 cliproxy 的密钥
-  - "key-value"
-openai-compatibility:        # OpenAI API 格式 provider
-  - name: "provider-name"
-    base-url: "https://..."
-    api-key-entries:
-      - api-key: "sk-xxx"
-    models:
-      - name: "*"
-        alias: "prefix/*"
-claude-api-key:              # Anthropic API 格式 provider
-  - api-key: "sk-ant-xxx"
-    base-url: "https://..."
-    models:
-      - name: "*"
-        alias: "model-alias"
-```
-
 ## 关键约定
 
-- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker、cliproxy 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档。
+- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档。
 - **Never use `RemoteAddr` for auth** — 所有流量经 Docker bridge，看起来都是内网地址。
 - **Internal auth**: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）。
 - **Secrets**: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
-- **API key 区分**: `api-keys:` = cliproxy 访问密钥（用户侧）；`api-key-entries:` = 上游 provider 密钥。
 - **Xray 客户端归属**: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
 - **Git**: linear history on main，one commit per feature。Push → SSH pull → build → up。
 - **配置文件写入**：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。

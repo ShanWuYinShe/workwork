@@ -7,9 +7,8 @@
 .wework/
 .local/
 
-# Generated configs (use deploy.sh to generate from .tmpl files)
+# Legacy generated configs (runtime output now lives under .wework/)
 services/xray/config.json
-services/nginx/nginx.conf
 services/nginx/.htpasswd
 
 # Xray binary (build artifact)

@@ -1,6 +1,6 @@
 # WorkWork
 
-Docker-based proxy infrastructure with Xray VLESS proxy + AI provider API 代理。
+Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, and a Go/Svelte admin panel.
 
 ## 架构概览
 
@@ -31,7 +31,6 @@ Docker-based proxy infrastructure with Xray VLESS proxy + AI provider API 代理
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
 | **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
-| **cliproxy** | Cliproxy | 8317 | Per-user API 代理容器 |
 
 ### 网络架构
 
@@ -66,8 +65,7 @@ docker compose ps
 ### 访问管理面板
 
 - 地址: `https://your-domain.com/admin/`
-- 默认管理员: `admin` / `password` (首次登录后请修改)
-- 普通用户: `viewer` / `viewer`
+- 首次启动如果没有既有 htpasswd，必须通过 `AUTH_USER` + `AUTH_PASS` 生成管理员 Basic Auth；后续用户在 Users 页面创建。
 
 ## 服务详情
 
@@ -93,8 +91,6 @@ docker compose ps
 | Clients | viewer+ | Xray 代理账号管理、客户端配置下载 |
 | Users | admin | 用户增删改、角色分配 |
 | Security | admin | IP 黑名单、限速状态管理 |
-| Cliproxy | admin | API 代理容器管理 |
-| Model Pool | admin | AI 模型池配置 |
 | Settings | admin | 网络状态、IPv6 轮换、DNS 同步 |
 | Downloads | viewer+ | Claude Code / Xray 二进制下载 |
 
@@ -106,29 +102,6 @@ docker compose ps
 |-----|-----------|-------------|
 | Claude Code | 查看已下载、下载文件 | 刷新版本列表、下载新版本、删除 |
 | Xray | 查看已下载、下载文件 | 刷新版本列表、下载新版本、删除 |
-
-### Cliproxy
-
-Per-user API 代理容器，提供统一接口访问多个 AI 提供商：
-
-```yaml
-api-keys:                    # User-facing keys to ACCESS cliproxy
-  - "key-value"
-openai-compatibility:        # OpenAI API 格式
-  - name: "provider-name"
-    base-url: "https://..."
-    api-key-entries:
-      - api-key: "sk-xxx"
-    models:
-      - name: "*"
-        alias: "prefix/*"
-claude-api-key:              # Anthropic API 格式
-  - api-key: "sk-ant-xxx"
-    base-url: "https://..."
-    models:
-      - name: "*"
-        alias: "model-alias"
-```
 
 ## 目录结构
 
@@ -144,8 +117,6 @@ service/
 │   │   ├── main.go          # HTTP 路由、中间件链
 │   │   ├── api.go          # 核心 API（用户、服务、网络）
 │   │   ├── middleware.go   # 认证、角色检查
-│   │   ├── cliproxy.go     # Cliproxy 配置管理
-│   │   ├── modelpool.go    # AI 模型池
 │   │   ├── xray.go         # Xray 下载管理
 │   │   ├── xray_clients.go # 客户端配置生成
 │   │   ├── deploy.go       # 启动时配置生成
@@ -159,13 +130,9 @@ service/
 │   │   └── Dockerfile
 │   │
 │   ├── nginx/               # Nginx 反向代理
-│   │   ├── nginx.conf
+│   │   ├── nginx.conf.tmpl
 │   │   ├── fail2ban/
 │   │   └── Dockerfile
-│   │
-│   └── cliproxy/            # Cliproxy API 代理
-│       ├── config.yaml.tmpl
-│       └── Dockerfile
 │
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件

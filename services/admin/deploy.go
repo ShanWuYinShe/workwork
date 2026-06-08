@@ -12,9 +12,12 @@ import (
 	"time"
 )
 
-// generateConfigs creates xray config, nginx config, and htpasswd from templates.
-// Called on admin startup to ensure configs exist before services come up.
+// generateConfigs creates runtime configs and auth files from templates.
+// Called on admin startup before xray/nginx are allowed to start.
 func generateConfigs() error {
+	if err := ensureRuntimeDirs(); err != nil {
+		return fmt.Errorf("runtime dirs: %w", err)
+	}
 	if err := ensureXrayClients(); err != nil {
 		return fmt.Errorf("xray clients init: %w", err)
 	}
@@ -30,9 +33,40 @@ func generateConfigs() error {
 	if err := seedAdminUser(); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
-	genProxyHtpasswd() // ensure proxy-htpasswd file exists (even if empty)
+	if err := genProxyHtpasswd(); err != nil {
+		return fmt.Errorf("xhttp htpasswd: %w", err)
+	}
 	if err := genInternalToken(); err != nil {
 		return fmt.Errorf("internal token: %w", err)
+	}
+	return nil
+}
+
+func runtimeFilesReady() error {
+	required := []string{
+		xrayConfigPath,
+		nginxConfigPath,
+		htpasswdFile,
+		proxyHtpasswdPath,
+		"/app/data/.internal-token",
+	}
+	for _, path := range required {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if path != proxyHtpasswdPath && info.Size() == 0 {
+			return fmt.Errorf("%s is empty", path)
+		}
+	}
+	return nil
+}
+
+func ensureRuntimeDirs() error {
+	for _, dir := range []string{"/app/data/generated/xray", "/app/data/generated/nginx", nginxAuthDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -45,7 +79,7 @@ func generateConfigs() error {
 // The brief inconsistency window is benign: the next add/delete call triggers
 // another genXrayConfig that will include the latest client set.
 func genXrayConfig() error {
-	tmpl, err := os.ReadFile("/app/configs/xray.json.tmpl")
+	tmpl, err := os.ReadFile(xrayConfigTemplatePath)
 	if err != nil {
 		return err
 	}
@@ -100,16 +134,19 @@ func genXrayConfig() error {
 
 	// Always write — content comparison happens inside WriteFile (atomic overwrite).
 	// The file is shared with xray container via bind mount.
-	existing, _ := os.ReadFile("/app/configs/xray.json")
+	if err := os.MkdirAll("/app/data/generated/xray", 0755); err != nil {
+		return err
+	}
+	existing, _ := os.ReadFile(xrayConfigPath)
 	if string(existing) == out {
 		return nil
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return atomicWriteFile("/app/configs/xray.json", []byte(out), 0600)
+	return atomicWriteFile(xrayConfigPath, []byte(out), 0600)
 }
 
 func genNginxConfig() error {
-	tmpl, err := os.ReadFile("/app/configs/nginx.conf.tmpl")
+	tmpl, err := os.ReadFile(nginxConfigTemplatePath)
 	if err != nil {
 		return err
 	}
@@ -120,29 +157,40 @@ func genNginxConfig() error {
 	out = replaceEnv(out, map[string]string{
 		"__NGINX_IPV6__": "NGINX_IPV6",
 		"__ADMIN_PORT__": "ADMIN_PORT",
+	}, map[string]string{
+		"__ADMIN_PORT__": "8318",
 	})
-	if existing, err := os.ReadFile("/app/configs/nginx.conf"); err == nil && string(existing) == out {
+	if err := os.MkdirAll("/app/data/generated/nginx", 0755); err != nil {
+		return err
+	}
+	if existing, err := os.ReadFile(nginxConfigPath); err == nil && string(existing) == out {
 		return nil
 	}
-	return atomicWriteFile("/app/configs/nginx.conf", []byte(out), 0644)
+	return atomicWriteFile(nginxConfigPath, []byte(out), 0644)
 }
 
 func genHtpasswd() error {
-	if data, err := os.ReadFile("/app/htpasswd"); err == nil {
+	if err := os.MkdirAll(nginxAuthDir, 0755); err != nil {
+		return err
+	}
+	if data, err := os.ReadFile(htpasswdFile); err == nil {
 		if len(data) > 10 {
 			return nil
 		}
 	}
+	if data, err := os.ReadFile(legacyHtpasswdPath); err == nil && len(data) > 10 {
+		return atomicWriteFile(htpasswdFile, data, 0644)
+	}
 	user := getEnv("AUTH_USER")
 	pass := getEnv("AUTH_PASS")
 	if user == "" || pass == "" {
-		return nil
+		return fmt.Errorf("AUTH_USER and AUTH_PASS are required when no existing htpasswd is available")
 	}
 	out, err := bcryptHtpasswdLine(user, pass)
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile("/app/htpasswd", []byte(out), 0600)
+	return atomicWriteFile(htpasswdFile, []byte(out), 0644)
 }
 
 func seedAdminUser() error {
@@ -160,8 +208,18 @@ func seedAdminUser() error {
 }
 
 func genInternalToken() error {
-	if os.Getenv("INTERNAL_TOKEN") != "" {
-		return nil
+	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
+		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
+			return nil
+		}
+		return atomicWriteFile("/app/data/.internal-token", []byte(tok), 0600)
+	}
+	if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil {
+		tok := strings.TrimSpace(string(existing))
+		if tok != "" {
+			os.Setenv("INTERNAL_TOKEN", tok)
+			return nil
+		}
 	}
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -175,12 +233,11 @@ func genInternalToken() error {
 	return nil
 }
 
-// genProxyHtpasswd regenerates /app/data/proxy-htpasswd from all users' proxy passwords.
-func genProxyHtpasswd() {
+// genProxyHtpasswd regenerates nginx's per-user XHTTP proxy htpasswd file.
+func genProxyHtpasswd() error {
 	doc, err := readUsersMeta()
 	if err != nil {
-		log.Printf("ERROR: genProxyHtpasswd: read users: %v", err)
-		return
+		return fmt.Errorf("read users: %w", err)
 	}
 	var entries []string
 	for username, info := range doc.Users {
@@ -189,19 +246,21 @@ func genProxyHtpasswd() {
 		}
 		out, err := bcryptHtpasswdLine(username, info.ProxyPassword)
 		if err != nil {
-			log.Printf("ERROR: genProxyHtpasswd: bcrypt for %s: %v", username, err)
-			continue
+			return fmt.Errorf("bcrypt for %s: %w", username, err)
 		}
 		entries = append(entries, out)
 	}
-	os.MkdirAll("/app/data", 0755)
+	if err := os.MkdirAll(nginxAuthDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
 	data := []byte(strings.Join(entries, "\n") + "\n")
 	if len(entries) == 0 {
 		data = []byte{}
 	}
-	if err := atomicWriteFile("/app/data/proxy-htpasswd", data, 0600); err != nil {
-		log.Printf("ERROR: genProxyHtpasswd: write file: %v", err)
+	if err := atomicWriteFile(proxyHtpasswdPath, data, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
 	}
+	return nil
 }
 
 func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {

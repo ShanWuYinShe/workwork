@@ -2,7 +2,6 @@
 .wework
 cert
 logs
-cliproxy-data
 *.md
 .git
 .gitignore
