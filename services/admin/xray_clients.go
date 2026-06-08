@@ -159,8 +159,15 @@ func ensureXrayClients() error {
 }
 
 func migrateXrayClientsFromConfig() []xrayClientEntry {
-	data, err := os.ReadFile("/app/configs/xray.json")
-	if err != nil {
+	var data []byte
+	for _, path := range []string{xrayConfigPath, legacyXrayConfigPath} {
+		var err error
+		data, err = os.ReadFile(path)
+		if err == nil {
+			break
+		}
+	}
+	if len(data) == 0 {
 		return nil
 	}
 	var cfg struct {

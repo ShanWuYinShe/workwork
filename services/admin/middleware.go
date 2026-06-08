@@ -153,7 +153,9 @@ func getOrCreateProxyPassword(username string) (string, error) {
 		return "", err
 	}
 	if created {
-		genProxyHtpasswd()
+		if err := genProxyHtpasswd(); err != nil {
+			return "", err
+		}
 	}
 	return password, nil
 }

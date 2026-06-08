@@ -9,5 +9,9 @@ if [ -n "$BRIDGE_IF" ]; then
 	GW=$(echo "$SUBNET" | awk -F'[./]' '{print $1"."$2"."$3".1"}')
 	ip route replace default via "$GW" dev "$BRIDGE_IF" 2>/dev/null
 fi
-# ip route 需要 root 权限，完成后降权运行 xray
-exec su-exec appuser xray -config /etc/xray/config.json "$@"
+# ip route 和读取 root-only 配置需要 root 权限；复制后降权运行 xray。
+CONFIG_COPY=/tmp/xray-config.json
+cp /etc/xray/config.json "$CONFIG_COPY"
+chown appuser:appuser "$CONFIG_COPY"
+chmod 0400 "$CONFIG_COPY"
+exec su-exec appuser xray -config "$CONFIG_COPY" "$@"
