@@ -31,6 +31,10 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
 | **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
+| **media_server** | Node.js + TypeScript | 8787 | 合规公开视频聚合 API |
+| **vod_extractor** | Python + yt-dlp | 8790 | 内部点播解析服务 |
+
+Media Server 的 App 对接文档见 [`services/media_server/API.md`](./services/media_server/API.md)，OpenAPI 见 [`services/media_server/openapi.json`](./services/media_server/openapi.json)。
 
 ### 网络架构
 
@@ -92,6 +96,7 @@ docker compose ps
 | Users | admin | 用户增删改、角色分配 |
 | Security | admin | IP 黑名单、限速状态管理 |
 | Settings | admin | 网络状态、IPv6 轮换、DNS 同步 |
+| Media Center | admin | 媒体服务 upstream、nginx 公开前缀、分类搜索词和过滤词配置 |
 | Downloads | viewer+ | Claude Code / Xray 二进制下载 |
 
 ### Downloads 页面
@@ -133,6 +138,15 @@ service/
 │   │   ├── nginx.conf.tmpl
 │   │   ├── fail2ban/
 │   │   └── Dockerfile
+│   │
+│   ├── media_server/        # Media Center 后端服务
+│   │   ├── src/
+│   │   ├── test/
+│   │   └── Dockerfile
+│   │
+│   ├── vod_extractor/       # 内部 yt-dlp 点播解析服务
+│   │   ├── server.py
+│   │   └── Dockerfile
 │
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件
@@ -170,17 +184,21 @@ service/
 
 ```bash
 # 构建并启动
-docker compose build --no-cache admin nginx
+docker compose build --no-cache admin nginx media_server vod_extractor
 docker compose up -d
 
 # 查看日志
 docker compose logs -f admin
 docker compose logs -f nginx
 docker compose logs -f xray
+docker compose logs -f media_server
+docker compose logs -f vod_extractor
 
 # 重启服务
 docker compose restart admin
 docker compose restart xray
+docker compose restart media_server
+docker compose restart vod_extractor
 ```
 
 ## 部署流程
@@ -192,7 +210,7 @@ git commit -m "描述"
 git push origin main
 
 # 2. 服务器拉取并部署
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker compose up -d"
+ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx media_server vod_extractor && docker compose up -d"
 ```
 
 ## 环境变量
@@ -206,3 +224,6 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
 | `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
+| `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
+| `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
+| `VOD_EXTRACTOR_TIMEOUT_MS` | 内部点播解析服务超时 | `30000` |

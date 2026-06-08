@@ -215,8 +215,8 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		case "restart":
 			t := 10
 			err = cli.ContainerRestart(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
-			if err == nil && name == "xray" {
-				restoreRotatingIP(r.Context(), cli, containers[0].ID)
+			if err == nil && (name == "xray" || name == "nginx") {
+				restoreServiceRotatingIP(r.Context(), cli, containers[0].ID, name)
 			}
 		default:
 			writeError(w, "Unknown action", 400)
@@ -283,8 +283,10 @@ func serviceSortWeight(name string) int {
 		return 1
 	case "media_server":
 		return 2
-	case "admin":
+	case "vod_extractor":
 		return 3
+	case "admin":
+		return 4
 	default:
 		return 100
 	}
@@ -1345,23 +1347,31 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	}
 
 	// Restore the rotating IPv6 address after restart.
-	restoreRotatingIP(ctx, cli, id)
+	restoreServiceRotatingIP(ctx, cli, id, "xray")
 	return nil
 }
 
-// restoreRotatingIP re-adds the dynamic rotating IPv6 address after a container restart.
+// restoreRotatingIP re-adds xray's dynamic rotating IPv6 address after a container restart.
 // Docker restart drops dynamically-assigned IPs added via `ip addr add`,
 // but admin knows the current IP from DNS and can re-add it.
 func restoreRotatingIP(ctx context.Context, cli *client.Client, containerID string) {
+	restoreServiceRotatingIP(ctx, cli, containerID, "xray")
+}
+
+func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, containerID, service string) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	xrayIP, _ := loadCurrentIPs()
-	if xrayIP == "" {
+	xrayIP, nginxIP := loadCurrentIPs()
+	ip := xrayIP
+	if service == "nginx" {
+		ip = nginxIP
+	}
+	if ip == "" {
 		return
 	}
-	if err := addContainerIP(ctx, cli, containerID, xrayIP); err != nil {
-		log.Printf("WARNING: failed to restore rotating IPv6 %s: %v", xrayIP, err)
+	if err := addContainerIP(ctx, cli, containerID, ip); err != nil {
+		log.Printf("WARNING: failed to restore %s rotating IPv6 %s: %v", service, ip, err)
 	}
 }
 

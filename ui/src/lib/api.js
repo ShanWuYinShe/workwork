@@ -64,7 +64,10 @@ export async function getXrayClientConfig(uuid) {
 }
 
 export async function changePassword(username, oldPassword, password) {
-  return req('/users/password', { method: 'POST', body: JSON.stringify({ username, old_password: oldPassword, password }) });
+  return req('/users/password', {
+    method: 'POST',
+    body: JSON.stringify({ username, old_password: oldPassword, password }),
+  });
 }
 
 export async function addAdminUser(username, password, role = 'viewer') {
@@ -92,6 +95,14 @@ export async function rotateIPv6() {
 
 export async function syncDNS() {
   return req('/network/sync-dns', { method: 'POST' });
+}
+
+export async function getMediaCenterConfig() {
+  return req('/media-center/config');
+}
+
+export async function saveMediaCenterConfig(config) {
+  return req('/media-center/config', { method: 'PUT', body: JSON.stringify(config) });
 }
 
 export async function getBlockedIPs() {
@@ -149,7 +160,11 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
     for (const line of lines) {
       if (!line.trim()) continue;
       let data;
-      try { data = JSON.parse(line); } catch { continue; }
+      try {
+        data = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (data.type === 'progress' && onProgress) onProgress(data);
       if (data.type === 'error') throw new Error(data.error);
       if (data.type === 'done') result = data;
@@ -159,7 +174,11 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
   // Handle remaining buffer
   if (buf.trim()) {
     let data;
-    try { data = JSON.parse(buf); } catch { /* ignore partial */ }
+    try {
+      data = JSON.parse(buf);
+    } catch {
+      /* ignore partial */
+    }
     if (data) {
       if (data.type === 'error') throw new Error(data.error);
       if (data.type === 'done') result = data;
@@ -222,7 +241,11 @@ export async function downloadXrayVersion(version, plat, onProgress) {
     for (const line of lines) {
       if (!line.trim()) continue;
       let data;
-      try { data = JSON.parse(line); } catch { continue; }
+      try {
+        data = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (data.type === 'progress' && onProgress) onProgress(data);
       if (data.type === 'error') throw new Error(data.error);
       if (data.type === 'done') result = data;
@@ -231,7 +254,11 @@ export async function downloadXrayVersion(version, plat, onProgress) {
   }
   if (buf.trim()) {
     let data;
-    try { data = JSON.parse(buf); } catch { /* ignore */ }
+    try {
+      data = JSON.parse(buf);
+    } catch {
+      /* ignore */
+    }
     if (data) {
       if (data.type === 'error') throw new Error(data.error);
       if (data.type === 'done') result = data;

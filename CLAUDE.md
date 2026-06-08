@@ -22,6 +22,11 @@ go test -C services/admin ./...        # 单元测试
 # Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
 npm --prefix ui run build              # 构建
 
+# Media Server 验证
+npm --prefix services/media_server run lint
+npm --prefix services/media_server test
+npm --prefix services/media_server run build
+
 # 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
 # 注意顺序：build → image prune 清旧 latest → volume prune 清孤儿 volume → up
 # 这样 docker 相关文件不会持续膨胀
@@ -31,7 +36,7 @@ npm --prefix ui run build              # 构建
 #   但 logs/nginx/ 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
 #   首次部署或权限异常时：
 #     sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker image prune -f && docker volume prune -f && docker compose up -d"
+ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx media_server vod_extractor && docker image prune -f && docker volume prune -f && docker compose up -d"
 ```
 
 ## 架构
@@ -67,9 +72,17 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray:8447。fail2ban 通过 `X-Internal-Token` 调用 admin API 封禁真实客户端 IP。
 
+### services/media_server/ — Media Center 后端
+
+Node.js/TypeScript 服务端，提供合规公开视频聚合 API。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。YouTube 点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
+
+### services/vod_extractor/ — 点播解析服务
+
+Python + yt-dlp 内部服务，只在 `internal_docker` 网络暴露 HTTP `/extract`，供 `media_server` 解析公开视频点播元数据。
+
 ### docker-compose.yml
 
-3 服务: admin, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
+5 服务: admin, xray, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
 
 ## Security — 多层防御
 
@@ -124,12 +137,11 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 
 ## 关键约定
 
-- **配置字段严格校验**: 修改任何配置（Xray、Nginx、Docker 等）时，必须对照官方源码/文档验证字段名大小写、合法值范围和字段语义，不得凭记忆或猜测填写。验证方法：读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档。
+- **配置字段核对**: Xray、Nginx、Docker 等配置以官方源码/文档为准；优先读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档确认字段名大小写、合法值范围和字段语义。
 - **Never use `RemoteAddr` for auth** — 所有流量经 Docker bridge，看起来都是内网地址。
 - **Internal auth**: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）。
 - **Secrets**: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
 - **Xray 客户端归属**: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
-- **Git**: linear history on main，one commit per feature。Push → SSH pull → build → up。
 - **配置文件写入**：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
 - **错误响应**：业务错误用 `writeError(w, msg, code)`（msg 返回客户端）；内部错误（文件 I/O、Docker API、第三方 API 等可能泄露内部状态的）必须用 `writeInternalError(w, err)`（只返回固定 "Internal error"，真实错误记日志）。
 - **新增 API 端点**：在 `main.go` 的 `mux.HandleFunc(...)` 区域注册，所有认证端点用 `requireRole("viewer")` 或 `requireRole("admin")` 包裹；健康检查用无认证的裸 handler。

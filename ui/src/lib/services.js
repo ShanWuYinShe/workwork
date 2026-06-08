@@ -2,6 +2,7 @@ const SERVICE_LABELS = {
   admin: 'Admin',
   media_server: 'Media Server',
   nginx: 'Nginx',
+  vod_extractor: 'VOD Extractor',
   xray: 'Xray',
 };
 

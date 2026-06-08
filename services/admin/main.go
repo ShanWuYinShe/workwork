@@ -56,6 +56,8 @@ func main() {
 	mux.HandleFunc("GET /api/admin/network/status", requireRole("admin")(apiNetworkStatus(cli)))
 	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", requireRole("admin")(apiRotateIPv6(cli)))
 	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/config", requireRole("admin")(apiMediaCenterConfig()))
+	mux.HandleFunc("PUT /api/admin/media-center/config", requireRole("admin")(apiSaveMediaCenterConfig(cli)))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
