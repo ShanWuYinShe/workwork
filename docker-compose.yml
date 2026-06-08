@@ -99,6 +99,22 @@ services:
       timeout: 5s
       retries: 3
 
+  # IPv4 转发：宿主机 443 → xray（ipvlan 容器不支持 Docker 端口映射）
+  xray-forward:
+    build:
+      context: ./services/xray
+      dockerfile: Dockerfile.forward
+    restart: unless-stopped
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    ports:
+      - "443:443"
+    depends_on:
+      xray:
+        condition: service_healthy
+
   admin:
     build:
       context: .
