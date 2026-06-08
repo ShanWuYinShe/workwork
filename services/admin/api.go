@@ -237,8 +237,15 @@ func apiConfig(cli *client.Client) http.HandlerFunc {
 			"xrayInbounds": 0, "xrayClients": 0,
 			"configStatus": "-",
 		}
-		raw, err := os.ReadFile("/app/configs/xray.json")
-		if err == nil {
+		var raw []byte
+		for _, path := range []string{xrayConfigPath, legacyXrayConfigPath} {
+			data, err := os.ReadFile(path)
+			if err == nil {
+				raw = data
+				break
+			}
+		}
+		if len(raw) > 0 {
 			var cfg struct {
 				Inbounds []struct {
 					Tag      string `json:"tag"`
@@ -526,8 +533,6 @@ func apiXrayClientConfig() http.HandlerFunc {
 		})
 	}
 }
-
-var htpasswdFile = "/app/htpasswd"
 
 // ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转
 var ipv6RotateMu sync.Mutex
@@ -976,18 +981,22 @@ func startupRotateIPv6(cli *client.Client) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	xrayID, err := findContainer(ctx, cli, "xray")
-	if err != nil {
-		log.Printf("startup rotate: xray: %v", err)
-		return
-	}
-	nginxID, err := findContainer(ctx, cli, "nginx")
-	if err != nil {
-		log.Printf("startup rotate: nginx: %v", err)
-		return
+	var xrayID, nginxID string
+	for {
+		var xrayErr, nginxErr error
+		xrayID, xrayErr = findContainer(ctx, cli, "xray")
+		nginxID, nginxErr = findContainer(ctx, cli, "nginx")
+		if xrayErr == nil && nginxErr == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			log.Printf("startup rotate: waiting for containers: xray=%v nginx=%v", xrayErr, nginxErr)
+			return
+		}
+		time.Sleep(2 * time.Second)
 	}
 
 	subnet := getEnv("IPV6_SUBNET")

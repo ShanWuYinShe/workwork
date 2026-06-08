@@ -18,9 +18,9 @@ func main() {
 		port = "8318"
 	}
 
-	// Auto-generate configs from templates on first start
+	// Auto-generate configs from templates before dependent services start.
 	if err := generateConfigs(); err != nil {
-		log.Printf("WARNING: config generation: %v", err)
+		log.Fatalf("Config generation failed: %v", err)
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -63,6 +63,11 @@ func main() {
 
 	// Health check (no auth required)
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
+		if err := runtimeFilesReady(); err != nil {
+			log.Printf("health check failed: %v", err)
+			writeError(w, "Not ready", http.StatusServiceUnavailable)
+			return
+		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	})
 
