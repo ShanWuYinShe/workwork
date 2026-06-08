@@ -108,6 +108,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    user: "1001:1001"
+    group_add:
+      - "${DOCKER_GID:-988}"
     networks:
       - internal_docker
     cap_drop:

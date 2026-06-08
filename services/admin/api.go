@@ -727,7 +727,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		content := strings.Join(lines, "\n") + "\n"
-		if err := atomicWriteFile(htpasswdFile, []byte(content), 0600); err != nil {
+		if err := atomicWriteFile(htpasswdFile, []byte(content), 0644); err != nil {
 			htpasswdMu.Unlock()
 			writeError(w, "Failed to write htpasswd", 500)
 			return
