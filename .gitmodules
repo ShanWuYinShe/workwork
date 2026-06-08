@@ -1,0 +1,3 @@
+[submodule "services/media_center"]
+	path = services/media_center
+	url = git@github.com:ShanWuYinShe/media_center.git
