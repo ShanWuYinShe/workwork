@@ -229,9 +229,14 @@ func seedAdminUser() error {
 func genInternalToken() error {
 	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
 		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
+			os.Setenv("INTERNAL_TOKEN", tok)
 			return ensurePerm("/app/data/.internal-token", 0644)
 		}
-		return atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644)
+		if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644); err != nil {
+			return err
+		}
+		os.Setenv("INTERNAL_TOKEN", tok)
+		return nil
 	}
 	if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil {
 		tok := strings.TrimSpace(string(existing))

@@ -142,14 +142,14 @@
       <div class="card-header">
         <div class="card-title">{t('generateClient')}</div>
       </div>
-      <div style="display:flex;align-items:center;gap:0.75rem;">
+      <div class="inline-actions">
         {#if hasOwnClient}
-          <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('oneClientLimit')}</span>
+          <span class="helper-text">{t('oneClientLimit')}</span>
         {:else}
           <button class="btn btn-success" onclick={generateAndAdd} disabled={loading || creating}>
             {creating ? t('generating') : t('generateAndAdd')}
           </button>
-          <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('generateDesc')}</span>
+          <span class="helper-text">{t('generateDesc')}</span>
         {/if}
       </div>
     </div>
@@ -221,11 +221,11 @@
         <div class="card-title">
           {t('clientConfig')}
           {#if selectedUUID}
-            <span class="badge badge-gray" style="margin-left:0.5rem;font-family:monospace;font-size:0.65rem;">
+            <span class="badge badge-gray badge-code">
               {selectedUUID.slice(0, 8)}...
             </span>
           {/if}
-          {#if configLoading}<span class="spinner" style="margin-left:0.5rem;"></span>{/if}
+          {#if configLoading}<span class="spinner spinner-inline"></span>{/if}
         </div>
         <div class="card-actions">
           <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label={t('copyConfiguration')}>
@@ -236,7 +236,7 @@
           </button>
         </div>
       </div>
-      <div style="display:flex;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+      <div class="badge-list config-badges">
         <span class="badge badge-gray">{t('socks5')}:10808</span>
         <span class="badge badge-gray">{t('http')}:10809</span>
         <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>

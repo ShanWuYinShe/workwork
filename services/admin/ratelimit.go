@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 )
@@ -127,7 +126,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
-		if internalToken := os.Getenv("INTERNAL_TOKEN"); internalToken != "" &&
+		if internalToken := getEnv("INTERNAL_TOKEN"); internalToken != "" &&
 			subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
 			next(w, r)
 			return

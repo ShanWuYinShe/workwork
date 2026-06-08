@@ -1,6 +1,9 @@
 import json
 import os
+import selectors
 import subprocess
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -11,6 +14,13 @@ EXTRACTOR_BIN = os.environ.get("VOD_EXTRACTOR_BIN", "yt-dlp")
 TIMEOUT_SECONDS = max(1, int(os.environ.get("VOD_EXTRACTOR_TIMEOUT_MS", "30000")) // 1000)
 MAX_OUTPUT_BYTES = int(os.environ.get("VOD_EXTRACTOR_MAX_OUTPUT_BYTES", str(20 * 1024 * 1024)))
 MAX_REQUEST_BYTES = 16 * 1024
+MAX_ERROR_BYTES = 64 * 1024
+MAX_CONCURRENT = max(1, int(os.environ.get("VOD_EXTRACTOR_MAX_CONCURRENT", "2")))
+EXTRACTOR_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT)
+
+
+class ExtractorBusyError(RuntimeError):
+    pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,6 +49,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
+            return
+        except ExtractorBusyError as error:
+            self.send_json(503, {"error": str(error)})
             return
         except RuntimeError as error:
             self.send_json(502, {"error": str(error)})
@@ -79,20 +92,21 @@ def is_http_url(value):
 
 
 def extract_vod(url):
+    if not EXTRACTOR_SEMAPHORE.acquire(blocking=False):
+        raise ExtractorBusyError("extractor is busy")
+    try:
+        return run_extractor(url)
+    finally:
+        EXTRACTOR_SEMAPHORE.release()
+
+
+def run_extractor(url):
     process = subprocess.Popen(
         [EXTRACTOR_BIN, "--dump-single-json", "--no-playlist", "--no-warnings", url],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    try:
-        stdout, stderr = process.communicate(timeout=TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired as error:
-        process.kill()
-        process.communicate()
-        raise TimeoutError("extractor timed out") from error
-
-    if len(stdout) > MAX_OUTPUT_BYTES:
-        raise RuntimeError("extractor output is too large")
+    stdout, stderr = read_limited_process_output(process)
     if process.returncode != 0:
         message = stderr.decode("utf-8", errors="replace").strip()[:2000]
         raise RuntimeError(message or "extractor failed")
@@ -101,6 +115,64 @@ def extract_vod(url):
         return json.loads(stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError("extractor returned invalid JSON") from error
+
+
+def read_limited_process_output(process):
+    selector = selectors.DefaultSelector()
+    stdout = bytearray()
+    stderr = bytearray()
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+
+    for name, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
+        if stream is None:
+            continue
+        os.set_blocking(stream.fileno(), False)
+        selector.register(stream, selectors.EVENT_READ, name)
+
+    try:
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stop_process(process)
+                raise TimeoutError("extractor timed out")
+            for key, _ in selector.select(remaining):
+                stream = key.fileobj
+                name = key.data
+                try:
+                    chunk = stream.read1(65536)
+                except BlockingIOError:
+                    continue
+                if chunk is None:
+                    continue
+                if chunk == b"":
+                    selector.unregister(stream)
+                    continue
+                if name == "stdout":
+                    if len(stdout) + len(chunk) > MAX_OUTPUT_BYTES:
+                        stop_process(process)
+                        raise RuntimeError("extractor output is too large")
+                    stdout.extend(chunk)
+                else:
+                    remaining_error = MAX_ERROR_BYTES - len(stderr)
+                    if remaining_error > 0:
+                        stderr.extend(chunk[:remaining_error])
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired as error:
+            stop_process(process)
+            raise TimeoutError("extractor timed out") from error
+        return bytes(stdout), bytes(stderr)
+    finally:
+        selector.close()
+
+
+def stop_process(process):
+    if process.poll() is None:
+        process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def main():

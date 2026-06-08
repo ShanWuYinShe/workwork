@@ -342,12 +342,6 @@
 </div>
 
 <style>
-  .page-subtitle {
-    color: var(--c-text-secondary);
-    font-size: 0.78rem;
-    margin-top: 0.25rem;
-  }
-
   .form-grid,
   .hint-grid,
   .textarea-grid {
@@ -386,7 +380,7 @@
   }
 
   .warning-card {
-    border-color: rgba(245, 158, 11, 0.3);
+    border-color: var(--c-warning);
     color: #fbbf24;
   }
 
@@ -403,7 +397,7 @@
   }
 
   .category-card {
-    background: rgba(15, 23, 42, 0.5);
+    background: var(--c-bg-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
     padding: 1rem;

@@ -94,7 +94,7 @@
   }
 
   function EyeIcon({ open }) {
-    return `<svg style="width:16px;height:16px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
+    return `<svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
   }
 </script>
 
@@ -122,16 +122,13 @@
           {#each adminUsers as u}
             <tr>
               <td>
-                <div style="display:flex;align-items:center;gap:0.5rem;">
+                <div class="user-line">
                   <div
-                    style="width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;{u.role ===
-                    'admin'
-                      ? 'background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;'
-                      : 'background:var(--c-bg-surface);color:var(--c-text-secondary);'}"
+                    class={u.role === 'admin' ? 'table-avatar table-avatar-admin' : 'table-avatar'}
                   >
                     {u.username[0].toUpperCase()}
                   </div>
-                  <span style="font-weight:500;">{u.username}</span>
+                  <span class="cell-strong">{u.username}</span>
                 </div>
               </td>
               <td>
@@ -177,16 +174,16 @@
     <div class="form-row">
       <div class="form-group">
         <label for="add-user">{t('username')}</label>
-        <input id="add-user" type="text" bind:value={newUser} style="width:160px;" />
+        <input id="add-user" type="text" bind:value={newUser} class="input-w-sm" />
       </div>
-      <div class="form-group" style="position:relative;">
+      <div class="form-group password-field">
         <label for="add-pass">{t('newPassword')}</label>
-        <div style="position:relative;">
+        <div class="password-input">
           <input
             id="add-pass"
             type={showNewPass ? 'text' : 'password'}
             bind:value={newPass}
-            style="width:160px;padding-right:32px;"
+            class="input-w-sm"
           />
           <button
             class="eye-btn"
@@ -215,17 +212,17 @@
     <div class="form-row">
       <div class="form-group">
         <label for="pw-user">{t('username')}</label>
-        <input id="pw-user" type="text" bind:value={pwUser} style="width:180px;" />
+        <input id="pw-user" type="text" bind:value={pwUser} class="input-w-md" />
       </div>
       {#if !isAdmin}
       <div class="form-group">
         <label for="pw-old">{t('oldPassword')}</label>
-        <div style="position:relative;">
+        <div class="password-input">
           <input
             id="pw-old"
             type={showOldPass ? 'text' : 'password'}
             bind:value={oldPass}
-            style="width:180px;padding-right:32px;"
+            class="input-w-md"
           />
           <button
             class="eye-btn"
@@ -239,12 +236,12 @@
       {/if}
       <div class="form-group">
         <label for="pw-pass">{t('newPassword')}</label>
-        <div style="position:relative;">
+        <div class="password-input">
           <input
             id="pw-pass"
             type={showPwPass ? 'text' : 'password'}
             bind:value={pwPass}
-            style="width:180px;padding-right:32px;"
+            class="input-w-md"
           />
           <button
             class="eye-btn"
