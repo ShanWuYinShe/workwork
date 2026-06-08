@@ -1,4 +1,0 @@
-FROM alpine:3.20
-RUN apk add --no-cache socat
-EXPOSE 443
-CMD ["socat", "TCP-LISTEN:443,fork,reuseaddr", "TCP:xray-internal:443"]

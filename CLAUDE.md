@@ -58,7 +58,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- IPv4 via bridge，IPv6 via ipvlan
+- 单容器双网络：IPv4 via Docker bridge NAT（`ports: "443:443"`），IPv6 via ipvlan L3；不要添加 `xray-forward`/socat 转发容器
 - Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
 - **XHTTP 模式必须是 `packet-up`**——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
 - Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
@@ -69,7 +69,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### docker-compose.yml
 
-3 服务: admin, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。
+3 服务: admin, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
 
 ## Security — 多层防御
 
