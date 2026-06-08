@@ -3,6 +3,7 @@
   import { getDashboard, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
+  import { serviceDisplayName } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let stats = $state({
@@ -176,7 +177,7 @@
           <tbody>
             {#each services as s}
               <tr>
-                <td style="font-weight:500;">{s.name}</td>
+                <td style="font-weight:500;">{serviceDisplayName(s.name)}</td>
                 <td>
                   <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
                     <span class="badge-dot"></span>{s.state}
