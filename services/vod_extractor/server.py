@@ -18,6 +18,10 @@ MAX_OUTPUT_BYTES = int(os.environ.get("VOD_EXTRACTOR_MAX_OUTPUT_BYTES", str(20 *
 MAX_REQUEST_BYTES = 16 * 1024
 MAX_ERROR_BYTES = 64 * 1024
 MAX_CONCURRENT = max(1, int(os.environ.get("VOD_EXTRACTOR_MAX_CONCURRENT", "2")))
+DEFAULT_COOKIES_FILE = "/config/youtube-cookies.txt"
+COOKIES_FILE_ENV = os.environ.get("VOD_EXTRACTOR_COOKIES_FILE", "").strip()
+COOKIES_FILE = COOKIES_FILE_ENV or DEFAULT_COOKIES_FILE
+COOKIES_FILE_EXPLICIT = bool(COOKIES_FILE_ENV)
 EXTRACTOR_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT)
 
 
@@ -129,7 +133,7 @@ def extract_vod(url):
 
 def run_extractor(url):
     process = subprocess.Popen(
-        [EXTRACTOR_BIN, "--dump-single-json", "--no-playlist", "--no-warnings", url],
+        extractor_command(url),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -142,6 +146,25 @@ def run_extractor(url):
         return json.loads(stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError("extractor returned invalid JSON") from error
+
+
+def extractor_command(url):
+    command = [EXTRACTOR_BIN, "--dump-single-json", "--no-playlist", "--no-warnings"]
+    cookies_file = extractor_cookies_file()
+    if cookies_file:
+        command.extend(["--cookies", cookies_file])
+    command.append(url)
+    return command
+
+
+def extractor_cookies_file():
+    if not COOKIES_FILE:
+        return None
+    if os.path.isfile(COOKIES_FILE):
+        return COOKIES_FILE
+    if COOKIES_FILE_EXPLICIT:
+        raise RuntimeError("configured cookies file is not readable")
+    return None
 
 
 def read_limited_process_output(process):
