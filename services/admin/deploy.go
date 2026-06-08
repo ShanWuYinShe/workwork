@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -139,7 +140,7 @@ func genXrayConfig() error {
 	}
 	existing, _ := os.ReadFile(xrayConfigPath)
 	if string(existing) == out {
-		return nil
+		return ensurePerm(xrayConfigPath, 0644)
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
 	return atomicWriteFile(xrayConfigPath, []byte(out), 0644)
@@ -164,7 +165,7 @@ func genNginxConfig() error {
 		return err
 	}
 	if existing, err := os.ReadFile(nginxConfigPath); err == nil && string(existing) == out {
-		return nil
+		return ensurePerm(nginxConfigPath, 0644)
 	}
 	return atomicWriteFile(nginxConfigPath, []byte(out), 0644)
 }
@@ -210,7 +211,7 @@ func seedAdminUser() error {
 func genInternalToken() error {
 	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
 		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
-			return nil
+			return ensurePerm("/app/data/.internal-token", 0644)
 		}
 		return atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644)
 	}
@@ -259,6 +260,21 @@ func genProxyHtpasswd() error {
 	}
 	if err := atomicWriteFile(proxyHtpasswdPath, data, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
+}
+
+// ensurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
+// atomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
+func ensurePerm(path string, want os.FileMode) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != want.Perm() {
+		log.Printf("Fixing permissions: %s %o -> %o", path, info.Mode().Perm(), want.Perm())
+		// os.Chmod 受 umask 影响，先用 syscall 确保精确权限
+		return syscall.Chmod(path, uint32(want.Perm()))
 	}
 	return nil
 }
