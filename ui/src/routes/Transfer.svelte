@@ -211,12 +211,12 @@
   </div>
 
   <!-- Usage bar -->
-  <div class="card" style="padding:0.75rem 1rem;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
-      <span style="font-size:0.75rem;color:var(--c-text-muted);">{t('storageUsed')}: {formatSize(totalSize)} / 20 GB</span>
-      <span style="font-size:0.75rem;color:var(--c-text-muted);">{usagePercent.toFixed(1)}%</span>
+  <div class="card card-compact">
+    <div class="metric-row">
+      <span>{t('storageUsed')}: {formatSize(totalSize)} / 20 GB</span>
+      <span>{usagePercent.toFixed(1)}%</span>
     </div>
-    <div class="progress-bar" style="height:6px;">
+    <div class="progress-bar">
       <div class="progress-fill" style="width:{usagePercent}%;"></div>
     </div>
   </div>
@@ -241,29 +241,29 @@
         }
       }}
     >
-      <input type="file" bind:this={fileInput} onchange={onFileChange} style="display:none;" id="transfer-file-input" />
-      <label for="transfer-file-input" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:0.5rem;padding:1.5rem;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:2rem;height:2rem;color:var(--c-text-muted);">
+      <input type="file" bind:this={fileInput} onchange={onFileChange} class="file-input-hidden" id="transfer-file-input" />
+      <label for="transfer-file-input" class="drop-zone-content">
+        <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
         </svg>
-        <span style="font-size:0.8rem;color:var(--c-text-muted);">
+        <span class="drop-zone-text">
           {selectedFile ? selectedFile.name + ' (' + formatSize(selectedFile.size) + ')' : t('dragOrClick')}
         </span>
       </label>
     </div>
-    <div style="display:flex;gap:0.75rem;align-items:center;margin-top:0.75rem;flex-wrap:wrap;">
-      <div style="display:flex;align-items:center;gap:0.35rem;">
-        <label for="transfer-expiry" style="font-size:0.75rem;color:var(--c-text-muted);">{t('expiry')}:</label>
-        <select id="transfer-expiry" bind:value={expiresIn} style="font-size:0.75rem;padding:0.2rem 0.4rem;border-radius:4px;background:var(--c-bg);color:var(--c-text);border:1px solid var(--c-border);">
+    <div class="inline-actions upload-options">
+      <div class="inline-field">
+        <label for="transfer-expiry" class="inline-label">{t('expiry')}:</label>
+        <select id="transfer-expiry" bind:value={expiresIn} class="input-compact">
           <option value="24h">{t('1d')}</option>
           <option value="72h">{t('3d')}</option>
           <option value="168h">{t('7d')}</option>
           <option value="720h">{t('30d')}</option>
         </select>
       </div>
-      <div style="display:flex;align-items:center;gap:0.35rem;">
-        <label for="transfer-max-dl" style="font-size:0.75rem;color:var(--c-text-muted);">{t('maxDownloads')}:</label>
-        <select id="transfer-max-dl" bind:value={maxDownloads} style="font-size:0.75rem;padding:0.2rem 0.4rem;border-radius:4px;background:var(--c-bg);color:var(--c-text);border:1px solid var(--c-border);">
+      <div class="inline-field">
+        <label for="transfer-max-dl" class="inline-label">{t('maxDownloads')}:</label>
+        <select id="transfer-max-dl" bind:value={maxDownloads} class="input-compact">
           <option value={0}>{t('unlimited')}</option>
           <option value={1}>1</option>
           <option value={5}>5</option>
@@ -274,7 +274,7 @@
       </div>
       <button class="btn btn-primary btn-sm" onclick={doUpload} disabled={!selectedFile || uploading}>
         {#if uploading}
-          <span class="spinner" style="margin-right:0.25rem;"></span>
+          <span class="spinner"></span>
           {uploadProgress ? uploadProgress.percent + '%' : t('uploading')}
         {:else}
           {t('upload')}
@@ -282,11 +282,11 @@
       </button>
     </div>
     {#if uploading && uploadProgress}
-      <div style="margin-top:0.5rem;">
-        <div class="progress-bar" style="height:4px;">
+      <div class="upload-progress">
+        <div class="progress-bar progress-bar-thin">
           <div class="progress-fill" style="width:{uploadProgress.percent || 0}%;"></div>
         </div>
-        <div style="font-size:0.65rem;color:var(--c-text-muted);margin-top:2px;">
+        <div class="progress-caption">
           {formatSize(uploadProgress.bytes)} / {uploadProgress.total ? formatSize(uploadProgress.total) : '?'}
         </div>
       </div>
@@ -325,12 +325,12 @@
         <tbody>
           {#each files as f}
             <tr>
-              <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={f.filename}>
+              <td class="cell-strong cell-ellipsis" title={f.filename}>
                 {f.filename}
               </td>
               <td class="td-muted">{formatSize(f.size)}</td>
               {#if isAdmin}<td class="td-muted">{f.uploader}</td>{/if}
-              <td class="td-muted" style:color={isExpired(f) ? '#ef4444' : undefined}>{formatDate(f.expires_at)}</td>
+              <td class={isExpired(f) ? 'td-muted text-danger' : 'td-muted'}>{formatDate(f.expires_at)}</td>
               <td class="td-muted">{downloadCount(f)}</td>
               <td>
                 <button class="btn btn-ghost btn-sm" onclick={() => copyLink(f.code)} title={t('copyLink')}>
@@ -357,27 +357,11 @@
 </div>
 
 <style>
-  .drop-zone {
-    border: 2px dashed var(--c-border);
-    border-radius: 8px;
-    transition: all 0.2s ease;
+  .upload-options {
+    margin-top: 0.75rem;
   }
-  .drop-zone:hover,
-  .drop-zone.drag-over {
-    border-color: var(--c-accent);
-    background: rgba(99, 102, 241, 0.05);
-  }
-  .progress-bar {
-    height: 6px;
-    background: var(--c-border);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--c-accent);
-    border-radius: 3px;
-    transition: width 0.2s ease;
+  .upload-progress {
+    margin-top: 0.5rem;
   }
   .upload-result {
     display: flex;

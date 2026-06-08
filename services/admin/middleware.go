@@ -100,7 +100,7 @@ func ensureUserMeta(username string) (*UserInfo, error) {
 }
 
 func isProtectedAdmin(username string) bool {
-	return username == os.Getenv("AUTH_USER")
+	return username == getEnv("AUTH_USER")
 }
 
 func updateUserMeta(username string, info UserInfo) error {
@@ -165,7 +165,7 @@ func getOrCreateProxyPassword(username string) (string, error) {
 // Default: loopback + the docker bridge that fronts this service.
 var trustedProxyCIDRs = sync.OnceValue(func() []*net.IPNet {
 	defaults := "127.0.0.0/8,::1/128,172.16.0.0/12"
-	raw := os.Getenv("TRUSTED_PROXY_CIDRS")
+	raw := getEnv("TRUSTED_PROXY_CIDRS")
 	if raw == "" {
 		raw = defaults
 	}
@@ -207,7 +207,7 @@ func isTrustedProxy(remoteAddr string) bool {
 
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
-	internalToken := os.Getenv("INTERNAL_TOKEN")
+	internalToken := getEnv("INTERNAL_TOKEN")
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

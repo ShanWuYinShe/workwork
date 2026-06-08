@@ -226,4 +226,6 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
+| `MEDIA_ASSET_SIGNING_KEY` | 媒体 `/asset` 代理 URL 签名密钥（留空则进程内随机） | - |
 | `VOD_EXTRACTOR_TIMEOUT_MS` | 内部点播解析服务超时 | `30000` |
+| `VOD_EXTRACTOR_MAX_CONCURRENT` | 内部点播解析最大并发进程数 | `2` |

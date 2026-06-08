@@ -173,7 +173,7 @@
     <div class="page-actions">
       {#if isAdmin}
         <button class="btn btn-sm btn-ghost" onclick={doRefreshVersions} disabled={refreshing}>
-          {#if refreshing}<span class="spinner" style="margin-right:0.25rem;"></span>{/if}
+          {#if refreshing}<span class="spinner"></span>{/if}
           {t('refreshVersions')}
         </button>
       {/if}
@@ -226,15 +226,14 @@
         <tbody>
           {#each stored as s}
             <tr>
-              <td style="font-weight:500;">
-                <a href={downloadUrl(s.filename)} download={s.filename}
-                  style="color:#93c5fd;text-decoration:none;" title={t('downloadToLocal')}>
+              <td class="cell-strong">
+                <a href={downloadUrl(s.filename)} download={s.filename} class="link" title={t('downloadToLocal')}>
                   {s.version}
                 </a>
               </td>
               <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
               <td class="td-muted">{formatSize(s.size)}</td>
-              <td class="td-mono" style="font-size:0.65rem;color:var(--c-text-muted);" title={s.checksum}>
+              <td class="td-mono muted-text" title={s.checksum}>
                 {s.checksum ? s.checksum.slice(0, 12) + '…' : '—'}
               </td>
               <td>
@@ -271,9 +270,9 @@
             {#each latestReleases as rel}
               {@const vPlats = versionPlatforms[rel.version]}
               <tr>
-                <td style="font-weight:500;">
+                <td class="cell-strong">
                   {rel.version}
-                  <button class="btn btn-ghost btn-sm" style="margin-left:0.35rem;font-size:0.7rem;padding:0.15rem 0.4rem;"
+                  <button class="btn btn-ghost btn-xs badge-inline"
                     onclick={() => loadPlatforms(rel.version)} disabled={vPlats} title={t('loadPlatforms')}>
                     {vPlats ? '✓' : t('check')}
                   </button>
@@ -285,17 +284,17 @@
                   {:else if vPlats.length === 0}
                     <span class="badge badge-red">{t('noPlatforms')}</span>
                   {:else}
-                    <div style="display:flex;flex-wrap:wrap;gap:0.25rem;">
+                    <div class="badge-list">
                       {#each vPlats as p}
                         {@const key = rel.version + '-' + p.plat}
                         {#if alreadyDownloaded.has(key)}
-                          <span class="badge badge-green" style="cursor:default;">{p.label}</span>
+                          <span class="badge badge-green">{p.label}</span>
                         {:else if downloadKey === key && downloadProgress}
-                          <span class="badge badge-blue" style="min-width:60px;">{downloadProgress.percent || 0}%</span>
+                          <span class="badge badge-blue badge-progress">{downloadProgress.percent || 0}%</span>
                         {:else if downloadKey === key}
-                          <span class="badge badge-blue"><span class="spinner" style="width:10px;height:10px;"></span></span>
+                          <span class="badge badge-blue"><span class="spinner spinner-xs"></span></span>
                         {:else}
-                          <button class="badge badge-blue" style="cursor:pointer;border:none;"
+                          <button class="badge badge-blue badge-action"
                             onclick={() => doDownload(rel.version, p.plat)} disabled={downloading}>
                             {p.label}
                           </button>
@@ -306,10 +305,10 @@
                 </td>
                 <td>
                   {#if downloadKey.startsWith(rel.version) && downloadProgress}
-                    <div class="progress-bar" style="width:80px;">
+                    <div class="progress-bar progress-bar-sm">
                       <div class="progress-fill" style="width:{downloadProgress.percent || 0}%;"></div>
                     </div>
-                    <div style="font-size:0.6rem;color:var(--c-text-muted);margin-top:1px;">
+                    <div class="progress-caption">
                       {formatSize(downloadProgress.bytes)} / {downloadProgress.total ? formatSize(downloadProgress.total) : '?'}
                     </div>
                   {/if}
@@ -330,41 +329,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  .tab-bar {
-    display: flex;
-    gap: 0;
-    margin-bottom: 1.5rem;
-    border-bottom: 1px solid var(--c-border);
-  }
-  .tab-btn {
-    padding: 0.5rem 1rem;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--c-text-muted);
-    font-size: 0.8rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all var(--transition);
-    margin-bottom: -1px;
-  }
-  .tab-btn:hover { color: var(--c-text); }
-  .tab-btn.active {
-    color: var(--c-accent);
-    border-bottom-color: var(--c-accent);
-  }
-  .progress-bar {
-    height: 6px;
-    background: var(--c-border);
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--c-accent);
-    border-radius: 3px;
-    transition: width 0.2s ease;
-  }
-</style>
