@@ -275,6 +275,19 @@ type svcJSON struct {
 	Ports string `json:"ports"`
 }
 
+func serviceSortWeight(name string) int {
+	switch name {
+	case "xray":
+		return 0
+	case "nginx":
+		return 1
+	case "admin":
+		return 2
+	default:
+		return 100
+	}
+}
+
 func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All: true,
@@ -311,7 +324,13 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 			Ports: strings.Join(ports, ", "),
 		})
 	}
-	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
+	sort.Slice(services, func(i, j int) bool {
+		wi, wj := serviceSortWeight(services[i].Name), serviceSortWeight(services[j].Name)
+		if wi != wj {
+			return wi < wj
+		}
+		return services[i].Name < services[j].Name
+	})
 	return services
 }
 
@@ -891,19 +910,21 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 
 		// CF DNS records for all domains
 		type dnsInfo struct {
-			Domain string       `json:"domain"`
-			Record *cfDNSRecord `json:"record"`
-			Error  string       `json:"error,omitempty"`
-			Synced bool         `json:"synced"`
+			Domain     string       `json:"domain"`
+			Container  string       `json:"container"`
+			ExpectedIP string       `json:"expected_ip"`
+			Record     *cfDNSRecord `json:"record"`
+			Error      string       `json:"error,omitempty"`
+			Synced     bool         `json:"synced"`
 		}
 		var dnsResults []dnsInfo
 		if cfOK {
 			for _, di := range allDomainInfos() {
-				info := dnsInfo{Domain: di.Domain}
 				expectedIP := nxIP
 				if di.Container == "xray" {
 					expectedIP = xrayIP
 				}
+				info := dnsInfo{Domain: di.Domain, Container: di.Container, ExpectedIP: expectedIP}
 				rec, err := cfFindAAAARecord(di.Domain)
 				if err != nil {
 					info.Error = err.Error()

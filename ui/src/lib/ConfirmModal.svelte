@@ -31,10 +31,9 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if confirmState.show}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_interactive_supports_focus -->
-  <div class="modal-overlay" onclick={() => confirmResponse(false)} role="dialog" aria-modal="true" tabindex="-1">
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-    <div class="modal" bind:this={dialog} onclick={(e) => e.stopPropagation()} role="document">
+  <div class="modal-overlay">
+    <button class="modal-backdrop" type="button" aria-label={t('cancel')} onclick={() => confirmResponse(false)}></button>
+    <div class="modal" bind:this={dialog} role="dialog" aria-modal="true" tabindex="-1">
       <p class="modal-message">{confirmState.message}</p>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick={() => confirmResponse(false)}>{t('cancel')}</button>
@@ -55,7 +54,17 @@
     z-index: 1000;
     backdrop-filter: blur(2px);
   }
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: default;
+  }
   .modal {
+    position: relative;
+    z-index: 1;
     background: var(--c-bg-elevated);
     border: 1px solid var(--c-border-strong);
     border-radius: var(--radius, 8px);

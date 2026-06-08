@@ -10,7 +10,12 @@
   let isAdmin = $state(false);
   let actingService = $state('');
 
-  onMount(async () => {
+  onMount(() => {
+    refresh();
+  });
+
+  async function refresh() {
+    loading = true;
     try {
       const [d, user] = await Promise.all([getServices(), getCurrentUser()]);
       services = d.services || [];
@@ -20,7 +25,7 @@
     } finally {
       loading = false;
     }
-  });
+  }
 
   function confirmKey(act) {
     const map = { stop: 'confirmStopService', start: 'confirmStartService', restart: 'confirmRestartService' };
@@ -33,6 +38,7 @@
     try {
       const d = await serviceAction(name, action);
       services = d.services || services;
+      toast(t('serviceActionDone', { name, action: t(action) }), 'success', 2000);
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -46,6 +52,9 @@
 <div class="page">
   <div class="page-header">
     <h1 class="page-title">{t('services')}</h1>
+    <div class="page-actions">
+      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}>{t('refresh')}</button>
+    </div>
   </div>
 
   {#if loading}

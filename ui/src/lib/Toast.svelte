@@ -18,12 +18,10 @@
 {#if toasts.length}
   <div class="toast-container">
     {#each toasts as t (t.id)}
-      <div
+      <button
         class="toast toast-{t.type}"
-        role="alert"
+        type="button"
         onclick={() => dismiss(t.id)}
-        onkeydown={(e) => e.key === 'Enter' && dismiss(t.id)}
-        tabindex="0"
         onanimationend={(e) => handleAnimationEnd(e, t.id)}
         style="animation: toastIn 0.25s ease, toastOut 0.3s ease {t.duration - 300}ms forwards;"
       >
@@ -31,8 +29,8 @@
           {@html typeIcons[t.type] || typeIcons.info}
         </svg>
         <span class="toast-msg">{t.message}</span>
-        <button class="toast-close" onclick={(e) => { e.stopPropagation(); dismiss(t.id); }} aria-label="Close">&times;</button>
-      </div>
+        <span class="toast-close" aria-hidden="true">&times;</span>
+      </button>
     {/each}
   </div>
 {/if}
@@ -58,6 +56,7 @@
     border-radius: var(--radius);
     font-size: 0.8rem;
     font-weight: 500;
+    text-align: left;
     pointer-events: auto;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     cursor: pointer;
