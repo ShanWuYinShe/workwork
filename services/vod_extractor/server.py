@@ -2,8 +2,10 @@ import json
 import os
 import selectors
 import subprocess
+import sys
 import threading
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -27,12 +29,14 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "vod-extractor/1.0"
 
     def do_GET(self):
+        self.started_at = time.monotonic()
         if self.path == "/health":
             self.send_json(200, {"ok": True})
             return
         self.send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        self.started_at = time.monotonic()
         if self.path != "/extract":
             self.send_json(404, {"error": "not found"})
             return
@@ -81,9 +85,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self.log_json(status, payload)
+
+    def log_json(self, status, payload):
+        path = urlparse(self.path).path
+        if path == "/health" and status < 400:
+            return
+        started_at = getattr(self, "started_at", time.monotonic())
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": "error" if status >= 500 else "warn" if status >= 400 else "info",
+            "client": self.client_address[0],
+            "method": self.command,
+            "path": path,
+            "status": status,
+            "duration_ms": round((time.monotonic() - started_at) * 1000, 3),
+        }
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if error:
+            entry["error"] = str(error)[:2000]
+        print(json.dumps(entry, ensure_ascii=False), file=sys.stdout, flush=True)
+
+    def log_request(self, code="-", size="-"):
+        return
 
     def log_message(self, format, *args):
-        print("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), format % args))
+        return
 
 
 def is_http_url(value):
