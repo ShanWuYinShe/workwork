@@ -25,6 +25,12 @@ npm --prefix ui run build              # 构建
 # 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
 # 注意顺序：build → image prune 清旧 latest → volume prune 清孤儿 volume → up
 # 这样 docker 相关文件不会持续膨胀
+#
+# 权限注意：
+#   .wework/ 和 logs/ 必须归 uid=1001 (workuser) 所有（admin 以 user:1001:1001 运行）
+#   但 logs/nginx/ 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
+#   首次部署或权限异常时：
+#     sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/
 ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker image prune -f && docker volume prune -f && docker compose up -d"
 ```
 
