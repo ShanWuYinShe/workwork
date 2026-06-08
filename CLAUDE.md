@@ -28,15 +28,32 @@ npm --prefix services/media_server test
 npm --prefix services/media_server run build
 
 # 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
-# 注意顺序：build → image prune 清旧 latest → volume prune 清孤儿 volume → up
-# 这样 docker 相关文件不会持续膨胀
+# 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
+# 禁止无脑 --no-cache 全量 build 或 docker compose up -d 全量重建。
 #
 # 权限注意：
 #   .wework/ 和 logs/ 必须归 uid=1001 (workuser) 所有（admin 以 user:1001:1001 运行）
 #   但 logs/nginx/ 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
 #   首次部署或权限异常时：
 #     sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx media_server vod_extractor && docker image prune -f && docker volume prune -f && docker compose up -d"
+ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+
+# 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
+# - services/media_server/**:
+#     docker compose build media_server && docker compose up -d --no-deps media_server
+# - services/vod_extractor/**:
+#     docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
+# - services/admin/** 或 ui/**:
+#     docker compose build admin && docker compose up -d --no-deps admin
+# - services/nginx/**:
+#     docker compose build nginx && docker compose up -d --no-deps nginx
+# - services/xray/**:
+#     docker compose build xray && docker compose up -d --no-deps xray
+# - docker-compose.yml / 共享网络 / 共享 env 变更:
+#     docker compose up -d <受影响服务...>
+# admin 的 deploy.go / 模板改动可能影响运行时生成的 nginx/xray/media 配置；
+# admin 重启后只重启实际配置变化的下游服务。
+# 构建后可按需清理旧镜像：docker image prune -f；不要把 volume prune 当作常规步骤。
 ```
 
 ## 架构
