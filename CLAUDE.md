@@ -120,6 +120,7 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 - 轮换范围: `{prefix}:f::/80` — 第 5 个 hextet = `000f`，DNS 指向此处
 - `xray.yinghuoren.com` → 轮换 IP（reality 用域名，非裸 IP）
 - 客户端配置: reality 出站用 `xray.yinghuoren.com`，xhttp 用 `yinghuoren.com`
+- **不需要宿主机 sysctl 配置**：ipvlan L3 模式下容器直接持有公网 IPv6，数据包在内核驱动层直接投递到容器命名空间。无需启用 `net.ipv6.conf.all.forwarding`、`proxy_ndp` 等宿主机网络设置。禁止修改宿主机 sysctl/iptables/网络配置。
 
 ## 关键约定
 
