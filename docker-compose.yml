@@ -81,11 +81,11 @@ services:
       - CHOWN
     entrypoint: ["/entrypoint.sh"]
     networks:
-      ipvlan_docker:
-        ipv6_address: "${XRAY_IPV6}"
       internal_docker:
         aliases:
           - xray-internal
+      ipvlan_docker:
+        ipv6_address: "${XRAY_IPV6}"
     volumes:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./.wework/generated/xray:/etc/xray:ro
