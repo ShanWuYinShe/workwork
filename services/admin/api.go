@@ -191,7 +191,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		name := r.PathValue("name")
 		action := r.PathValue("action")
 
-		// 校验服务名格式，仅允许小写字母、数字、连字符
+		// 校验服务名格式，仅允许小写字母、数字、下划线、连字符
 		if !validServiceName.MatchString(name) {
 			writeError(w, "Invalid service name", 400)
 			return
@@ -281,8 +281,10 @@ func serviceSortWeight(name string) int {
 		return 0
 	case "nginx":
 		return 1
-	case "admin":
+	case "media_server":
 		return 2
+	case "admin":
+		return 3
 	default:
 		return 100
 	}
@@ -558,7 +560,7 @@ var ipv6RotateMu sync.Mutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-var validServiceName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var validServiceName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 func isValidUsername(username string) bool {
 	return username != "" && validUsername.MatchString(username) && len(username) <= 64
