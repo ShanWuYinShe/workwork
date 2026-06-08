@@ -43,12 +43,15 @@ services:
       admin:
         condition: service_healthy
       xray:
-        condition: service_started
+        condition: service_healthy
+      media_server:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'nginx: master' || exit 1"]
+      test: ["CMD-SHELL", "nginx -t >/dev/null && curl -fsS http://127.0.0.1:8080/nginx-health >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
   xray:
     build:
@@ -95,10 +98,49 @@ services:
       admin:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 443 || exit 1"]
+      test: ["CMD-SHELL", "test -S /dev/shm/xrxh.socket && nc -z 127.0.0.1 443"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
+
+  media_server:
+    build:
+      context: ./services/media_center/media_server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8787
+      - VOD_EXTRACTOR_BIN=yt-dlp
+      - BACKEND_CACHE_DIR=/cache
+      - BACKEND_CACHE_MAX_BYTES=${MEDIA_SERVER_CACHE_MAX_BYTES:-53687091200}
+      - CATEGORY_REFRESH_INTERVAL_MS=${MEDIA_SERVER_CATEGORY_REFRESH_INTERVAL_MS:-1800000}
+    volumes:
+      - media_server_cache:/cache
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   admin:
     build:
@@ -140,9 +182,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
 networks:
   ipvlan_docker:
     external: true
   internal_docker:
     driver: bridge
+
+volumes:
+  media_server_cache:
