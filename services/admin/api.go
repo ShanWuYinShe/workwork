@@ -857,10 +857,11 @@ func saveCurrentIPs(xrayIP, nginxIP string) {
 // cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,
 // except the static IP.
 func cleanContainerRotatingIPs(ctx context.Context, cli *client.Client, containerID, prefix, staticIP string) {
+	// 用默认 IPv6 路由的出接口（ipvlan 容器中是 eth1，不是 eth0）
 	containerExec(ctx, cli, containerID, "sh", "-c",
 		fmt.Sprintf("ip -6 addr show | grep 'inet6 %sf:' | awk '{print $2}' | while read ip; do "+
 			"case \"$ip\" in %s*) continue ;; esac; "+
-			"ip addr del \"$ip\" dev eth0 2>/dev/null; done", prefix, staticIP))
+			"ip addr del \"$ip\" dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null; done", prefix, staticIP))
 }
 
 func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
