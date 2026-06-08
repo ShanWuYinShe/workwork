@@ -142,7 +142,7 @@ func genXrayConfig() error {
 		return nil
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return atomicWriteFile(xrayConfigPath, []byte(out), 0600)
+	return atomicWriteFile(xrayConfigPath, []byte(out), 0644)
 }
 
 func genNginxConfig() error {
@@ -212,7 +212,7 @@ func genInternalToken() error {
 		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
 			return nil
 		}
-		return atomicWriteFile("/app/data/.internal-token", []byte(tok), 0600)
+		return atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644)
 	}
 	if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil {
 		tok := strings.TrimSpace(string(existing))
@@ -226,7 +226,7 @@ func genInternalToken() error {
 		return err
 	}
 	tok := hex.EncodeToString(b)
-	if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0600); err != nil {
+	if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644); err != nil {
 		return err
 	}
 	os.Setenv("INTERNAL_TOKEN", tok)
