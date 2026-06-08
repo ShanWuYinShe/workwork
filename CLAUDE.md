@@ -22,7 +22,7 @@ go test -C services/admin ./...        # 单元测试
 # Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
 npm --prefix ui run build              # 构建
 
-# 部署（git push 后在服务器执行，人工触发；Claude 不应主动执行 SSH 部署）
+# 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
 # 注意顺序：build → image prune 清旧 latest → volume prune 清孤儿 volume → up
 # 这样 docker 相关文件不会持续膨胀
 ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx && docker image prune -f && docker volume prune -f && docker compose up -d"
