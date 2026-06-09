@@ -29,6 +29,8 @@ func main() {
 	}
 
 	go xhttpHealthChecker(context.Background(), cli)
+	go ipWatcher(context.Background(), cli)
+	go ipConsistencyChecker(context.Background(), cli)
 
 	mux := http.NewServeMux()
 

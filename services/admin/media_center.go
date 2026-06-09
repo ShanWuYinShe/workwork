@@ -634,12 +634,16 @@ func restartComposeService(ctx context.Context, cli *client.Client, service stri
 	if containers[0].State == "running" {
 		t := 10
 		if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t}); err != nil {
-			return false, fmt.Errorf("restart %s: %w", service, err)
+			// ContainerRestart 超时/cancel 时 daemon 通常已完成重启；
+			// 记录警告但不跳过后续的轮换 IP 恢复。
+			log.Printf("WARNING: restart %s returned error (container may have restarted anyway): %v", service, err)
 		}
 	} else if err := cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		return false, fmt.Errorf("start %s: %w", service, err)
 	}
 
+	// 无论 restart/start 是否返回错误，都尝试恢复轮换 IP。
+	// 容器实际未运行时 addContainerIP 会静默失败，不影响正确性。
 	if service == "xray" || service == "nginx" {
 		restoreServiceRotatingIP(ctx, cli, id, service)
 	}
