@@ -215,7 +215,8 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		case "restart":
 			t := 10
 			err = cli.ContainerRestart(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
-			if err == nil && (name == "xray" || name == "nginx") {
+			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
+			if name == "xray" || name == "nginx" {
 				restoreServiceRotatingIP(r.Context(), cli, containers[0].ID, name)
 			}
 		default:
@@ -1342,12 +1343,15 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	id := containers[0].ID
 
 	t := 10
-	if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t}); err != nil {
-		return fmt.Errorf("restart xray: %w", err)
-	}
+	restartErr := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t})
 
-	// Restore the rotating IPv6 address after restart.
+	// 始终尝试恢复轮换 IP。Docker restart 超时/cancel 时容器可能已完成重启，
+	// 不恢复会导致 DNS 指向不存在的地址。
 	restoreServiceRotatingIP(ctx, cli, id, "xray")
+
+	if restartErr != nil {
+		return fmt.Errorf("restart xray: %w", restartErr)
+	}
 	return nil
 }
 
