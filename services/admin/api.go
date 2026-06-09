@@ -558,8 +558,10 @@ func apiXrayClientConfig() http.HandlerFunc {
 	}
 }
 
-// ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转
-var ipv6RotateMu sync.Mutex
+// ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转。
+// 写锁：startupRotateIPv6 / apiRotateIPv6（分配新 IP、更新 DNS）。
+// 读锁：restoreServiceRotatingIP（恢复当前 IP，不修改 DNS）。
+var ipv6RotateMu sync.RWMutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -1359,17 +1361,12 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	return nil
 }
 
-// restoreRotatingIP re-adds xray's dynamic rotating IPv6 address after a container restart.
-// Docker restart drops dynamically-assigned IPs added via `ip addr add`,
-// but admin knows the current IP from DNS and can re-add it.
-func restoreRotatingIP(ctx context.Context, cli *client.Client, containerID string) {
-	restoreServiceRotatingIP(ctx, cli, containerID, "xray")
-}
-
 func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, containerID, service string) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
+	ipv6RotateMu.RLock()
+	defer ipv6RotateMu.RUnlock()
 	xrayIP, nginxIP := loadCurrentIPs()
 	ip := xrayIP
 	if service == "nginx" {
