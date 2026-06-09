@@ -31,10 +31,10 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
 | **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
-| **media_server** | Node.js + TypeScript | 8787 | 合规公开视频聚合 API |
+| **media_server** | Go | 8787 | 合规公开视频聚合 API |
 | **vod_extractor** | Python + yt-dlp | 8790 | 内部点播解析服务 |
 
-Media Server 的 App 对接文档见 [`services/media_server/API.md`](./services/media_server/API.md)，OpenAPI 见 [`services/media_server/openapi.json`](./services/media_server/openapi.json)。
+Media Server 的 App 对接文档见 [`services/media_server/API.md`](./services/media_server/API.md)。
 
 ### 网络架构
 
@@ -226,7 +226,7 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
-| `MEDIA_ASSET_SIGNING_KEY` | 媒体 `/asset` 代理 URL 签名密钥（留空则进程内随机） | - |
+| `MEDIA_SERVER_SIGNING_KEY` | 媒体不透明视频 ID / 播放选项 ID 签名密钥 | - |
+| `MEDIA_ASSET_SIGNING_KEY` | 旧版媒体签名密钥变量名（作为 `MEDIA_SERVER_SIGNING_KEY` 的 fallback） | - |
 | `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
-| `VOD_EXTRACTOR_TIMEOUT_MS` | 内部点播解析服务超时 | `30000` |
-| `VOD_EXTRACTOR_MAX_CONCURRENT` | 内部点播解析最大并发进程数 | `2` |
+| `MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS` | Media Server 上游元数据 / playurl 请求超时 | `15000` |
