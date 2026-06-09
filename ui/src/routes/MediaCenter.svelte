@@ -14,15 +14,22 @@
     categories: [],
   };
 
+  let uidCounter = 0;
+  const nextUid = () => `c${(uidCounter += 1)}`;
+
   let config = $state(clone(emptyConfig));
   let defaultSources = $state([]);
   let defaultCategories = $state([]);
-  let runtimeFile = $state('');
   let warnings = $state([]);
   let loading = $state(true);
   let saving = $state(false);
+  let expanded = $state(new Set());
 
-  let appApiBaseURL = $derived(`${window.location.origin}${publicPathForDisplay()}`);
+  let appPublicURL = $derived(`${window.location.origin}${publicPathForDisplay()}`);
+  let enabledSourceCount = $derived((config.sources || []).filter((s) => s.enabled).length);
+  let allExpanded = $derived(
+    config.categories.length > 0 && expanded.size >= config.categories.length,
+  );
 
   onMount(load);
 
@@ -31,10 +38,10 @@
     warnings = [];
     try {
       const data = await getMediaCenterConfig();
-      config = clone(data.config || emptyConfig);
+      config = withUids(clone(data.config || emptyConfig));
       defaultSources = clone(data.default_sources || []);
       defaultCategories = clone(data.default_categories || []);
-      runtimeFile = data.runtime_file || '';
+      expanded = new Set();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -46,8 +53,9 @@
     saving = true;
     warnings = [];
     try {
-      const result = await saveMediaCenterConfig(config);
-      config = clone(result.config || config);
+      const result = await saveMediaCenterConfig(toPayload(config));
+      config = withUids(clone(result.config || config));
+      expanded = new Set();
       warnings = result.warnings || [];
       if (warnings.length > 0) {
         toast(t('mediaCenterSavedWithWarnings'), 'error', 4000);
@@ -65,6 +73,23 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function withUids(cfg) {
+    return {
+      ...cfg,
+      categories: (cfg.categories || []).map((category) => ({
+        ...category,
+        _uid: nextUid(),
+      })),
+    };
+  }
+
+  function toPayload(cfg) {
+    return {
+      ...cfg,
+      categories: (cfg.categories || []).map(({ _uid, ...rest }) => rest),
+    };
+  }
+
   function publicPathForDisplay() {
     const path = config.service?.public_path || '/api/media';
     return path.startsWith('/') ? path : `/${path}`;
@@ -73,10 +98,7 @@
   function updateService(field, value) {
     config = {
       ...config,
-      service: {
-        ...config.service,
-        [field]: value,
-      },
+      service: { ...config.service, [field]: value },
     };
   }
 
@@ -95,8 +117,7 @@
   function updateCategorySourceQuery(index, sourceId, value) {
     const category = config.categories[index];
     const sourceQueries = { ...(category.sourceQueries || {}) };
-    const trimmed = value.trim();
-    if (trimmed) {
+    if (value.trim()) {
       sourceQueries[sourceId] = value;
     } else {
       delete sourceQueries[sourceId];
@@ -117,6 +138,18 @@
     updateCategory(index, { [field]: listFromText(value) });
   }
 
+  function toggleExpanded(uid) {
+    if (expanded.has(uid)) {
+      expanded.delete(uid);
+    } else {
+      expanded.add(uid);
+    }
+  }
+
+  function setAllExpanded(open) {
+    expanded = open ? new Set(config.categories.map((c) => c._uid)) : new Set();
+  }
+
   function addCategory() {
     const existing = new Set(config.categories.map((category) => category.id));
     let n = config.categories.length + 1;
@@ -125,11 +158,13 @@
       n += 1;
       id = `custom-${n}`;
     }
+    const uid = nextUid();
     config = {
       ...config,
       categories: [
         ...config.categories,
         {
+          _uid: uid,
           id,
           title: t('newCategory'),
           description: t('newCategoryDesc'),
@@ -140,6 +175,7 @@
         },
       ],
     };
+    expanded.add(uid);
   }
 
   async function removeCategory(index) {
@@ -150,6 +186,7 @@
       ))
     )
       return;
+    if (category?._uid) expanded.delete(category._uid);
     config = {
       ...config,
       categories: config.categories.filter((_, i) => i !== index),
@@ -169,16 +206,14 @@
     if (!(await showConfirm(t('confirmResetCategories')))) return;
     config = {
       ...config,
-      categories: clone(defaultCategories),
+      categories: withUids({ categories: clone(defaultCategories) }).categories,
     };
+    expanded = new Set();
   }
 
   async function resetSources() {
     if (!(await showConfirm(t('confirmResetSources')))) return;
-    config = {
-      ...config,
-      sources: clone(defaultSources),
-    };
+    config = { ...config, sources: clone(defaultSources) };
   }
 
   function sourceRiskLabel(level) {
@@ -187,10 +222,22 @@
     return t('riskHigh');
   }
 
-  function sourceRiskClass(level) {
-    if (level === 'low') return 'risk-low';
-    if (level === 'medium') return 'risk-medium';
-    return 'risk-high';
+  function sourceRiskBadge(level) {
+    if (level === 'low') return 'badge-green';
+    if (level === 'medium') return 'badge-yellow';
+    return 'badge-red';
+  }
+
+  function categoryKeywordCount(category) {
+    return (category.keywords || []).length;
+  }
+
+  function categoryExcludeCount(category) {
+    return (category.excludes || []).length;
+  }
+
+  function categorySourceTuned(category) {
+    return Object.keys(category.sourceQueries || {}).length > 0;
   }
 </script>
 
@@ -201,9 +248,9 @@
       <div class="page-subtitle">{t('mediaCenterSubtitle')}</div>
     </div>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={load} disabled={loading || saving}
-        >{t('refresh')}</button
-      >
+      <button class="btn btn-sm btn-ghost" onclick={load} disabled={loading || saving}>
+        {t('refresh')}
+      </button>
       <button class="btn btn-sm btn-primary" onclick={save} disabled={loading || saving}>
         {#if saving}<span class="spinner"></span>{/if}
         {saving ? t('saving') : t('saveAndApply')}
@@ -212,7 +259,7 @@
   </div>
 
   {#if loading}
-    <div class="card"><div class="loading-skeleton" style="height:180px;"></div></div>
+    <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
     <div class="card"><div class="loading-skeleton" style="height:240px;"></div></div>
   {:else}
     {#if warnings.length}
@@ -226,6 +273,7 @@
       </div>
     {/if}
 
+    <!-- Public access — the only editable runtime knob -->
     <div class="card">
       <div class="card-header">
         <div>
@@ -234,17 +282,8 @@
         </div>
       </div>
 
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="media-upstream">{t('nginxUpstream')}</label>
-          <input
-            id="media-upstream"
-            value={config.service.upstream}
-            oninput={(e) => updateService('upstream', e.currentTarget.value)}
-            placeholder="media_server:8787"
-          />
-        </div>
-        <div class="form-group">
+      <div class="access-row">
+        <div class="form-group access-prefix">
           <label for="media-public-path">{t('publicApiPrefix')}</label>
           <input
             id="media-public-path"
@@ -253,26 +292,26 @@
             placeholder="/api/media"
           />
         </div>
-      </div>
-
-      <div class="hint-grid">
-        <div>
-          <div class="hint-label">{t('appApiBaseUrl')}</div>
-          <code>./gradlew :app:assembleDebug -PMEDIA_SERVER_URL={appApiBaseURL}</code>
+        <div class="access-url">
+          <span class="access-url-label">{t('mediaPublicUrl')}</span>
+          <code>{appPublicURL}</code>
         </div>
       </div>
-
-      {#if runtimeFile}
-        <div class="runtime-file">
-          {t('runtimeCategoryFile')}: <span class="td-mono">{runtimeFile}</span>
-        </div>
-      {/if}
     </div>
 
+    <!-- Sources — known sources, only the on/off switch is editable -->
     <div class="card">
       <div class="card-header">
         <div>
-          <div class="card-title">{t('mediaSources')}</div>
+          <div class="card-title">
+            {t('mediaSources')}
+            <span class="card-title-count">
+              {t('sourcesEnabledCount', {
+                count: enabledSourceCount,
+                total: (config.sources || []).length,
+              })}
+            </span>
+          </div>
           <div class="card-subtitle">{t('mediaSourcesDesc')}</div>
         </div>
         <div class="card-actions">
@@ -288,32 +327,41 @@
 
       <div class="source-grid">
         {#each config.sources || [] as source, index}
-          <section class="source-card" class:source-disabled={!source.enabled}>
-            <div class="source-header">
-              <label class="source-toggle">
-                <input
-                  type="checkbox"
-                  checked={source.enabled}
-                  onchange={(e) => updateSource(index, { enabled: e.currentTarget.checked })}
-                />
-                <span>{source.title || source.id}</span>
-              </label>
-              <span class={`risk-pill ${sourceRiskClass(source.riskLevel)}`}>
-                {sourceRiskLabel(source.riskLevel)}
-              </span>
+          <section class="source-card" class:source-on={source.enabled}>
+            <div class="source-top">
+              <div class="source-id-row">
+                <span class="source-name">{source.title || source.id}</span>
+                <span class={`badge ${sourceRiskBadge(source.riskLevel)}`}>
+                  {sourceRiskLabel(source.riskLevel)}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="switch"
+                class:switch-on={source.enabled}
+                role="switch"
+                aria-checked={source.enabled}
+                aria-label={source.title || source.id}
+                onclick={() => updateSource(index, { enabled: !source.enabled })}
+              >
+                <span class="switch-knob"></span>
+              </button>
             </div>
-            <div class="source-id">{source.id}</div>
             <div class="source-desc">{source.description}</div>
-            {#if source.homeUrl}
-              <a class="source-link" href={source.homeUrl} target="_blank" rel="noreferrer">
-                {t('sourceHomepage')}
-              </a>
-            {/if}
+            <div class="source-foot">
+              <span class="source-id-tag">{source.id}</span>
+              {#if source.homeUrl}
+                <a class="source-link" href={source.homeUrl} target="_blank" rel="noreferrer">
+                  {t('sourceHomepage')} ↗
+                </a>
+              {/if}
+            </div>
           </section>
         {/each}
       </div>
     </div>
 
+    <!-- Categories — the main editable content -->
     <div class="card">
       <div class="card-header">
         <div>
@@ -324,6 +372,11 @@
           <div class="card-subtitle">{t('mediaCategoriesDesc')}</div>
         </div>
         <div class="card-actions">
+          {#if config.categories.length > 0}
+            <button class="btn btn-sm btn-ghost" onclick={() => setAllExpanded(!allExpanded)}>
+              {allExpanded ? t('collapseAll') : t('expandAll')}
+            </button>
+          {/if}
           <button
             class="btn btn-sm btn-ghost"
             onclick={resetCategories}
@@ -336,110 +389,144 @@
       </div>
 
       <div class="category-list">
-        {#each config.categories as category, index}
-          <section class="category-card">
-            <div class="category-header">
-              <div>
-                <div class="category-title">{category.title || category.id}</div>
-                <div class="td-muted">{category.id}</div>
+        {#each config.categories as category, index (category._uid)}
+          {@const open = expanded.has(category._uid)}
+          <section class="category-card" class:is-open={open}>
+            <div class="category-summary">
+              <button
+                type="button"
+                class="category-toggle"
+                aria-expanded={open}
+                onclick={() => toggleExpanded(category._uid)}
+              >
+                <span class="chevron" class:chevron-open={open}>›</span>
+                <span class="category-title">{category.title || category.id}</span>
+                <span class="category-id-tag">{category.id}</span>
+              </button>
+
+              <div class="category-meta">
+                {#if !open}
+                  <span class="meta-pill"
+                    >{t('categoryKeywordsCount', { count: categoryKeywordCount(category) })}</span
+                  >
+                  {#if categoryExcludeCount(category) > 0}
+                    <span class="meta-pill"
+                      >{t('categoryExcludesCount', { count: categoryExcludeCount(category) })}</span
+                    >
+                  {/if}
+                  {#if categorySourceTuned(category)}
+                    <span class="meta-pill meta-pill-accent">{t('categorySourceTuned')}</span>
+                  {/if}
+                {/if}
               </div>
-              <div class="td-actions">
+
+              <div class="category-controls">
                 <button
-                  class="btn btn-sm btn-ghost"
+                  class="btn btn-icon btn-ghost"
+                  title="↑"
                   onclick={() => moveCategory(index, -1)}
-                  disabled={index === 0}
+                  disabled={index === 0}>↑</button
                 >
-                  ↑
-                </button>
                 <button
-                  class="btn btn-sm btn-ghost"
+                  class="btn btn-icon btn-ghost"
+                  title="↓"
                   onclick={() => moveCategory(index, 1)}
-                  disabled={index === config.categories.length - 1}
+                  disabled={index === config.categories.length - 1}>↓</button
                 >
-                  ↓
+                <button class="btn btn-sm btn-danger" onclick={() => removeCategory(index)}>
+                  {t('delete')}
                 </button>
-                <button class="btn btn-sm btn-danger" onclick={() => removeCategory(index)}
-                  >{t('delete')}</button
-                >
               </div>
             </div>
 
-            <div class="form-grid category-fields">
-              <div class="form-group">
-                <label for={`category-${index}-id`}>{t('categoryId')}</label>
-                <input
-                  id={`category-${index}-id`}
-                  value={category.id}
-                  oninput={(e) => updateCategory(index, { id: e.currentTarget.value })}
-                />
-              </div>
-              <div class="form-group">
-                <label for={`category-${index}-title`}>{t('categoryTitle')}</label>
-                <input
-                  id={`category-${index}-title`}
-                  value={category.title}
-                  oninput={(e) => updateCategory(index, { title: e.currentTarget.value })}
-                />
-              </div>
-              <div class="form-group">
-                <label for={`category-${index}-query`}>{t('searchQuery')}</label>
-                <input
-                  id={`category-${index}-query`}
-                  value={category.searchQuery || ''}
-                  oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
-                  placeholder={category.keywords?.[0] || ''}
-                />
-              </div>
-            </div>
-
-            {#if config.sources?.length}
-              <div class="source-query-grid">
-                {#each config.sources as source}
+            {#if open}
+              <div class="category-body">
+                <div class="form-grid">
                   <div class="form-group">
-                    <label for={`category-${index}-source-${source.id}`}>
-                      {t('sourceSearchQuery', { source: source.title || source.id })}
-                    </label>
+                    <label for={`category-${category._uid}-id`}>{t('categoryId')}</label>
                     <input
-                      id={`category-${index}-source-${source.id}`}
-                      value={category.sourceQueries?.[source.id] || ''}
-                      oninput={(e) =>
-                        updateCategorySourceQuery(index, source.id, e.currentTarget.value)}
-                      placeholder={category.searchQuery || category.keywords?.[0] || ''}
+                      id={`category-${category._uid}-id`}
+                      value={category.id}
+                      oninput={(e) => updateCategory(index, { id: e.currentTarget.value })}
                     />
                   </div>
-                {/each}
+                  <div class="form-group">
+                    <label for={`category-${category._uid}-title`}>{t('categoryTitle')}</label>
+                    <input
+                      id={`category-${category._uid}-title`}
+                      value={category.title}
+                      oninput={(e) => updateCategory(index, { title: e.currentTarget.value })}
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label for={`category-${category._uid}-query`}>{t('searchQuery')}</label>
+                    <input
+                      id={`category-${category._uid}-query`}
+                      value={category.searchQuery || ''}
+                      oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
+                      placeholder={category.keywords?.[0] || ''}
+                    />
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for={`category-${category._uid}-description`}
+                    >{t('categoryDescription')}</label
+                  >
+                  <input
+                    id={`category-${category._uid}-description`}
+                    value={category.description}
+                    oninput={(e) => updateCategory(index, { description: e.currentTarget.value })}
+                  />
+                </div>
+
+                {#if config.sources?.length}
+                  <div class="field-section">
+                    <div class="source-query-grid">
+                      {#each config.sources as source}
+                        <div class="form-group">
+                          <label for={`category-${category._uid}-source-${source.id}`}>
+                            {t('sourceSearchQuery', { source: source.title || source.id })}
+                          </label>
+                          <input
+                            id={`category-${category._uid}-source-${source.id}`}
+                            value={category.sourceQueries?.[source.id] || ''}
+                            oninput={(e) =>
+                              updateCategorySourceQuery(index, source.id, e.currentTarget.value)}
+                            placeholder={category.searchQuery || category.keywords?.[0] || ''}
+                          />
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                <div class="textarea-grid">
+                  <div class="form-group">
+                    <label for={`category-${category._uid}-keywords`}
+                      >{t('keywordsOnePerLine')}</label
+                    >
+                    <textarea
+                      id={`category-${category._uid}-keywords`}
+                      rows="6"
+                      value={(category.keywords || []).join('\n')}
+                      oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
+                    ></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for={`category-${category._uid}-excludes`}
+                      >{t('excludesOnePerLine')}</label
+                    >
+                    <textarea
+                      id={`category-${category._uid}-excludes`}
+                      rows="6"
+                      value={(category.excludes || []).join('\n')}
+                      oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
+                    ></textarea>
+                  </div>
+                </div>
               </div>
             {/if}
-
-            <div class="form-group">
-              <label for={`category-${index}-description`}>{t('categoryDescription')}</label>
-              <input
-                id={`category-${index}-description`}
-                value={category.description}
-                oninput={(e) => updateCategory(index, { description: e.currentTarget.value })}
-              />
-            </div>
-
-            <div class="textarea-grid">
-              <div class="form-group">
-                <label for={`category-${index}-keywords`}>{t('keywordsOnePerLine')}</label>
-                <textarea
-                  id={`category-${index}-keywords`}
-                  rows="7"
-                  value={(category.keywords || []).join('\n')}
-                  oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
-                ></textarea>
-              </div>
-              <div class="form-group">
-                <label for={`category-${index}-excludes`}>{t('excludesOnePerLine')}</label>
-                <textarea
-                  id={`category-${index}-excludes`}
-                  rows="7"
-                  value={(category.excludes || []).join('\n')}
-                  oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
-                ></textarea>
-              </div>
-            </div>
           </section>
         {:else}
           <div class="empty-state">{t('noMediaCategories')}</div>
@@ -451,161 +538,269 @@
 
 <style>
   .form-grid,
-  .hint-grid,
   .textarea-grid,
   .source-query-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 0.75rem;
-  }
-
-  .hint-grid {
-    margin-top: 1rem;
-  }
-
-  .hint-grid code {
-    display: block;
-    background: var(--c-bg-surface);
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius);
-    color: var(--c-text);
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
-    font-size: 0.72rem;
-    line-height: 1.5;
-    margin-top: 0.35rem;
-    overflow-x: auto;
-    padding: 0.65rem;
-    white-space: nowrap;
-  }
-
-  .hint-label,
-  .runtime-file {
-    color: var(--c-text-muted);
-    font-size: 0.72rem;
-  }
-
-  .runtime-file {
-    margin-top: 1rem;
   }
 
   .warning-card {
     border-color: var(--c-warning);
     color: #fbbf24;
   }
-
   .warning-card ul {
     margin: 0.75rem 0 0 1rem;
     font-size: 0.78rem;
     line-height: 1.6;
   }
 
+  /* ── Public access ── */
+  .access-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+  }
+  .access-prefix {
+    flex: 0 0 240px;
+    max-width: 100%;
+  }
+  .access-url {
+    flex: 1 1 260px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .access-url-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--c-text-muted);
+  }
+  .access-url code {
+    display: block;
+    background: var(--c-bg-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    color: var(--c-accent);
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 0.75rem;
+    padding: 0.5rem 0.65rem;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* ── Sources ── */
   .source-grid {
     display: grid;
     gap: 0.75rem;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
-
   .source-card {
     background: var(--c-bg-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
-    padding: 1rem;
+    padding: 0.9rem 1rem;
+    transition: border-color var(--transition);
   }
-
-  .source-disabled {
-    opacity: 0.65;
+  .source-card.source-on {
+    border-color: var(--c-accent-border);
   }
-
-  .source-header {
-    align-items: center;
+  .source-top {
     display: flex;
-    gap: 0.75rem;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 0.75rem;
   }
-
-  .source-toggle {
+  .source-id-row {
+    display: flex;
     align-items: center;
-    color: var(--c-text-heading);
-    display: inline-flex;
-    font-weight: 600;
     gap: 0.5rem;
+    flex-wrap: wrap;
   }
-
-  .source-id,
-  .source-desc,
-  .source-link {
-    color: var(--c-text-muted);
+  .source-name {
+    color: var(--c-text-heading);
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .source-desc {
+    color: var(--c-text-secondary);
     font-size: 0.75rem;
     line-height: 1.5;
-    margin-top: 0.5rem;
+    margin-top: 0.6rem;
   }
-
+  .source-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+  }
+  .source-id-tag {
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 0.68rem;
+    color: var(--c-text-muted);
+  }
   .source-link {
     color: var(--c-accent);
-    display: inline-block;
+    font-size: 0.72rem;
     text-decoration: none;
   }
+  .source-link:hover {
+    text-decoration: underline;
+  }
 
-  .risk-pill {
+  /* ── Toggle switch ── */
+  .switch {
+    flex-shrink: 0;
+    width: 38px;
+    height: 22px;
     border-radius: 999px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    padding: 0.2rem 0.5rem;
+    background: var(--c-bg-hover);
+    border: 1px solid var(--c-border-strong);
+    padding: 0;
+    cursor: pointer;
+    position: relative;
+    transition:
+      background var(--transition),
+      border-color var(--transition);
+  }
+  .switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--c-text-secondary);
+    transition:
+      transform var(--transition),
+      background var(--transition);
+  }
+  .switch-on {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+  }
+  .switch-on .switch-knob {
+    transform: translateX(16px);
+    background: #fff;
+  }
+  .switch:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--c-accent-bg);
   }
 
-  .risk-low {
-    background: rgba(34, 197, 94, 0.12);
-    color: #22c55e;
-  }
-
-  .risk-medium {
-    background: rgba(245, 158, 11, 0.14);
-    color: #f59e0b;
-  }
-
-  .risk-high {
-    background: rgba(239, 68, 68, 0.14);
-    color: #ef4444;
-  }
-
+  /* ── Categories ── */
   .category-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.6rem;
   }
-
   .category-card {
     background: var(--c-bg-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
-    padding: 1rem;
+    overflow: hidden;
+    transition: border-color var(--transition);
   }
-
-  .category-header {
-    align-items: flex-start;
+  .category-card.is-open {
+    border-color: var(--c-border-strong);
+  }
+  .category-summary {
     display: flex;
+    align-items: center;
     gap: 0.75rem;
-    justify-content: space-between;
-    margin-bottom: 1rem;
+    padding: 0.7rem 0.85rem;
   }
-
+  .category-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  .chevron {
+    color: var(--c-text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    transition: transform var(--transition);
+    display: inline-block;
+  }
+  .chevron-open {
+    transform: rotate(90deg);
+    color: var(--c-accent);
+  }
   .category-title {
     color: var(--c-text-heading);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-
-  .category-fields {
-    margin-bottom: 0.75rem;
+  .category-id-tag {
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 0.65rem;
+    color: var(--c-text-muted);
+    background: var(--c-bg-elevated);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
   }
-
-  .source-query-grid {
-    margin-bottom: 0.75rem;
+  .category-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+  .meta-pill {
+    font-size: 0.65rem;
+    color: var(--c-text-secondary);
+    background: var(--c-bg-elevated);
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .meta-pill-accent {
+    color: var(--c-accent);
+    background: var(--c-accent-bg);
+  }
+  .category-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .category-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.25rem 0.85rem 0.95rem;
+    border-top: 1px solid var(--c-border);
+  }
+  .field-section {
+    border-top: 1px dashed var(--c-border);
+    padding-top: 0.75rem;
   }
 
   @media (max-width: 760px) {
-    .category-header {
-      flex-direction: column;
+    .category-meta {
+      display: none;
+    }
+    .category-summary {
+      flex-wrap: wrap;
     }
   }
 </style>
