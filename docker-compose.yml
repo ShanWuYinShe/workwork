@@ -162,6 +162,7 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8787
+      - UV_THREADPOOL_SIZE=${MEDIA_SERVER_UV_THREADPOOL_SIZE:-16}
       - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
       - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
       - BACKEND_CACHE_DIR=/cache
