@@ -58,7 +58,14 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 				// 等待容器网络命名空间初始化完成
 				time.Sleep(2 * time.Second)
 
-				restoreServiceRotatingIP(ctx, cli, containerID, service)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[ip-watcher] panic restoring %s IP: %v", service, r)
+						}
+					}()
+					restoreServiceRotatingIP(ctx, cli, containerID, service)
+				}()
 
 				// 成功处理事件后重置退避
 				backoff = 2 * time.Second

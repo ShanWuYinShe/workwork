@@ -173,6 +173,11 @@ func main() {
 	// Restores rotation-based DNS that was lost on container restart.
 	go func() {
 		defer close(startupRotateDone)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[startup] panic in startupRotateIPv6: %v", r)
+			}
+		}()
 		time.Sleep(10 * time.Second)
 		startupRotateIPv6(cli)
 	}()
