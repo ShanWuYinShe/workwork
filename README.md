@@ -34,7 +34,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
 | **vod_extractor** | Python + yt-dlp | 8790 | 内部点播解析服务 |
 
-Media Server 的 App 对接文档见 [`services/media_server/API.md`](./services/media_server/API.md)。
+Media Server 源码通过 git submodule 引入（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`media_center/media_server/API.md`](./media_center/media_server/API.md)。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
 
