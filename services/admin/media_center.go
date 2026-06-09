@@ -100,9 +100,13 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		cfg, err := saveMediaCenterConfig(incoming)
+		cfg, err := normalizeMediaCenterConfig(incoming)
 		if err != nil {
 			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := persistMediaCenterConfig(cfg); err != nil {
+			writeInternalError(w, err)
 			return
 		}
 		if err := writeMediaCenterCategoriesFile(cfg); err != nil {
@@ -199,13 +203,18 @@ func saveMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, error) {
 	if err != nil {
 		return mediaCenterConfig{}, err
 	}
-
-	mediaCenterConfigMu.Lock()
-	defer mediaCenterConfigMu.Unlock()
-	if err := writeMediaCenterConfigFile(normalized); err != nil {
+	if err := persistMediaCenterConfig(normalized); err != nil {
 		return mediaCenterConfig{}, err
 	}
 	return normalized, nil
+}
+
+// persistMediaCenterConfig writes an already-normalized config to disk.
+// Errors here are internal I/O failures and must not be surfaced to clients.
+func persistMediaCenterConfig(normalized mediaCenterConfig) error {
+	mediaCenterConfigMu.Lock()
+	defer mediaCenterConfigMu.Unlock()
+	return writeMediaCenterConfigFile(normalized)
 }
 
 func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
