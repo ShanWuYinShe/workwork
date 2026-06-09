@@ -29,6 +29,9 @@ func TestMediaCenterConfigNormalization(t *testing.T) {
 	if cfg.Service.PublicPath != "/api/media" {
 		t.Fatalf("unexpected public path: %q", cfg.Service.PublicPath)
 	}
+	if len(cfg.Sources) != 3 || cfg.Sources[0].ID != "bilibili" || !cfg.Sources[0].Enabled {
+		t.Fatalf("unexpected default sources: %#v", cfg.Sources)
+	}
 	category := cfg.Categories[0]
 	if category.Title != "自定义" || category.Description != "测试分类" || category.SearchQuery != "公开视频" {
 		t.Fatalf("category fields were not trimmed: %#v", category)
@@ -38,6 +41,52 @@ func TestMediaCenterConfigNormalization(t *testing.T) {
 	}
 	if got := strings.Join(category.Excludes, ","); got != "预告" {
 		t.Fatalf("unexpected excludes: %q", got)
+	}
+}
+
+func TestMediaCenterConfigRejectsAllSourcesDisabled(t *testing.T) {
+	_, err := normalizeMediaCenterConfig(mediaCenterConfig{
+		Service: mediaCenterServiceConfig{
+			Upstream:   "media_server:8787",
+			PublicPath: "/api/media",
+		},
+		Sources: []mediaCenterSource{
+			{ID: "bilibili", Enabled: false},
+			{ID: "youtube", Enabled: false},
+			{ID: "internet-archive", Enabled: false},
+		},
+		Categories: []mediaCenterCategory{
+			{ID: "movies", Title: "电影", Description: "电影", Keywords: []string{"电影"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "at least one media source") {
+		t.Fatalf("expected all sources disabled error, got %v", err)
+	}
+}
+
+func TestMediaCenterConfigNormalizesSourceQueries(t *testing.T) {
+	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
+		Service: mediaCenterServiceConfig{
+			Upstream:   "media_server:8787",
+			PublicPath: "/api/media",
+		},
+		Categories: []mediaCenterCategory{
+			{
+				ID:            "documentaries",
+				Title:         "纪录片",
+				Description:   "纪录片",
+				SearchQuery:   "纪录片 完整版",
+				SourceQueries: map[string]string{"internet-archive": " documentary ", "youtube": ""},
+				Keywords:      []string{"纪录片"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize config: %v", err)
+	}
+	got := cfg.Categories[0].SourceQueries
+	if len(got) != 1 || got["internet-archive"] != "documentary" {
+		t.Fatalf("unexpected source queries: %#v", got)
 	}
 }
 

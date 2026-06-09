@@ -10,10 +10,12 @@
       upstream: 'media_server:8787',
       public_path: '/api/media',
     },
+    sources: [],
     categories: [],
   };
 
   let config = $state(clone(emptyConfig));
+  let defaultSources = $state([]);
   let defaultCategories = $state([]);
   let runtimeFile = $state('');
   let warnings = $state([]);
@@ -30,6 +32,7 @@
     try {
       const data = await getMediaCenterConfig();
       config = clone(data.config || emptyConfig);
+      defaultSources = clone(data.default_sources || []);
       defaultCategories = clone(data.default_categories || []);
       runtimeFile = data.runtime_file || '';
     } catch (e) {
@@ -77,10 +80,30 @@
     };
   }
 
+  function updateSource(index, patch) {
+    const sources = [...(config.sources || [])];
+    sources[index] = { ...sources[index], ...patch };
+    config = { ...config, sources };
+  }
+
   function updateCategory(index, patch) {
     const categories = [...config.categories];
     categories[index] = { ...categories[index], ...patch };
     config = { ...config, categories };
+  }
+
+  function updateCategorySourceQuery(index, sourceId, value) {
+    const category = config.categories[index];
+    const sourceQueries = { ...(category.sourceQueries || {}) };
+    const trimmed = value.trim();
+    if (trimmed) {
+      sourceQueries[sourceId] = value;
+    } else {
+      delete sourceQueries[sourceId];
+    }
+    updateCategory(index, {
+      sourceQueries: Object.keys(sourceQueries).length > 0 ? sourceQueries : undefined,
+    });
   }
 
   function listFromText(value) {
@@ -111,6 +134,7 @@
           title: t('newCategory'),
           description: t('newCategoryDesc'),
           searchQuery: '',
+          sourceQueries: {},
           keywords: [t('newCategoryKeyword')],
           excludes: [],
         },
@@ -147,6 +171,26 @@
       ...config,
       categories: clone(defaultCategories),
     };
+  }
+
+  async function resetSources() {
+    if (!(await showConfirm(t('confirmResetSources')))) return;
+    config = {
+      ...config,
+      sources: clone(defaultSources),
+    };
+  }
+
+  function sourceRiskLabel(level) {
+    if (level === 'low') return t('riskLow');
+    if (level === 'medium') return t('riskMedium');
+    return t('riskHigh');
+  }
+
+  function sourceRiskClass(level) {
+    if (level === 'low') return 'risk-low';
+    if (level === 'medium') return 'risk-medium';
+    return 'risk-high';
   }
 </script>
 
@@ -228,6 +272,51 @@
     <div class="card">
       <div class="card-header">
         <div>
+          <div class="card-title">{t('mediaSources')}</div>
+          <div class="card-subtitle">{t('mediaSourcesDesc')}</div>
+        </div>
+        <div class="card-actions">
+          <button
+            class="btn btn-sm btn-ghost"
+            onclick={resetSources}
+            disabled={defaultSources.length === 0}
+          >
+            {t('resetDefaultSources')}
+          </button>
+        </div>
+      </div>
+
+      <div class="source-grid">
+        {#each config.sources || [] as source, index}
+          <section class="source-card" class:source-disabled={!source.enabled}>
+            <div class="source-header">
+              <label class="source-toggle">
+                <input
+                  type="checkbox"
+                  checked={source.enabled}
+                  onchange={(e) => updateSource(index, { enabled: e.currentTarget.checked })}
+                />
+                <span>{source.title || source.id}</span>
+              </label>
+              <span class={`risk-pill ${sourceRiskClass(source.riskLevel)}`}>
+                {sourceRiskLabel(source.riskLevel)}
+              </span>
+            </div>
+            <div class="source-id">{source.id}</div>
+            <div class="source-desc">{source.description}</div>
+            {#if source.homeUrl}
+              <a class="source-link" href={source.homeUrl} target="_blank" rel="noreferrer">
+                {t('sourceHomepage')}
+              </a>
+            {/if}
+          </section>
+        {/each}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>
           <div class="card-title">
             {t('mediaCategories')}
             <span class="card-title-count">{config.categories.length}</span>
@@ -303,6 +392,25 @@
               </div>
             </div>
 
+            {#if config.sources?.length}
+              <div class="source-query-grid">
+                {#each config.sources as source}
+                  <div class="form-group">
+                    <label for={`category-${index}-source-${source.id}`}>
+                      {t('sourceSearchQuery', { source: source.title || source.id })}
+                    </label>
+                    <input
+                      id={`category-${index}-source-${source.id}`}
+                      value={category.sourceQueries?.[source.id] || ''}
+                      oninput={(e) =>
+                        updateCategorySourceQuery(index, source.id, e.currentTarget.value)}
+                      placeholder={category.searchQuery || category.keywords?.[0] || ''}
+                    />
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
             <div class="form-group">
               <label for={`category-${index}-description`}>{t('categoryDescription')}</label>
               <input
@@ -344,7 +452,8 @@
 <style>
   .form-grid,
   .hint-grid,
-  .textarea-grid {
+  .textarea-grid,
+  .source-query-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 0.75rem;
@@ -390,6 +499,75 @@
     line-height: 1.6;
   }
 
+  .source-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+
+  .source-card {
+    background: var(--c-bg-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+  }
+
+  .source-disabled {
+    opacity: 0.65;
+  }
+
+  .source-header {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+  }
+
+  .source-toggle {
+    align-items: center;
+    color: var(--c-text-heading);
+    display: inline-flex;
+    font-weight: 600;
+    gap: 0.5rem;
+  }
+
+  .source-id,
+  .source-desc,
+  .source-link {
+    color: var(--c-text-muted);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    margin-top: 0.5rem;
+  }
+
+  .source-link {
+    color: var(--c-accent);
+    display: inline-block;
+    text-decoration: none;
+  }
+
+  .risk-pill {
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+  }
+
+  .risk-low {
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
+  }
+
+  .risk-medium {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+  }
+
+  .risk-high {
+    background: rgba(239, 68, 68, 0.14);
+    color: #ef4444;
+  }
+
   .category-list {
     display: flex;
     flex-direction: column;
@@ -418,6 +596,10 @@
   }
 
   .category-fields {
+    margin-bottom: 0.75rem;
+  }
+
+  .source-query-grid {
     margin-bottom: 0.75rem;
   }
 
