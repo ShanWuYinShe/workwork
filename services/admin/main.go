@@ -28,9 +28,12 @@ func main() {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
 
+	// 启动轮换完成后关闭此 channel，ipConsistencyChecker 等待它避免竞态。
+	startupRotateDone := make(chan struct{})
+
 	go xhttpHealthChecker(context.Background(), cli)
 	go ipWatcher(context.Background(), cli)
-	go ipConsistencyChecker(context.Background(), cli)
+	go ipConsistencyChecker(context.Background(), cli, startupRotateDone)
 
 	mux := http.NewServeMux()
 
@@ -171,6 +174,7 @@ func main() {
 	go func() {
 		time.Sleep(10 * time.Second)
 		startupRotateIPv6(cli)
+		close(startupRotateDone)
 	}()
 
 	<-ctx.Done()

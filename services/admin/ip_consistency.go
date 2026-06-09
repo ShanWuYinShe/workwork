@@ -13,16 +13,18 @@ const ipConsistencyInterval = 3 * time.Minute
 // ipConsistencyChecker 定期验证 xray/nginx 容器是否持有 DNS 中记录的轮换 IPv6 地址。
 // 如果缺失（如 admin 宕机期间容器被重启、Docker daemon 重启导致容器重建等），
 // 自动补上。这是事件监听器之外的兜底机制。
-func ipConsistencyChecker(ctx context.Context, cli *client.Client) {
+func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <-chan struct{}) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
 
-	// 等待 startupRotateIPv6 完成（启动后 10s 延迟 + 轮换耗时）
+	// 等待 startupRotateIPv6 完成，避免与启动轮换竞态：
+	// startup 会先清理旧 IP 再分配新 IP，如果一致性检查在中间插入，
+	// 会把 DNS 中的旧 IP 加回去，导致旧 IP 残留。
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(15 * time.Second):
+	case <-startupDone:
 	}
 
 	ticker := time.NewTicker(ipConsistencyInterval)
