@@ -145,7 +145,7 @@ services:
 
   media_server:
     build:
-      context: ./services/media_server
+      context: ./media_center/media_server
       dockerfile: Dockerfile
     restart: unless-stopped
     security_opt:
@@ -212,7 +212,7 @@ services:
       - ./services/nginx/nginx.conf.tmpl:/app/configs/nginx.conf.tmpl:ro
       - ./.wework:/app/data
       - ./services/xray/config.json.tmpl:/app/configs/xray.json.tmpl:ro
-      - ./services/media_server/src/contentCategories.json:/app/configs/media-center-content-categories.json:ro
+      - ./media_center/media_server/src/contentCategories.json:/app/configs/media-center-content-categories.json:ro
       - ./services/nginx:/app/legacy-nginx:ro
       - ./services/xray:/app/legacy-xray:ro
     healthcheck:
