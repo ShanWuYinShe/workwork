@@ -140,13 +140,24 @@ def run_extractor(url):
     )
     stdout, stderr = read_limited_process_output(process)
     if process.returncode != 0:
-        message = stderr.decode("utf-8", errors="replace").strip()[:2000]
-        raise RuntimeError(message or "extractor failed")
+        detail = stderr.decode("utf-8", errors="replace").strip()[:2000]
+        if detail:
+            log_internal(f"yt-dlp exited {process.returncode}: {detail}")
+        raise RuntimeError("extractor failed")
 
     try:
         return json.loads(stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError("extractor returned invalid JSON") from error
+
+
+def log_internal(message):
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "level": "error",
+        "msg": str(message)[:2000],
+    }
+    print(json.dumps(entry, ensure_ascii=False), file=sys.stdout, flush=True)
 
 
 def extractor_command(url):
