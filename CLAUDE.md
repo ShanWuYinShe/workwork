@@ -22,10 +22,10 @@ go test -C services/admin ./...        # 单元测试
 # Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
 npm --prefix ui run build              # 构建
 
-# Media Server 验证
-npm --prefix services/media_server run lint
-npm --prefix services/media_server test
-npm --prefix services/media_server run build
+# Media Server 验证（源码在 media_center 子模块；首次需 git submodule update --init --recursive）
+go build -C media_center/media_server -o /dev/null .   # 编译检查
+go vet -C media_center/media_server ./...
+go test -C media_center/media_server ./...
 
 # 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
 # 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
@@ -39,7 +39,7 @@ npm --prefix services/media_server run build
 ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
 
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
-# - services/media_server/**:
+# - media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
 # - services/vod_extractor/**:
 #     docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
@@ -89,9 +89,9 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray:8447。fail2ban 通过 `X-Internal-Token` 调用 admin API 封禁真实客户端 IP。
 
-### services/media_server/ — Media Center 后端
+### media_center/media_server/ — Media Center 后端（git submodule）
 
-Node.js/TypeScript 服务端，提供合规公开视频聚合 API。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。YouTube 点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
+Go 服务端，提供合规公开视频聚合 API；源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。YouTube 点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
 
 ### services/vod_extractor/ — 点播解析服务
 
