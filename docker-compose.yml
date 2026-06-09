@@ -162,35 +162,18 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=8787
-      - UV_THREADPOOL_SIZE=${MEDIA_SERVER_UV_THREADPOOL_SIZE:-16}
-      - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
       - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
-      - BACKEND_CACHE_DIR=/cache
-      - BACKEND_CACHE_MAX_BYTES=${MEDIA_SERVER_CACHE_MAX_BYTES:-53687091200}
-      - CATEGORY_REFRESH_INTERVAL_MS=${MEDIA_SERVER_CATEGORY_REFRESH_INTERVAL_MS:-1800000}
-      - PROVIDER_FETCH_TIMEOUT_MS=${MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS:-10000}
-      - PROVIDER_SEARCH_TIMEOUT_MS=${MEDIA_SERVER_PROVIDER_SEARCH_TIMEOUT_MS:-15000}
-      - SEARCH_DETAIL_TIMEOUT_MS=${MEDIA_SERVER_SEARCH_DETAIL_TIMEOUT_MS:-8000}
-      - DETAIL_RESOLVE_TIMEOUT_MS=${MEDIA_SERVER_DETAIL_RESOLVE_TIMEOUT_MS:-35000}
-      - YOUTUBE_FALLBACK_COOLDOWN_MS=${MEDIA_SERVER_YOUTUBE_FALLBACK_COOLDOWN_MS:-1800000}
-      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
+      - PROVIDER_FETCH_TIMEOUT_MS=${MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS:-15000}
+      - MEDIA_SERVER_SIGNING_KEY=${MEDIA_SERVER_SIGNING_KEY:-}
       - MEDIA_ASSET_SIGNING_KEY=${MEDIA_ASSET_SIGNING_KEY:-}
+      - MEDIA_SERVER_CATEGORY_MAX_PAGES=${MEDIA_SERVER_CATEGORY_MAX_PAGES:-6}
     volumes:
-      - media_server_cache:/cache
       - ./.wework/generated/media_center:/config:ro
     depends_on:
       admin:
         condition: service_healthy
-      vod_extractor:
-        condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8787/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -244,6 +227,3 @@ networks:
     external: true
   internal_docker:
     driver: bridge
-
-volumes:
-  media_server_cache:
