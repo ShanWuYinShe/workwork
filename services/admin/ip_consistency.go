@@ -41,11 +41,12 @@ func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <
 }
 
 func checkIPConsistency(ctx context.Context, cli *client.Client) {
-	// 避免与正在进行的轮换操作冲突；获取不到锁就跳过本轮
-	if !ipv6RotateMu.TryLock() {
+	// 避免与正在进行的轮换操作冲突；获取不到读锁就跳过本轮。
+	// 一致性检查只读取 DNS 和容器状态并补 IP，不需要写锁。
+	if !ipv6RotateMu.TryRLock() {
 		return
 	}
-	defer ipv6RotateMu.Unlock()
+	defer ipv6RotateMu.RUnlock()
 
 	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
