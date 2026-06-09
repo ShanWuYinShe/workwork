@@ -35,7 +35,14 @@ func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			checkIPConsistency(ctx, cli)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[ip-consistency] panic in check: %v", r)
+					}
+				}()
+				checkIPConsistency(ctx, cli)
+			}()
 		}
 	}
 }
