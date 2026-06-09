@@ -24,8 +24,10 @@ const (
 	defaultMediaCenterPublicPath = "/api/media"
 
 	maxMediaCenterCategories = 50
+	maxMediaCenterSources    = 10
 	maxCategoryKeywords      = 100
 	maxCategoryExcludes      = 200
+	maxCategorySourceQueries = 10
 )
 
 var (
@@ -37,6 +39,7 @@ var (
 
 type mediaCenterConfig struct {
 	Service    mediaCenterServiceConfig `json:"service"`
+	Sources    []mediaCenterSource      `json:"sources"`
 	Categories []mediaCenterCategory    `json:"categories"`
 }
 
@@ -45,13 +48,23 @@ type mediaCenterServiceConfig struct {
 	PublicPath string `json:"public_path"`
 }
 
+type mediaCenterSource struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	HomeURL     string `json:"homeUrl,omitempty"`
+	RiskLevel   string `json:"riskLevel"`
+	Enabled     bool   `json:"enabled"`
+}
+
 type mediaCenterCategory struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	SearchQuery string   `json:"searchQuery,omitempty"`
-	Keywords    []string `json:"keywords"`
-	Excludes    []string `json:"excludes,omitempty"`
+	ID            string            `json:"id"`
+	Title         string            `json:"title"`
+	Description   string            `json:"description"`
+	SearchQuery   string            `json:"searchQuery,omitempty"`
+	SourceQueries map[string]string `json:"sourceQueries,omitempty"`
+	Keywords      []string          `json:"keywords"`
+	Excludes      []string          `json:"excludes,omitempty"`
 }
 
 func apiMediaCenterConfig() http.HandlerFunc {
@@ -62,7 +75,7 @@ func apiMediaCenterConfig() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
-		defaultCategories, err := readDefaultMediaCenterCategories()
+		defaultCfg, err := readDefaultMediaCenterConfig()
 		if err != nil {
 			log.Printf("read media center defaults: %v", err)
 			writeInternalError(w, err)
@@ -70,7 +83,8 @@ func apiMediaCenterConfig() http.HandlerFunc {
 		}
 		writeJSON(w, map[string]any{
 			"config":             cfg,
-			"default_categories": defaultCategories,
+			"default_sources":    defaultCfg.Sources,
+			"default_categories": defaultCfg.Categories,
 			"runtime_file":       mediaCenterCategoriesPath,
 		})
 	}
@@ -211,8 +225,9 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 		return err
 	}
 	payload := struct {
-		Categories []mediaCenterCategory `json:"categories"`
-	}{Categories: cfg.Categories}
+		Sources    []mediaCenterRuntimeSource `json:"sources"`
+		Categories []mediaCenterCategory      `json:"categories"`
+	}{Sources: runtimeMediaCenterSources(cfg.Sources), Categories: cfg.Categories}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
@@ -221,30 +236,43 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 	return atomicWriteFile(mediaCenterCategoriesPath, data, 0644)
 }
 
+type mediaCenterRuntimeSource struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
 func readDefaultMediaCenterCategories() ([]mediaCenterCategory, error) {
-	data, err := os.ReadFile(mediaCenterDefaultCategoriesPath)
-	if err != nil {
-		return nil, err
-	}
-	var payload struct {
-		Categories []mediaCenterCategory `json:"categories"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, fmt.Errorf("parse default media center categories: %w", err)
-	}
-	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
-		Service:    defaultMediaCenterServiceConfig(),
-		Categories: payload.Categories,
-	})
+	cfg, err := readDefaultMediaCenterConfig()
 	if err != nil {
 		return nil, err
 	}
 	return cfg.Categories, nil
 }
 
+func readDefaultMediaCenterConfig() (mediaCenterConfig, error) {
+	data, err := os.ReadFile(mediaCenterDefaultCategoriesPath)
+	if err != nil {
+		return mediaCenterConfig{}, err
+	}
+	var payload mediaCenterConfig
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return mediaCenterConfig{}, fmt.Errorf("parse default media center config: %w", err)
+	}
+	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
+		Service:    defaultMediaCenterServiceConfig(),
+		Sources:    payload.Sources,
+		Categories: payload.Categories,
+	})
+	if err != nil {
+		return mediaCenterConfig{}, err
+	}
+	return cfg, nil
+}
+
 func defaultMediaCenterConfig(categories []mediaCenterCategory) mediaCenterConfig {
 	return mediaCenterConfig{
 		Service:    defaultMediaCenterServiceConfig(),
+		Sources:    defaultMediaCenterSources(),
 		Categories: categories,
 	}
 }
@@ -256,8 +284,60 @@ func defaultMediaCenterServiceConfig() mediaCenterServiceConfig {
 	}
 }
 
+func defaultMediaCenterSources() []mediaCenterSource {
+	return []mediaCenterSource{
+		{
+			ID:          "bilibili",
+			Title:       "Bilibili",
+			Description: "中文覆盖最好，适合 Dota、中文纪录片和用户上传内容；播放地址偶发 v_voucher 风控。",
+			HomeURL:     "https://www.bilibili.com",
+			RiskLevel:   "high",
+			Enabled:     true,
+		},
+		{
+			ID:          "youtube",
+			Title:       "YouTube",
+			Description: "中文公开视频覆盖一般，可作补源；搜索/yt-dlp 解析可能遇到反 bot 或登录校验。",
+			HomeURL:     "https://www.youtube.com",
+			RiskLevel:   "high",
+			Enabled:     false,
+		},
+		{
+			ID:          "internet-archive",
+			Title:       "Internet Archive",
+			Description: "低风控、官方 API 和直链稳定，但中文内容覆盖弱，适合作为公版老片/历史影像补充而非主源。",
+			HomeURL:     "https://archive.org/details/movies",
+			RiskLevel:   "low",
+			Enabled:     false,
+		},
+	}
+}
+
+func mediaCenterSourceDefaultsByID() map[string]mediaCenterSource {
+	out := make(map[string]mediaCenterSource)
+	for _, source := range defaultMediaCenterSources() {
+		out[source.ID] = source
+	}
+	return out
+}
+
+func runtimeMediaCenterSources(sources []mediaCenterSource) []mediaCenterRuntimeSource {
+	out := make([]mediaCenterRuntimeSource, 0, len(sources))
+	for _, source := range sources {
+		out = append(out, mediaCenterRuntimeSource{
+			ID:      source.ID,
+			Enabled: source.Enabled,
+		})
+	}
+	return out
+}
+
 func normalizeMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, error) {
 	service, err := normalizeMediaCenterServiceConfig(input.Service)
+	if err != nil {
+		return mediaCenterConfig{}, err
+	}
+	sources, err := normalizeMediaCenterSources(input.Sources)
 	if err != nil {
 		return mediaCenterConfig{}, err
 	}
@@ -284,6 +364,7 @@ func normalizeMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, err
 
 	return mediaCenterConfig{
 		Service:    service,
+		Sources:    sources,
 		Categories: categories,
 	}, nil
 }
@@ -313,6 +394,82 @@ func normalizeMediaCenterServiceConfig(input mediaCenterServiceConfig) (mediaCen
 	}, nil
 }
 
+func normalizeMediaCenterSources(input []mediaCenterSource) ([]mediaCenterSource, error) {
+	sources := input
+	if len(sources) == 0 {
+		sources = defaultMediaCenterSources()
+	}
+	if len(sources) > maxMediaCenterSources {
+		return nil, fmt.Errorf("too many sources: max %d", maxMediaCenterSources)
+	}
+
+	defaults := mediaCenterSourceDefaultsByID()
+	seen := make(map[string]bool, len(sources))
+	enabled := false
+	out := make([]mediaCenterSource, 0, len(sources))
+	for i, source := range sources {
+		normalized, err := normalizeMediaCenterSource(source, defaults)
+		if err != nil {
+			return nil, fmt.Errorf("source %d: %w", i+1, err)
+		}
+		if seen[normalized.ID] {
+			return nil, fmt.Errorf("duplicate source id: %s", normalized.ID)
+		}
+		seen[normalized.ID] = true
+		enabled = enabled || normalized.Enabled
+		out = append(out, normalized)
+	}
+	for _, source := range defaultMediaCenterSources() {
+		if !seen[source.ID] {
+			source.Enabled = false
+			out = append(out, source)
+			enabled = enabled || source.Enabled
+		}
+	}
+	if !enabled {
+		return nil, errors.New("at least one media source must be enabled")
+	}
+	return out, nil
+}
+
+func normalizeMediaCenterSource(input mediaCenterSource, defaults map[string]mediaCenterSource) (mediaCenterSource, error) {
+	id := strings.TrimSpace(input.ID)
+	if !mediaCenterIDPattern.MatchString(id) {
+		return mediaCenterSource{}, errors.New("id must be lowercase letters, numbers and dashes, max 80 chars")
+	}
+	defaultSource, ok := defaults[id]
+	if !ok {
+		return mediaCenterSource{}, fmt.Errorf("unsupported media source: %s", id)
+	}
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = defaultSource.Title
+	}
+	description := strings.TrimSpace(input.Description)
+	if description == "" {
+		description = defaultSource.Description
+	}
+	homeURL := strings.TrimSpace(input.HomeURL)
+	if homeURL == "" {
+		homeURL = defaultSource.HomeURL
+	}
+	riskLevel := strings.TrimSpace(input.RiskLevel)
+	if riskLevel == "" {
+		riskLevel = defaultSource.RiskLevel
+	}
+	if riskLevel != "low" && riskLevel != "medium" && riskLevel != "high" {
+		return mediaCenterSource{}, fmt.Errorf("%s riskLevel must be low, medium or high", id)
+	}
+	return mediaCenterSource{
+		ID:          id,
+		Title:       title,
+		Description: description,
+		HomeURL:     homeURL,
+		RiskLevel:   riskLevel,
+		Enabled:     input.Enabled,
+	}, nil
+}
+
 func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategory, error) {
 	id := strings.TrimSpace(input.ID)
 	if !mediaCenterIDPattern.MatchString(id) {
@@ -327,6 +484,10 @@ func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategor
 		return mediaCenterCategory{}, fmt.Errorf("%s description is required", id)
 	}
 	searchQuery := strings.TrimSpace(input.SearchQuery)
+	sourceQueries, err := normalizeMediaCenterSourceQueries(input.SourceQueries)
+	if err != nil {
+		return mediaCenterCategory{}, fmt.Errorf("%s sourceQueries: %w", id, err)
+	}
 	keywords := normalizeStringList(input.Keywords)
 	if len(keywords) == 0 {
 		return mediaCenterCategory{}, fmt.Errorf("%s keywords are required", id)
@@ -340,13 +501,39 @@ func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategor
 	}
 
 	return mediaCenterCategory{
-		ID:          id,
-		Title:       title,
-		Description: description,
-		SearchQuery: searchQuery,
-		Keywords:    keywords,
-		Excludes:    excludes,
+		ID:            id,
+		Title:         title,
+		Description:   description,
+		SearchQuery:   searchQuery,
+		SourceQueries: sourceQueries,
+		Keywords:      keywords,
+		Excludes:      excludes,
 	}, nil
+}
+
+func normalizeMediaCenterSourceQueries(values map[string]string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if len(values) > maxCategorySourceQueries {
+		return nil, fmt.Errorf("too many source queries: max %d", maxCategorySourceQueries)
+	}
+	defaults := mediaCenterSourceDefaultsByID()
+	out := make(map[string]string, len(values))
+	for id, value := range values {
+		normalizedID := strings.TrimSpace(id)
+		if _, ok := defaults[normalizedID]; !ok {
+			return nil, fmt.Errorf("unsupported source: %s", normalizedID)
+		}
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			out[normalizedID] = trimmed
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func normalizeStringList(values []string) []string {
