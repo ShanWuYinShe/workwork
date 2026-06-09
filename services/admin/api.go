@@ -1008,6 +1008,10 @@ func startupRotateIPv6(cli *client.Client) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
+
+	// 持有轮换锁，防止与手动轮换 API 并发。
+	ipv6RotateMu.Lock()
+	defer ipv6RotateMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
