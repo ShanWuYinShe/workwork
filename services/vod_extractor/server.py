@@ -22,6 +22,7 @@ DEFAULT_COOKIES_FILE = "/config/youtube-cookies.txt"
 COOKIES_FILE_ENV = os.environ.get("VOD_EXTRACTOR_COOKIES_FILE", "").strip()
 COOKIES_FILE = COOKIES_FILE_ENV or DEFAULT_COOKIES_FILE
 COOKIES_FILE_EXPLICIT = bool(COOKIES_FILE_ENV)
+EXTRACTOR_ARGS = os.environ.get("VOD_EXTRACTOR_EXTRACTOR_ARGS", "").strip()
 EXTRACTOR_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT)
 
 
@@ -150,6 +151,8 @@ def run_extractor(url):
 
 def extractor_command(url):
     command = [EXTRACTOR_BIN, "--dump-single-json", "--no-playlist", "--no-warnings"]
+    if EXTRACTOR_ARGS:
+        command.extend(["--extractor-args", EXTRACTOR_ARGS])
     cookies_file = extractor_cookies_file()
     if cookies_file:
         command.extend(["--cookies", cookies_file])
