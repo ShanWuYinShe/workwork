@@ -172,9 +172,9 @@ func main() {
 	// Assign rotating IPv6 addresses after containers are up.
 	// Restores rotation-based DNS that was lost on container restart.
 	go func() {
+		defer close(startupRotateDone)
 		time.Sleep(10 * time.Second)
 		startupRotateIPv6(cli)
-		close(startupRotateDone)
 	}()
 
 	<-ctx.Done()
