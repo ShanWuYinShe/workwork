@@ -82,13 +82,13 @@ services:
       # NET_ADMIN: entrypoint.sh 中 ip route 需要
       # SETGID+SETUID: su-exec 降权到 appuser 需要
       # CHOWN: entrypoint.sh 复制 root-only 配置后交给 appuser 读取
-      # DAC_OVERRIDE: entrypoint.sh 对 chown 后的 volume 目录执行 chmod 需要
+      # FOWNER: entrypoint.sh 对 chown 后归 appuser 的 volume 目录执行 chmod 需要
       # NET_BIND_SERVICE 不需要：容器内 ip_unprivileged_port_start=0，所有端口对非 root 开放
       - NET_ADMIN
       - SETGID
       - SETUID
       - CHOWN
-      - DAC_OVERRIDE
+      - FOWNER
     entrypoint: ["/entrypoint.sh"]
     networks:
       # Keep bridge first so Docker publishes host IPv4 443 to xray's bridge IP.
