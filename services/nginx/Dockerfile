@@ -3,7 +3,7 @@ FROM nginx:stable-alpine
 RUN apk add --no-cache fail2ban supervisor curl logrotate
 
 # Cloudflare Authenticated Origin Pulls — shared public CA certificate
-RUN curl -sS -o /etc/nginx/cloudflare-origin-pull.pem \
+RUN curl -fsSL -o /etc/nginx/cloudflare-origin-pull.pem \
     https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem
 
 # Cloudflare IP range fetch script

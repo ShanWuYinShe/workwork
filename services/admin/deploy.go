@@ -19,6 +19,9 @@ func generateConfigs() error {
 	if err := ensureRuntimeDirs(); err != nil {
 		return fmt.Errorf("runtime dirs: %w", err)
 	}
+	if err := validateProxyConfigEnv(); err != nil {
+		return fmt.Errorf("proxy env: %w", err)
+	}
 	if err := ensureXrayClients(); err != nil {
 		return fmt.Errorf("xray clients init: %w", err)
 	}
@@ -97,6 +100,10 @@ func genXrayConfig() error {
 	if err != nil {
 		return err
 	}
+	shortIDsJSON, err := xrayShortIDsJSON()
+	if err != nil {
+		return err
+	}
 
 	xrayClientsMu.Lock()
 	clients, err := readXrayClientsNoLock()
@@ -137,11 +144,11 @@ func genXrayConfig() error {
 	out := string(tmpl)
 	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", xhttpJSON)
 	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityJSON)
+	out = strings.ReplaceAll(out, "__XRAY_SHORT_IDS_JSON__", shortIDsJSON)
 	out = replaceEnv(out, map[string]string{
 		"__XRAY_REALITY_DEST__":        "XRAY_REALITY_DEST",
 		"__XRAY_REALITY_SERVER_NAME__": "XRAY_REALITY_SERVER_NAME",
 		"__XRAY_PRIVATE_KEY__":         "XRAY_PRIVATE_KEY",
-		"__XRAY_SHORT_IDS__":           "XRAY_SHORT_IDS",
 	}, map[string]string{
 		"__XRAY_REALITY_DEST__": "addons.mozilla.org",
 	})
@@ -157,6 +164,75 @@ func genXrayConfig() error {
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
 	return atomicWriteFile(xrayConfigPath, []byte(out), 0644)
+}
+
+func validateProxyConfigEnv() error {
+	required := []string{
+		"XRAY_REALITY_DOMAIN",
+		"XRAY_REALITY_SERVER_NAME",
+		"XRAY_PRIVATE_KEY",
+		"XRAY_PUBLIC_KEY",
+		"XRAY_SHORT_IDS",
+		"XHTTP_DOMAIN",
+	}
+	var missing []string
+	for _, key := range required {
+		if strings.TrimSpace(getEnv(key)) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
+	}
+	if _, err := xrayShortIDs(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func xrayShortIDsJSON() (string, error) {
+	ids, err := xrayShortIDs()
+	if err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func xrayClientShortID() string {
+	ids, err := xrayShortIDs()
+	if err != nil || len(ids) == 0 {
+		return strings.TrimSpace(getEnv("XRAY_SHORT_IDS"))
+	}
+	return ids[0]
+}
+
+func xrayShortIDs() ([]string, error) {
+	raw := strings.TrimSpace(getEnv("XRAY_SHORT_IDS"))
+	if raw == "" {
+		return nil, fmt.Errorf("XRAY_SHORT_IDS is required")
+	}
+	var ids []string
+	for _, part := range strings.Split(raw, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		if len(id)%2 != 0 || len(id) > 16 {
+			return nil, fmt.Errorf("invalid XRAY_SHORT_IDS value %q: use even-length hex strings up to 16 characters", id)
+		}
+		if _, err := hex.DecodeString(id); err != nil {
+			return nil, fmt.Errorf("invalid XRAY_SHORT_IDS value %q: %w", id, err)
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("XRAY_SHORT_IDS is required")
+	}
+	return ids, nil
 }
 
 func genNginxConfig() error {

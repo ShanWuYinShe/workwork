@@ -155,7 +155,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 				RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 				RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
-				RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+				RealityShortID:    xrayClientShortID(),
 				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
 				XHTTPProxyAuth:    proxyAuthForUser(username),
 			})
@@ -209,7 +209,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
-			Filters: filters.NewArgs(filters.KeyValuePair{
+			Filters: composeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
@@ -306,23 +306,14 @@ func serviceSortWeight(name string) int {
 
 func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		All: true,
-		Filters: filters.NewArgs(filters.KeyValuePair{
-			Key: "label", Value: "com.docker.compose.project",
-		}),
+		All:     true,
+		Filters: composeProjectFilters(),
 	})
 	if err != nil {
 		return nil
 	}
-	project := ""
 	var services []svcJSON
 	for _, c := range containers {
-		if project == "" && c.Labels["com.docker.compose.project"] != "" {
-			project = c.Labels["com.docker.compose.project"]
-		}
-		if c.Labels["com.docker.compose.project"] != project {
-			continue
-		}
 		name := strings.TrimPrefix(c.Names[0], "/")
 		if svc := c.Labels["com.docker.compose.service"]; svc != "" {
 			name = svc
@@ -383,7 +374,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
-			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+			RealityShortID:    xrayClientShortID(),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
 			XHTTPProxyAuth:    proxyAuthForUser(proxyUser),
 		})
@@ -559,7 +550,7 @@ func apiXrayClientConfig() http.HandlerFunc {
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
-			RealityShortID:    getEnv("XRAY_SHORT_IDS"),
+			RealityShortID:    xrayClientShortID(),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
 			XHTTPProxyAuth:    proxyAuthForUser(client["owner"]),
 		})
@@ -616,6 +607,34 @@ func htpasswdAddUser(username, password string) error {
 	}
 	// Atomic write via temp file + rename
 	content := strings.Join(lines, "\n") + "\n"
+	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
+}
+
+func htpasswdRemoveUser(username string) error {
+	if !isValidUsername(username) {
+		return fmt.Errorf("invalid username")
+	}
+	htpasswdMu.Lock()
+	defer htpasswdMu.Unlock()
+
+	data, readErr := os.ReadFile(htpasswdFile)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, username+":") {
+			lines = append(lines, line)
+		}
+	}
+	content := strings.Join(lines, "\n")
+	if content != "" {
+		content += "\n"
+	}
 	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
 }
 
@@ -696,15 +715,29 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Forbidden", 403)
 			return
 		}
-		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
+		docBefore, err := readUsersMeta()
+		if err != nil {
 			writeInternalError(w, err)
 			return
 		}
-		// Create users.json entry
+		previousInfo, hadPrevious := docBefore.Users[body.Username]
 		if err := updateUserMeta(body.Username, UserInfo{
 			Role:      body.Role,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
+			var rollbackErr error
+			if hadPrevious {
+				rollbackErr = updateUserMeta(body.Username, previousInfo)
+			} else {
+				rollbackErr = deleteUserMeta(body.Username)
+			}
+			if rollbackErr != nil {
+				log.Printf("WARNING: failed to roll back user meta for %s after htpasswd error: %v", body.Username, rollbackErr)
+			}
 			writeInternalError(w, err)
 			return
 		}
@@ -746,31 +779,14 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		htpasswdMu.Lock()
-		data, readErr := os.ReadFile(htpasswdFile)
-		if readErr != nil && !os.IsNotExist(readErr) {
-			htpasswdMu.Unlock()
-			writeError(w, "Failed to read htpasswd", 500)
+		if err := deleteUserMeta(body.Username); err != nil {
+			writeInternalError(w, err)
 			return
 		}
-		var lines []string
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			if !strings.HasPrefix(line, body.Username+":") {
-				lines = append(lines, line)
-			}
-		}
-		content := strings.Join(lines, "\n") + "\n"
-		if err := atomicWriteFile(htpasswdFile, []byte(content), 0644); err != nil {
-			htpasswdMu.Unlock()
-			writeError(w, "Failed to write htpasswd", 500)
+		if err := htpasswdRemoveUser(body.Username); err != nil {
+			writeInternalError(w, err)
 			return
 		}
-		htpasswdMu.Unlock()
-		deleteUserMeta(body.Username)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -980,7 +996,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 // findContainer returns the container ID for a given compose service label.
 func findContainer(ctx context.Context, cli *client.Client, service string) (string, error) {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(filters.KeyValuePair{
+		Filters: composeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=" + service,
 		}),
 	})
@@ -1440,7 +1456,7 @@ func isRotatingIPv6(ip, prefix string) bool {
 
 func restartXray(ctx context.Context, cli *client.Client) error {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(filters.KeyValuePair{
+		Filters: composeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=xray",
 		}),
 	})
@@ -1528,7 +1544,7 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
-			Filters: filters.NewArgs(filters.KeyValuePair{
+			Filters: composeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
@@ -1569,7 +1585,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
-			Filters: filters.NewArgs(filters.KeyValuePair{
+			Filters: composeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})

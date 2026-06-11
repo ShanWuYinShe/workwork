@@ -1,9 +1,12 @@
 ARG XRAY_VERSION=26.5.3
+ARG XRAY_LINUX_64_SHA256=f9d7dd7492791430d48a9828fb36f32663577af787e8b363a1548dece21a7897
 
 FROM alpine:3.20 AS downloader
 ARG XRAY_VERSION
+ARG XRAY_LINUX_64_SHA256
 RUN apk add --no-cache curl unzip \
     && curl -fsSL "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-64.zip" -o /tmp/xray.zip \
+    && echo "${XRAY_LINUX_64_SHA256}  /tmp/xray.zip" | sha256sum -c - \
     && unzip /tmp/xray.zip -d /tmp/xray \
     && chmod +x /tmp/xray/xray
 

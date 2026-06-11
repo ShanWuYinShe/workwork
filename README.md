@@ -58,6 +58,7 @@ sudo bash setup-networks.sh
 # 2. 配置环境变量
 cp .env.example .env
 # 编辑 .env 填写必要的配置
+chmod 600 .env
 
 # 3. 启动所有服务
 docker compose up -d
@@ -111,7 +112,7 @@ docker compose ps
 ## 目录结构
 
 ```
-service/
+workwork/
 ├── docker-compose.yml        # 生产环境 Docker Compose
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
@@ -179,9 +180,9 @@ service/
 ## 常用命令
 
 ```bash
-# 构建并启动
-docker compose build --no-cache admin nginx media_server vod_extractor
-docker compose up -d
+# 按服务构建并重建（通常不要加 --no-cache）
+docker compose build admin
+docker compose up -d --no-deps admin
 
 # 查看日志
 docker compose logs -f admin
@@ -205,14 +206,27 @@ git add .
 git commit -m "描述"
 git push origin main
 
-# 2. 服务器拉取并部署
-ssh workwork-server "cd service && git pull origin main && docker compose build --no-cache admin nginx media_server vod_extractor && docker compose up -d"
+# 2. 服务器拉取并查看变更
+ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+
+# 3. 按变更选择最小部署命令，例如：
+# services/admin/** 或 ui/**
+docker compose build admin && docker compose up -d --no-deps admin
+# services/nginx/**
+docker compose build nginx && docker compose up -d --no-deps nginx
+# services/xray/**
+docker compose build xray && docker compose up -d --no-deps xray
+# services/media_center/media_server/**
+docker compose build media_server && docker compose up -d --no-deps media_server
+# services/media_center/vod_extractor/**
+docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
 ```
 
 ## 环境变量
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
+| `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
 | `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
 | `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |
 | `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
