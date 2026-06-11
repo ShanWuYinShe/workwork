@@ -54,7 +54,7 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	defer cancel()
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(filters.KeyValuePair{
+		Filters: composeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=nginx",
 		}),
 	})

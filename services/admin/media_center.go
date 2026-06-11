@@ -623,7 +623,7 @@ func restartMediaCenterServices(ctx context.Context, cli *client.Client) ([]stri
 func restartComposeService(ctx context.Context, cli *client.Client, service string) (bool, error) {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All: true,
-		Filters: filters.NewArgs(filters.KeyValuePair{
+		Filters: composeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", service),
 		}),
 	})
