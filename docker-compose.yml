@@ -38,6 +38,8 @@ services:
     cap_drop:
       - ALL
     cap_add:
+      # NET_ADMIN: admin 通过 docker exec 在容器内恢复轮换 IPv6 地址需要。
+      - NET_ADMIN
       # CHOWN: nginx master 进程需要 chown /var/cache/nginx/* 给 worker (uid 101)
       - CHOWN
       # SETGID+SETUID: nginx master 以 root 运行，worker 需要降权到 nginx (uid 101)
