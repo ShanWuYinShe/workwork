@@ -28,7 +28,7 @@ func main() {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
 
-	// 启动轮换完成后关闭此 channel，ipConsistencyChecker 等待它避免竞态。
+	// 启动 IPv6 恢复完成后关闭此 channel，ipConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
 
 	go xhttpHealthChecker(context.Background(), cli)
@@ -171,8 +171,7 @@ func main() {
 		}
 	}()
 
-	// Assign rotating IPv6 addresses after containers are up.
-	// Restores rotation-based DNS that was lost on container restart.
+	// Restore DNS-published rotating IPv6 addresses after containers are up.
 	go func() {
 		defer close(startupRotateDone)
 		defer func() {

@@ -18,14 +18,15 @@ func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <
 		return
 	}
 
-	// 等待 startupRotateIPv6 完成，避免与启动轮换竞态：
-	// startup 会先清理旧 IP 再分配新 IP，如果一致性检查在中间插入，
-	// 会把 DNS 中的旧 IP 加回去，导致旧 IP 残留。
+	// 等待 startupRotateIPv6 完成，避免与启动恢复竞态：
+	// startup 会先确认 DNS 当前 IP 是否需要补回容器，再登记旧 IP 延迟清理。
 	select {
 	case <-ctx.Done():
 		return
 	case <-startupDone:
 	}
+
+	cleanupDueRetiredRotatingIPs(ctx, cli)
 
 	ticker := time.NewTicker(ipConsistencyInterval)
 	defer ticker.Stop()
@@ -42,6 +43,7 @@ func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <
 					}
 				}()
 				checkIPConsistency(ctx, cli)
+				cleanupDueRetiredRotatingIPs(ctx, cli)
 			}()
 		}
 	}

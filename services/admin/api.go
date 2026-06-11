@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +33,8 @@ import (
 // maxDownloadSize caps the size of a single binary download (Xray, Claude Code).
 // Prevents a malicious or compromised CDN from filling the container's disk.
 const maxDownloadSize = 500 << 20 // 500 MiB
+
+const rotatingIPv6CleanupGrace = 10 * time.Minute
 
 type jsonResp struct {
 	Success bool        `json:"success"`
@@ -890,31 +892,12 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 			continue
 		}
 		if di.Container == "xray" {
-			xrayIP = rec.Content
+			xrayIP = normalizeIPv6(rec.Content)
 		} else {
-			nginxIP = rec.Content
+			nginxIP = normalizeIPv6(rec.Content)
 		}
 	}
 	return
-}
-
-// saveCurrentIPs persists the working rotating IPs locally for use during next rotation's cleanup.
-// DNS is the authoritative source; this file serves as a fast local cache.
-func saveCurrentIPs(xrayIP, nginxIP string) {
-	data, _ := json.Marshal(map[string]string{"xray": xrayIP, "nginx": nginxIP})
-	if err := atomicWriteFile("/app/data/rotating-ips.json", data, 0600); err != nil {
-		log.Printf("ERROR: saveCurrentIPs: %v", err)
-	}
-}
-
-// cleanContainerRotatingIPs removes all IPs in the rotating range (:f::/80) from a container,
-// except the static IP.
-func cleanContainerRotatingIPs(ctx context.Context, cli *client.Client, containerID, prefix, staticIP string) {
-	// 用默认 IPv6 路由的出接口（ipvlan 容器中是 eth1，不是 eth0）
-	containerExec(ctx, cli, containerID, "sh", "-c",
-		fmt.Sprintf("ip -6 addr show | grep 'inet6 %sf:' | awk '{print $2}' | while read ip; do "+
-			"case \"$ip\" in %s*) continue ;; esac; "+
-			"ip addr del \"$ip\" dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null; done", prefix, staticIP))
 }
 
 func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
@@ -933,20 +916,21 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Derive allocation ranges from subnet's first /64
+		subnetDisplay := ""
 		prefix := ""
 		staticRange := ""
 		rotatingRange := ""
-		if _, ipNet, err := net.ParseCIDR(subnet); err == nil {
-			ip := ipNet.IP.To16()
-			if ip != nil && len(ip) == 16 {
-				parts := make([]string, 4)
-				for i := 0; i < 4; i++ {
-					parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
-				}
-				prefix = strings.Join(parts, ":") + ":"
-				staticRange = prefix + "1::/80"
-				rotatingRange = prefix + "f::/80"
+		if p, err := netip.ParsePrefix(subnet); err == nil && p.Addr().Is6() && !p.Addr().Is4In6() {
+			p = p.Masked()
+			ip := p.Addr().As16()
+			parts := make([]string, 4)
+			for i := 0; i < 4; i++ {
+				parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
 			}
+			prefix = strings.Join(parts, ":") + ":"
+			subnetDisplay = strings.TrimSuffix(prefix, ":") + "::/64"
+			staticRange = prefix + "1::/80"
+			rotatingRange = prefix + "f::/80"
 		}
 
 		// CF DNS records for all domains
@@ -980,7 +964,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		}
 
 		writeJSON(w, map[string]any{
-			"subnet":         prefix + "/64",
+			"subnet":         subnetDisplay,
 			"static_range":   staticRange,
 			"rotating_range": rotatingRange,
 			"nginx_ip":       nginxStatic,
@@ -1011,12 +995,20 @@ func findContainer(ctx context.Context, cli *client.Client, service string) (str
 
 // addContainerIP adds an IPv6 to the container's default-route interface.
 func addContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) error {
+	ip = normalizeIPv6(ip)
 	return containerExec(ctx, cli, containerID, "sh", "-c",
-		fmt.Sprintf("ip addr add %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}')", ip))
+		fmt.Sprintf(`dev=$(ip -6 route show default | awk '{for (i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+if [ -z "$dev" ]; then echo "default IPv6 interface not found" >&2; exit 1; fi
+if ip -6 -o addr show dev "$dev" | awk '{print $4}' | cut -d/ -f1 | grep -Fxq %s; then exit 0; fi
+ip addr add %s/64 dev "$dev"`, shellQuote(ip), shellQuote(ip)))
 }
-func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) {
-	containerExec(ctx, cli, containerID, "sh", "-c",
-		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null", ip))
+func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip string) error {
+	ip = normalizeIPv6(ip)
+	return containerExec(ctx, cli, containerID, "sh", "-c",
+		fmt.Sprintf(`dev=$(ip -6 route show default | awk '{for (i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+if [ -z "$dev" ]; then echo "default IPv6 interface not found" >&2; exit 1; fi
+if ! ip -6 -o addr show dev "$dev" | awk '{print $4}' | cut -d/ -f1 | grep -Fxq %s; then exit 0; fi
+ip addr del %s/64 dev "$dev"`, shellQuote(ip), shellQuote(ip)))
 }
 
 type domainInfo struct {
@@ -1109,8 +1101,9 @@ func rollbackDomainAAAARecords(entries []dnsRollbackEntry) (bool, error) {
 	return true, nil
 }
 
-// startupRotateIPv6 assigns fresh rotating IPv6 addresses after container restart.
-// Called on admin startup to restore rotation-based DNS after containers are recreated.
+// startupRotateIPv6 restores the DNS-published rotating IPv6 addresses on startup.
+// It only allocates fresh addresses when DNS/current container state has no usable
+// rotating address, avoiding unnecessary DNS churn on admin restarts.
 func startupRotateIPv6(cli *client.Client) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
@@ -1140,61 +1133,85 @@ func startupRotateIPv6(cli *client.Client) {
 	subnet := getEnv("IPV6_SUBNET")
 	prefix, err := parseSubnetPrefix(subnet)
 	if err != nil {
-		log.Printf("startup rotate: subnet: %v", err)
+		log.Printf("startup IPv6 restore: subnet: %v", err)
+		return
+	}
+	rotatingPrefix, err := rotatingIPv6Prefix(subnet)
+	if err != nil {
+		log.Printf("startup IPv6 restore: rotating prefix: %v", err)
 		return
 	}
 	xrayStatic := getEnv("XRAY_IPV6")
 	nginxStatic := getEnv("NGINX_IPV6")
 
-	// Clean up any leftover rotating IPs before assigning new ones,
-	// ensuring container state matches DNS state.
-	cleanContainerRotatingIPs(ctx, cli, xrayID, prefix, xrayStatic)
-	cleanContainerRotatingIPs(ctx, cli, nginxID, prefix, nginxStatic)
-
 	xrayAssigned := getContainerIPs(ctx, cli, xrayID)
-	xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
-	xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
-	if err != nil {
-		log.Printf("startup rotate: xray IP: %v", err)
-		return
-	}
-
 	nginxAssigned := getContainerIPs(ctx, cli, nginxID)
-	nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
-	nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
+	allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
+	dnsXrayIP, dnsNginxIP := loadCurrentIPs()
+
+	xraySelection, err := selectStartupRotatingIP(
+		prefix,
+		rotatingPrefix,
+		xrayStatic,
+		dnsXrayIP,
+		xrayAssigned,
+		append([]string{xrayStatic, nginxStatic}, nginxAssigned...),
+		append([]string{xrayStatic, nginxStatic}, allAssigned...),
+	)
 	if err != nil {
-		log.Printf("startup rotate: nginx IP: %v", err)
+		log.Printf("startup IPv6 restore: xray IP: %v", err)
 		return
 	}
+	xrayIP := xraySelection.IP
 
-	// Add new IPs first, then update DNS. If DNS fails, roll back IPs.
+	nginxSelection, err := selectStartupRotatingIP(
+		prefix,
+		rotatingPrefix,
+		nginxStatic,
+		dnsNginxIP,
+		nginxAssigned,
+		append([]string{xrayStatic, nginxStatic, xrayIP}, xrayAssigned...),
+		append([]string{xrayStatic, nginxStatic, xrayIP}, allAssigned...),
+	)
+	if err != nil {
+		log.Printf("startup IPv6 restore: nginx IP: %v", err)
+		return
+	}
+	nginxIP := nginxSelection.IP
+
 	if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
-		log.Printf("startup rotate: add xray IP: %v", err)
+		log.Printf("startup IPv6 restore: add xray IP: %v", err)
 		return
 	}
 	if err := addContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
-		delContainerIP(ctx, cli, xrayID, xrayIP)
-		log.Printf("startup rotate: add nginx IP: %v", err)
+		if xraySelection.Generated {
+			delContainerIP(ctx, cli, xrayID, xrayIP)
+		}
+		log.Printf("startup IPv6 restore: add nginx IP: %v", err)
 		return
 	}
 
 	if _, rollbackOK, err := updateDomainAAAARecords(allDomainInfos(), xrayIP, nginxIP); err != nil {
 		if rollbackOK {
-			// DNS update failed and DNS rollback succeeded; remove the new IPs.
-			delContainerIP(ctx, cli, xrayID, xrayIP)
-			delContainerIP(ctx, cli, nginxID, nginxIP)
-			log.Printf("startup rotate: DNS update failed: %v; rolled back DNS and IPs", err)
+			if xraySelection.Generated {
+				delContainerIP(ctx, cli, xrayID, xrayIP)
+			}
+			if nginxSelection.Generated {
+				delContainerIP(ctx, cli, nginxID, nginxIP)
+			}
+			log.Printf("startup IPv6 restore: DNS update failed: %v; rolled back newly generated IPs", err)
 		} else {
 			saveCurrentIPs(xrayIP, nginxIP)
-			log.Printf("startup rotate: DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
+			log.Printf("startup IPv6 restore: DNS update failed: %v; keeping restored IPs to avoid stale DNS", err)
 		}
 		return
 	}
 
-	// Persist current IPs for next rotation cleanup
 	saveCurrentIPs(xrayIP, nginxIP)
+	retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
+	retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
-	log.Printf("Startup rotate: xray=%s nginx=%s", xrayIP, nginxIP)
+	log.Printf("Startup IPv6 restore: xray=%s nginx=%s", xrayIP, nginxIP)
 }
 
 func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
@@ -1234,9 +1251,17 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+		rotatingPrefix, err := rotatingIPv6Prefix(subnet)
+		if err != nil {
+			log.Printf("Invalid IPV6_SUBNET rotating prefix: %v", err)
+			writeInternalError(w, err)
+			return
+		}
 
 		xrayAssigned := getContainerIPs(ctx, cli, xrayID)
-		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
+		nginxAssigned := getContainerIPs(ctx, cli, nginxID)
+		allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
+		xrayExclude := append([]string{xrayStatic, nginxStatic}, allAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
 			log.Printf("Failed to generate xray IPv6: %v", err)
@@ -1244,8 +1269,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		nginxAssigned := getContainerIPs(ctx, cli, nginxID)
-		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
+		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, allAssigned...)
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
 			log.Printf("Failed to generate nginx IPv6: %v", err)
@@ -1284,35 +1308,40 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Remove old rotating IPs
-		if oldXrayIP != "" && oldXrayIP != xrayStatic {
-			delContainerIP(ctx, cli, xrayID, oldXrayIP)
+		saveCurrentIPs(xrayIP, nginxIP)
+		var retired []retiredIPv6Entry
+		if oldXrayIP != "" && normalizeIPv6(oldXrayIP) != normalizeIPv6(xrayStatic) && isRotatingIPv6InPrefix(oldXrayIP, rotatingPrefix) {
+			retired = append(retired, retiredIPv6Entry{Service: "xray", IP: oldXrayIP})
 		}
-		if oldNginxIP != "" && oldNginxIP != nginxStatic {
-			delContainerIP(ctx, cli, nginxID, oldNginxIP)
+		if oldNginxIP != "" && normalizeIPv6(oldNginxIP) != normalizeIPv6(nginxStatic) && isRotatingIPv6InPrefix(oldNginxIP, rotatingPrefix) {
+			retired = append(retired, retiredIPv6Entry{Service: "nginx", IP: oldNginxIP})
 		}
-
-		// state now lives in Cloudflare DNS
+		retireRotatingIPs(retired...)
+		retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
+		retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
 		writeJSON(w, map[string]any{
-			"xray_ip":  xrayIP,
-			"nginx_ip": nginxIP,
-			"domains":  updated,
+			"xray_ip":               xrayIP,
+			"nginx_ip":              nginxIP,
+			"domains":               updated,
+			"cleanup_grace_seconds": int(rotatingIPv6CleanupGrace.Seconds()),
 		})
 	}
 }
 
 func parseSubnetPrefix(subnet string) (string, error) {
-	_, ipNet, err := net.ParseCIDR(subnet)
+	prefix, err := netip.ParsePrefix(strings.TrimSpace(subnet))
 	if err != nil {
 		return "", fmt.Errorf("parse subnet: %w", err)
 	}
+	prefix = prefix.Masked()
 	// Return the first 64 bits as hex string with trailing ::
-	ip := ipNet.IP.To16()
-	if ip == nil {
+	addr := prefix.Addr()
+	if !addr.Is6() || addr.Is4In6() {
 		return "", fmt.Errorf("not an IPv6 subnet")
 	}
-	// Build prefix like "2605:a141:2322:2623:1::"
+	// Build prefix like "2605:a141:2322:2623:"
+	ip := addr.As16()
 	parts := make([]string, 4)
 	for i := 0; i < 4; i++ {
 		parts[i] = fmt.Sprintf("%x", binary.BigEndian.Uint16(ip[i*2:i*2+2]))
@@ -1323,8 +1352,8 @@ func parseSubnetPrefix(subnet string) (string, error) {
 func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 	excludeSet := map[string]bool{}
 	for _, e := range exclude {
-		if e != "" {
-			excludeSet[e] = true
+		if normalized := normalizeIPv6(e); normalized != "" {
+			excludeSet[normalized] = true
 		}
 	}
 	for attempts := 0; attempts < 100; attempts++ {
@@ -1341,6 +1370,7 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 			binary.BigEndian.Uint16(ifid[2:4]),
 			binary.BigEndian.Uint16(ifid[4:6]),
 		)
+		ip = normalizeIPv6(ip)
 		if !excludeSet[ip] {
 			return ip, nil
 		}
@@ -1384,6 +1414,7 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, ip))
 			}
 		}
+		saveCurrentIPs(xrayIP, nginxIP)
 		writeJSON(w, map[string]any{"results": results})
 	}
 }
@@ -1391,7 +1422,11 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 // getContainerIPs returns all global IPv6 addresses in our subnet from a container.
 func getContainerIPs(ctx context.Context, cli *client.Client, containerID string) []string {
 	subnet := getEnv("IPV6_SUBNET")
-	prefix, _ := parseSubnetPrefix(subnet)
+	ipv6Prefix, err := netip.ParsePrefix(strings.TrimSpace(subnet))
+	if err != nil || !ipv6Prefix.Addr().Is6() || ipv6Prefix.Addr().Is4In6() {
+		return nil
+	}
+	ipv6Prefix = ipv6Prefix.Masked()
 	var buf bytes.Buffer
 	execConfig := container.ExecOptions{
 		Cmd:          []string{"sh", "-c", "ip -6 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1"},
@@ -1409,9 +1444,10 @@ func getContainerIPs(ctx context.Context, cli *client.Client, containerID string
 	stdcopy.StdCopy(&buf, io.Discard, attachResp.Reader)
 	var ips []string
 	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
-		ip := strings.TrimSpace(line)
-		if ip != "" && strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
-			ips = append(ips, ip)
+		ip := normalizeIPv6(line)
+		addr, err := netip.ParseAddr(ip)
+		if err == nil && addr.Is6() && !addr.IsLoopback() && ipv6Prefix.Contains(addr) {
+			ips = append(ips, addr.String())
 		}
 	}
 	return ips
@@ -1426,32 +1462,30 @@ func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, 
 		return staticIP
 	}
 	subnet := getEnv("IPV6_SUBNET")
-	prefix, err := parseSubnetPrefix(subnet)
+	rotatingPrefix, err := rotatingIPv6Prefix(subnet)
 	if err != nil {
 		return staticIP
 	}
-	if currentDNSIP != "" && currentDNSIP != staticIP && isRotatingIPv6(currentDNSIP, prefix) {
+	currentDNSIP = normalizeIPv6(currentDNSIP)
+	staticIP = normalizeIPv6(staticIP)
+	if currentDNSIP != "" && currentDNSIP != staticIP && isRotatingIPv6InPrefix(currentDNSIP, rotatingPrefix) {
 		for _, ip := range ips {
-			if ip == currentDNSIP {
+			if normalizeIPv6(ip) == currentDNSIP {
 				return currentDNSIP
 			}
 		}
 	}
 	for _, ip := range ips {
-		if isRotatingIPv6(ip, prefix) {
-			return ip
+		if isRotatingIPv6InPrefix(ip, rotatingPrefix) {
+			return normalizeIPv6(ip)
 		}
 	}
 	for _, ip := range ips {
-		if ip == staticIP {
+		if normalizeIPv6(ip) == staticIP {
 			return ip
 		}
 	}
 	return staticIP
-}
-
-func isRotatingIPv6(ip, prefix string) bool {
-	return strings.HasPrefix(strings.ToLower(ip), strings.ToLower(prefix)+"f:")
 }
 
 func restartXray(ctx context.Context, cli *client.Client) error {
