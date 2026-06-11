@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,6 +35,39 @@ var (
 	usersMetaPath = "/app/data/users.json"
 	usersMetaMu   sync.Mutex
 )
+
+// internalToken 由 genInternalToken 写入，isInternalRequest 读取。
+// 避免使用 os.Setenv 注入进程环境（并发不安全）以及 getEnv 的双重来源行为。
+var internalToken atomic.Value // holds string
+
+func getInternalToken() string {
+	v, _ := internalToken.Load().(string)
+	return v
+}
+
+func setInternalToken(tok string) {
+	internalToken.Store(tok)
+}
+
+const (
+	trustedProxyHostCacheTTL     = 30 * time.Second
+	trustedProxyHostFailureCache = 5 * time.Second
+)
+
+var trustedProxyHostCache = struct {
+	sync.Mutex
+	ips     []net.IP
+	expires time.Time
+}{}
+
+// trustedProxyCIDRCache caches the parsed CIDR set. Re-parse only when the
+// TRUSTED_PROXY_CIDRS env value changes (e.g. after env reload).
+var trustedProxyCIDRCache = struct {
+	sync.Mutex
+	nets  []*net.IPNet
+	raw   string
+	valid bool
+}{}
 
 func readUsersMeta() (*usersMetaDoc, error) {
 	usersMetaMu.Lock()
@@ -128,10 +162,6 @@ func getOrCreateProxyPassword(username string) (string, error) {
 	created := false
 	err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 		info := doc.Users[username]
-		// Admin users don't manage xray clients
-		if info.Role == "admin" {
-			return false, nil
-		}
 		if info.ProxyPassword != "" {
 			password = info.ProxyPassword
 			return false, nil
@@ -162,13 +192,22 @@ func getOrCreateProxyPassword(username string) (string, error) {
 
 // trustedProxyCIDRs returns the set of networks allowed to forge X-Forwarded-User.
 // Configurable via TRUSTED_PROXY_CIDRS env (comma-separated CIDRs).
-// Default: loopback + the docker bridge that fronts this service.
-var trustedProxyCIDRs = sync.OnceValue(func() []*net.IPNet {
-	defaults := "127.0.0.0/8,::1/128,172.16.0.0/12"
+// Default: loopback only. The nginx container is trusted by hostname below.
+func trustedProxyCIDRs() []*net.IPNet {
+	defaults := "127.0.0.0/8,::1/128"
 	raw := getEnv("TRUSTED_PROXY_CIDRS")
 	if raw == "" {
 		raw = defaults
 	}
+
+	trustedProxyCIDRCache.Lock()
+	if trustedProxyCIDRCache.valid && trustedProxyCIDRCache.raw == raw {
+		nets := trustedProxyCIDRCache.nets
+		trustedProxyCIDRCache.Unlock()
+		return nets
+	}
+	trustedProxyCIDRCache.Unlock()
+
 	var nets []*net.IPNet
 	for _, c := range strings.Split(raw, ",") {
 		c = strings.TrimSpace(c)
@@ -182,18 +221,89 @@ var trustedProxyCIDRs = sync.OnceValue(func() []*net.IPNet {
 		}
 		nets = append(nets, n)
 	}
-	return nets
-})
 
-// isTrustedProxy reports whether the immediate caller of this service is in
-// the trusted-proxy set. Without this guard, any container on the docker bridge
-// could set X-Forwarded-User to impersonate any user.
-func isTrustedProxy(remoteAddr string) bool {
+	trustedProxyCIDRCache.Lock()
+	trustedProxyCIDRCache.raw = raw
+	trustedProxyCIDRCache.nets = nets
+	trustedProxyCIDRCache.valid = true
+	trustedProxyCIDRCache.Unlock()
+	return nets
+}
+
+func trustedProxyHosts() []string {
+	raw := strings.TrimSpace(getEnv("TRUSTED_PROXY_HOSTS"))
+	if raw == "" {
+		raw = "nginx"
+	}
+	if raw == "-" || strings.EqualFold(raw, "none") {
+		return nil
+	}
+	var hosts []string
+	for _, host := range strings.Split(raw, ",") {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
+func trustedProxyHostIPs() []net.IP {
+	hosts := trustedProxyHosts()
+	if len(hosts) == 0 {
+		return nil
+	}
+	now := time.Now()
+	trustedProxyHostCache.Lock()
+	defer trustedProxyHostCache.Unlock()
+	if now.Before(trustedProxyHostCache.expires) {
+		return cloneIPs(trustedProxyHostCache.ips)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	var ips []net.IP
+	for _, host := range hosts {
+		if ip := net.ParseIP(host); ip != nil {
+			ips = append(ips, ip)
+			continue
+		}
+		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ips = append(ips, addr.IP)
+		}
+	}
+	ttl := trustedProxyHostCacheTTL
+	if len(ips) == 0 {
+		ttl = trustedProxyHostFailureCache
+	}
+	trustedProxyHostCache.ips = ips
+	trustedProxyHostCache.expires = now.Add(ttl)
+	return cloneIPs(ips)
+}
+
+func cloneIPs(ips []net.IP) []net.IP {
+	out := make([]net.IP, len(ips))
+	copy(out, ips)
+	return out
+}
+
+func remoteIP(remoteAddr string) net.IP {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
 	}
-	ip := net.ParseIP(host)
+	return net.ParseIP(host)
+}
+
+// isTrustedProxy reports whether the immediate caller of this service is in
+// the trusted-proxy set. Without this guard, any container on the Docker bridge
+// could set X-Forwarded-User to impersonate any user.
+func isTrustedProxy(remoteAddr string) bool {
+	ip := remoteIP(remoteAddr)
 	if ip == nil {
 		return false
 	}
@@ -202,12 +312,22 @@ func isTrustedProxy(remoteAddr string) bool {
 			return true
 		}
 	}
+	for _, trustedIP := range trustedProxyHostIPs() {
+		if trustedIP.Equal(ip) {
+			return true
+		}
+	}
 	return false
+}
+
+func isInternalRequest(r *http.Request) bool {
+	tok := getInternalToken()
+	return tok != "" &&
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(tok)) == 1
 }
 
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
-	internalToken := getEnv("INTERNAL_TOKEN")
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -216,7 +336,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 
 			// Internal services (fail2ban) authenticate via shared secret.
 			// This bypass is intentional and only requires the INTERNAL_TOKEN.
-			if internalToken != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
+			if isInternalRequest(r) {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 				username = "internal"
 			} else {

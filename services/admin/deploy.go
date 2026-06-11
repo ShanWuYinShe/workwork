@@ -194,7 +194,7 @@ func genHtpasswd() error {
 	}
 	if data, err := os.ReadFile(htpasswdFile); err == nil {
 		if len(data) > 10 {
-			return nil
+			return ensurePerm(htpasswdFile, 0644)
 		}
 	}
 	if data, err := os.ReadFile(legacyHtpasswdPath); err == nil && len(data) > 10 {
@@ -229,20 +229,20 @@ func seedAdminUser() error {
 func genInternalToken() error {
 	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
 		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
-			os.Setenv("INTERNAL_TOKEN", tok)
-			return ensurePerm("/app/data/.internal-token", 0644)
+			setInternalToken(tok)
+			return ensurePerm("/app/data/.internal-token", 0640)
 		}
-		if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644); err != nil {
+		if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0640); err != nil {
 			return err
 		}
-		os.Setenv("INTERNAL_TOKEN", tok)
+		setInternalToken(tok)
 		return nil
 	}
 	if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil {
 		tok := strings.TrimSpace(string(existing))
 		if tok != "" {
-			os.Setenv("INTERNAL_TOKEN", tok)
-			return nil
+			setInternalToken(tok)
+			return ensurePerm("/app/data/.internal-token", 0640)
 		}
 	}
 	b := make([]byte, 16)
@@ -250,10 +250,10 @@ func genInternalToken() error {
 		return err
 	}
 	tok := hex.EncodeToString(b)
-	if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0644); err != nil {
+	if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0640); err != nil {
 		return err
 	}
-	os.Setenv("INTERNAL_TOKEN", tok)
+	setInternalToken(tok)
 	return nil
 }
 

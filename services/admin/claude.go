@@ -96,7 +96,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := fetchClaudeCodeVersions()
 		if err != nil {
-			log.Printf("Failed to fetch versions: : %v", err)
+			log.Printf("Failed to fetch versions: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -170,7 +170,7 @@ func apiClaudeCodeRefresh() http.HandlerFunc {
 
 		releases, err := fetchClaudeCodeVersions()
 		if err != nil {
-			log.Printf("Failed to refresh: : %v", err)
+			log.Printf("Failed to refresh: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -236,7 +236,11 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		// Stream progress as NDJSON
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
-		flusher := w.(http.Flusher)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, "Streaming not supported", 500)
+			return
+		}
 
 		sendEvent := func(data map[string]any) {
 			b, _ := json.Marshal(data)

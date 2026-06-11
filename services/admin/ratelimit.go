@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -122,18 +121,12 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
-// rateLimitMiddleware should be placed AFTER ipBlockMiddleware
+// rateLimitMiddleware should be placed before ipBlockMiddleware so repeated
+// abusive requests can be persisted into the IP block list.
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
-		if internalToken := getEnv("INTERNAL_TOKEN"); internalToken != "" &&
-			subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(internalToken)) == 1 {
-			next(w, r)
-			return
-		}
-		// 已认证用户（来自可信代理且 nginx basic auth 已设置 X-Forwarded-User）跳过速率限制
-		// 必须同时验证 isTrustedProxy，否则外部攻击者可伪造 X-Forwarded-User 绕过
-		if isTrustedProxy(r.RemoteAddr) && r.Header.Get("X-Forwarded-User") != "" {
+		if isInternalRequest(r) {
 			next(w, r)
 			return
 		}

@@ -42,13 +42,17 @@ type jsonResp struct {
 
 func writeJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jsonResp{Success: true, Data: data})
+	if err := json.NewEncoder(w).Encode(jsonResp{Success: true, Data: data}); err != nil {
+		log.Printf("WARNING: writeJSON encode: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(jsonResp{Success: false, Error: msg})
+	if err := json.NewEncoder(w).Encode(jsonResp{Success: false, Error: msg}); err != nil {
+		log.Printf("WARNING: writeError encode: %v", err)
+	}
 }
 
 // writeInternalError returns a generic 500 to the client while logging the
@@ -65,7 +69,15 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.WriteFile(tmp, data, perm); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // loadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
@@ -80,7 +92,11 @@ func loadJSONFile(path string, dest any) {
 // saveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
 func saveJSONFile(path string, v any) {
 	os.MkdirAll(filepath.Dir(path), 0755)
-	data, _ := json.MarshalIndent(v, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		log.Printf("ERROR: saveJSONFile marshal %s: %v", path, err)
+		return
+	}
 	if err := atomicWriteFile(path, data, 0600); err != nil {
 		log.Printf("ERROR: saveJSONFile %s: %v", path, err)
 	}
@@ -111,11 +127,6 @@ func verifyHtpasswdLine(user, pass, line string) bool {
 // Creates a per-user proxy password on first call.
 func proxyAuthForUser(username string) string {
 	if username == "" || username == "internal" {
-		return ""
-	}
-	// Admin users don't need proxy passwords
-	doc, _ := readUsersMeta()
-	if info, ok := doc.Users[username]; ok && info.Role == "admin" {
 		return ""
 	}
 	pass, err := getOrCreateProxyPassword(username)
@@ -234,15 +245,15 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 
 func apiConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data := map[string]any{
+		result := map[string]any{
 			"xrayInbounds": 0, "xrayClients": 0,
 			"configStatus": "-",
 		}
 		var raw []byte
 		for _, path := range []string{xrayConfigPath, legacyXrayConfigPath} {
-			data, err := os.ReadFile(path)
+			fileData, err := os.ReadFile(path)
 			if err == nil {
-				raw = data
+				raw = fileData
 				break
 			}
 		}
@@ -258,14 +269,14 @@ func apiConfig(cli *client.Client) http.HandlerFunc {
 			if json.Unmarshal(raw, &cfg) == nil {
 				for _, ib := range cfg.Inbounds {
 					if ib.Tag == "reality-in" {
-						data["xrayClients"] = len(ib.Settings.Clients)
+						result["xrayClients"] = len(ib.Settings.Clients)
 					}
 				}
-				data["xrayInbounds"] = len(cfg.Inbounds)
+				result["xrayInbounds"] = len(cfg.Inbounds)
 			}
-			data["configStatus"] = "configured"
+			result["configStatus"] = "configured"
 		}
-		writeJSON(w, data)
+		writeJSON(w, result)
 	}
 }
 
@@ -346,7 +357,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		userInfo, username := getUserFromContext(r)
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err)
+			log.Printf("Failed to read clients: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -452,7 +463,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		// genXrayConfig() reads clients under xrayClientsMu and releases it before
 		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
-			log.Printf("Failed to regenerate xray config: : %v", err)
+			log.Printf("Failed to regenerate xray config: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -499,7 +510,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		// genXrayConfig() reads clients under xrayClientsMu and releases it before
 		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
-			log.Printf("Failed to regenerate xray config: : %v", err)
+			log.Printf("Failed to regenerate xray config: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -522,7 +533,7 @@ func apiXrayClientConfig() http.HandlerFunc {
 
 		allClients, err := readXrayClientMaps()
 		if err != nil {
-			log.Printf("Failed to read clients: : %v", err)
+			log.Printf("Failed to read clients: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -896,7 +907,14 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		subnet := getEnv("IPV6_SUBNET")
 		nginxStatic := getEnv("NGINX_IPV6")
 		xrayStatic := getEnv("XRAY_IPV6")
-		xrayIP, nxIP := loadCurrentIPs()
+		dnsXrayIP, dnsNginxIP := loadCurrentIPs()
+		xrayIP, nxIP := dnsXrayIP, dnsNginxIP
+		if xrayID, err := findContainer(r.Context(), cli, "xray"); err == nil {
+			xrayIP = selectContainerDNSIP(r.Context(), cli, xrayID, xrayStatic, dnsXrayIP)
+		}
+		if nginxID, err := findContainer(r.Context(), cli, "nginx"); err == nil {
+			nxIP = selectContainerDNSIP(r.Context(), cli, nginxID, nginxStatic, dnsNginxIP)
+		}
 
 		// Derive allocation ranges from subnet's first /64
 		prefix := ""
@@ -985,23 +1003,94 @@ func delContainerIP(ctx context.Context, cli *client.Client, containerID, ip str
 		fmt.Sprintf("ip addr del %s/64 dev $(ip -6 route show default | grep -o 'dev [^ ]*' | awk '{print $2; exit}') 2>/dev/null", ip))
 }
 
+type domainInfo struct {
+	Domain    string
+	Container string
+}
+
 // allDomainInfos returns all managed domains and their container assignments.
-// XRAY_REALITY_DOMAIN → xray, NGINX_DOMAINS (comma-separated) → nginx.
-func allDomainInfos() []struct{ Domain, Container string } {
-	var infos []struct{ Domain, Container string }
+// XRAY_REALITY_DOMAIN -> xray, NGINX_DOMAINS (comma-separated) -> nginx.
+func allDomainInfos() []domainInfo {
+	var infos []domainInfo
 	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, Container string }{d, "xray"})
+		infos = append(infos, domainInfo{Domain: d, Container: "xray"})
 	}
 	if d := getEnv("XHTTP_DOMAIN"); d != "" {
-		infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+		infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
 	}
 	for _, d := range strings.Split(getEnv("NGINX_DOMAINS"), ",") {
 		d = strings.TrimSpace(d)
 		if d != "" {
-			infos = append(infos, struct{ Domain, Container string }{d, "nginx"})
+			infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
 		}
 	}
 	return infos
+}
+
+type dnsRollbackEntry struct {
+	domain   string
+	previous *cfDNSRecord
+}
+
+func cloneDNSRecord(rec *cfDNSRecord) *cfDNSRecord {
+	if rec == nil {
+		return nil
+	}
+	clone := *rec
+	return &clone
+}
+
+func domainTargetIP(di domainInfo, xrayIP, nginxIP string) string {
+	if di.Container == "xray" {
+		return xrayIP
+	}
+	return nginxIP
+}
+
+func updateDomainAAAARecords(domains []domainInfo, xrayIP, nginxIP string) ([]string, bool, error) {
+	var updated []string
+	var rollback []dnsRollbackEntry
+	for _, di := range domains {
+		previous, err := cfFindAAAARecord(di.Domain)
+		if err != nil {
+			rollbackOK, rollbackErr := rollbackDomainAAAARecords(rollback)
+			if rollbackErr != nil {
+				return updated, rollbackOK, fmt.Errorf("read DNS record for %s: %w; rollback failed: %v", di.Domain, err, rollbackErr)
+			}
+			return updated, rollbackOK, fmt.Errorf("read DNS record for %s: %w", di.Domain, err)
+		}
+		ip := domainTargetIP(di, xrayIP, nginxIP)
+		if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
+			rollbackOK, rollbackErr := rollbackDomainAAAARecords(rollback)
+			if rollbackErr != nil {
+				return updated, rollbackOK, fmt.Errorf("update DNS record for %s: %w; rollback failed: %v", di.Domain, err, rollbackErr)
+			}
+			return updated, rollbackOK, fmt.Errorf("update DNS record for %s: %w", di.Domain, err)
+		}
+		rollback = append(rollback, dnsRollbackEntry{domain: di.Domain, previous: cloneDNSRecord(previous)})
+		updated = append(updated, fmt.Sprintf("%s → %s", di.Domain, ip))
+	}
+	return updated, true, nil
+}
+
+func rollbackDomainAAAARecords(entries []dnsRollbackEntry) (bool, error) {
+	var errs []string
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		var err error
+		if entry.previous == nil {
+			err = cfDeleteAAAARecord(entry.domain)
+		} else {
+			_, err = cfUpsertAAAARecord(entry.domain, entry.previous.Content)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", entry.domain, err))
+		}
+	}
+	if len(errs) > 0 {
+		return false, fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return true, nil
 }
 
 // startupRotateIPv6 assigns fresh rotating IPv6 addresses after container restart.
@@ -1073,18 +1162,17 @@ func startupRotateIPv6(cli *client.Client) {
 		return
 	}
 
-	for _, di := range allDomainInfos() {
-		ip := nginxIP
-		if di.Container == "xray" {
-			ip = xrayIP
-		}
-		if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-			// DNS update failed — roll back new IPs so containers match DNS state
+	if _, rollbackOK, err := updateDomainAAAARecords(allDomainInfos(), xrayIP, nginxIP); err != nil {
+		if rollbackOK {
+			// DNS update failed and DNS rollback succeeded; remove the new IPs.
 			delContainerIP(ctx, cli, xrayID, xrayIP)
 			delContainerIP(ctx, cli, nginxID, nginxIP)
-			log.Printf("startup rotate: DNS %s: %v — rolled back IPs", di.Domain, err)
-			return
+			log.Printf("startup rotate: DNS update failed: %v; rolled back DNS and IPs", err)
+		} else {
+			saveCurrentIPs(xrayIP, nginxIP)
+			log.Printf("startup rotate: DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
 		}
+		return
 	}
 
 	// Persist current IPs for next rotation cleanup
@@ -1107,12 +1195,17 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		xrayID, err := findContainer(r.Context(), cli, "xray")
+		// 使用独立 context 避免 HTTP 客户端断开取消长时间运行的轮换操作。
+		// 轮换涉及多次 Docker API + DNS 更新，客户端断开可能导致部分更新。
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+
+		xrayID, err := findContainer(ctx, cli, "xray")
 		if err != nil {
 			writeError(w, "Xray container not found", 500)
 			return
 		}
-		nginxID, err := findContainer(r.Context(), cli, "nginx")
+		nginxID, err := findContainer(ctx, cli, "nginx")
 		if err != nil {
 			writeError(w, "Nginx container not found", 500)
 			return
@@ -1121,25 +1214,25 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		// Collect assigned IPs to avoid collisions; generate separate IPs per container
 		prefix, err := parseSubnetPrefix(subnet)
 		if err != nil {
-			log.Printf("Invalid IPV6_SUBNET: : %v", err)
+			log.Printf("Invalid IPV6_SUBNET: %v", err)
 			writeInternalError(w, err)
 			return
 		}
 
-		xrayAssigned := getContainerIPs(r.Context(), cli, xrayID)
+		xrayAssigned := getContainerIPs(ctx, cli, xrayID)
 		xrayExclude := append([]string{xrayStatic, nginxStatic}, xrayAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
-			log.Printf("Failed to generate xray IPv6: : %v", err)
+			log.Printf("Failed to generate xray IPv6: %v", err)
 			writeInternalError(w, err)
 			return
 		}
 
-		nginxAssigned := getContainerIPs(r.Context(), cli, nginxID)
+		nginxAssigned := getContainerIPs(ctx, cli, nginxID)
 		nginxExclude := append([]string{xrayStatic, nginxStatic, xrayIP}, nginxAssigned...)
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
-			log.Printf("Failed to generate nginx IPv6: : %v", err)
+			log.Printf("Failed to generate nginx IPv6: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -1147,42 +1240,40 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
 
 		// Add new IPs
-		if err := addContainerIP(r.Context(), cli, xrayID, xrayIP); err != nil {
-			log.Printf("Failed to add IPv6 to xray: : %v", err)
+		if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
+			log.Printf("Failed to add IPv6 to xray: %v", err)
 			writeInternalError(w, err)
 			return
 		}
-		if err := addContainerIP(r.Context(), cli, nginxID, nginxIP); err != nil {
-			delContainerIP(r.Context(), cli, xrayID, xrayIP)
-			log.Printf("Failed to add IPv6 to nginx: : %v", err)
+		if err := addContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
+			delContainerIP(ctx, cli, xrayID, xrayIP)
+			log.Printf("Failed to add IPv6 to nginx: %v", err)
 			writeInternalError(w, err)
 			return
 		}
 
 		// Update DNS per domain → container mapping
 		domains := allDomainInfos()
-		var updated []string
-		for _, di := range domains {
-			ip := nginxIP
-			if di.Container == "xray" {
-				ip = xrayIP
+		updated, rollbackOK, err := updateDomainAAAARecords(domains, xrayIP, nginxIP)
+		if err != nil {
+			if rollbackOK {
+				delContainerIP(ctx, cli, xrayID, xrayIP)
+				delContainerIP(ctx, cli, nginxID, nginxIP)
+				log.Printf("DNS update failed: %v; rolled back DNS and IPs", err)
+			} else {
+				saveCurrentIPs(xrayIP, nginxIP)
+				log.Printf("DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
 			}
-			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-				delContainerIP(r.Context(), cli, xrayID, xrayIP)
-				delContainerIP(r.Context(), cli, nginxID, nginxIP)
-				log.Printf("DNS update failed for %s: %v", di.Domain, err)
-				writeError(w, fmt.Sprintf("DNS update failed for %s", di.Domain), 500)
-				return
-			}
-			updated = append(updated, fmt.Sprintf("%s → %s", di.Domain, ip))
+			writeError(w, "DNS update failed", 500)
+			return
 		}
 
 		// Remove old rotating IPs
 		if oldXrayIP != "" && oldXrayIP != xrayStatic {
-			delContainerIP(r.Context(), cli, xrayID, oldXrayIP)
+			delContainerIP(ctx, cli, xrayID, oldXrayIP)
 		}
 		if oldNginxIP != "" && oldNginxIP != nginxStatic {
-			delContainerIP(r.Context(), cli, nginxID, oldNginxIP)
+			delContainerIP(ctx, cli, nginxID, oldNginxIP)
 		}
 
 		// state now lives in Cloudflare DNS
@@ -1250,25 +1341,20 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 		// Get actual container IPs — no local state, containers are the source of truth.
 		xrayID, err := findContainer(r.Context(), cli, "xray")
 		if err != nil {
-			log.Printf("xray container: : %v", err)
+			log.Printf("xray container: %v", err)
 			writeInternalError(w, err)
 			return
 		}
 		nginxID, err := findContainer(r.Context(), cli, "nginx")
 		if err != nil {
-			log.Printf("nginx container: : %v", err)
+			log.Printf("nginx container: %v", err)
 			writeInternalError(w, err)
 			return
 		}
 
-		xrayIP := getContainerIP(r.Context(), cli, xrayID)
-		if xrayIP == "" {
-			xrayIP = getEnv("XRAY_IPV6")
-		}
-		nginxIP := getContainerIP(r.Context(), cli, nginxID)
-		if nginxIP == "" {
-			nginxIP = getEnv("NGINX_IPV6")
-		}
+		oldXrayIP, oldNginxIP := loadCurrentIPs()
+		xrayIP := selectContainerDNSIP(r.Context(), cli, xrayID, getEnv("XRAY_IPV6"), oldXrayIP)
+		nginxIP := selectContainerDNSIP(r.Context(), cli, nginxID, getEnv("NGINX_IPV6"), oldNginxIP)
 
 		var results []string
 		for _, di := range allDomainInfos() {
@@ -1315,23 +1401,41 @@ func getContainerIPs(ctx context.Context, cli *client.Client, containerID string
 	return ips
 }
 
-// getContainerIP returns the first global IPv6 on the given interface.
-func getContainerIP(ctx context.Context, cli *client.Client, containerID string) string {
+// selectContainerDNSIP returns the best public IPv6 target for DNS:
+// keep the current rotating DNS IP if it is still assigned, otherwise prefer
+// any assigned rotating-range IP over the static Docker-assigned address.
+func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, staticIP, currentDNSIP string) string {
 	ips := getContainerIPs(ctx, cli, containerID)
-	if ips == nil {
-		return ""
+	if len(ips) == 0 {
+		return staticIP
 	}
 	subnet := getEnv("IPV6_SUBNET")
 	prefix, err := parseSubnetPrefix(subnet)
 	if err != nil {
-		return ""
+		return staticIP
+	}
+	if currentDNSIP != "" && currentDNSIP != staticIP && isRotatingIPv6(currentDNSIP, prefix) {
+		for _, ip := range ips {
+			if ip == currentDNSIP {
+				return currentDNSIP
+			}
+		}
 	}
 	for _, ip := range ips {
-		if strings.HasPrefix(ip, prefix) && !strings.Contains(ip, "::1") {
+		if isRotatingIPv6(ip, prefix) {
 			return ip
 		}
 	}
-	return ""
+	for _, ip := range ips {
+		if ip == staticIP {
+			return ip
+		}
+	}
+	return staticIP
+}
+
+func isRotatingIPv6(ip, prefix string) bool {
+	return strings.HasPrefix(strings.ToLower(ip), strings.ToLower(prefix)+"f:")
 }
 
 func restartXray(ctx context.Context, cli *client.Client) error {
