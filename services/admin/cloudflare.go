@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ type cfError struct {
 }
 
 var (
-	cfZoneCache   string
+	cfZoneCache   = make(map[string]string)
 	cfZoneCacheMu sync.Mutex
 )
 
@@ -85,14 +86,11 @@ func cfListAAAARecords() ([]cfDNSRecord, error) {
 func cfResolveZoneID(domain string) (string, error) {
 	cfZoneCacheMu.Lock()
 	defer cfZoneCacheMu.Unlock()
-	if cfZoneCache != "" {
-		return cfZoneCache, nil
-	}
-	// Extract root domain: try parent domains progressively
-	parts := strings.Split(domain, ".")
-	for i := 1; i < len(parts)-1; i++ {
-		candidate := strings.Join(parts[i:], ".")
-		cr, err := cfRequest("GET", fmt.Sprintf("/zones?name=%s", candidate), nil)
+	for _, candidate := range cfZoneCandidates(domain) {
+		if zoneID := cfZoneCache[candidate]; zoneID != "" {
+			return zoneID, nil
+		}
+		cr, err := cfRequest("GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
 		if err != nil {
 			continue
 		}
@@ -101,11 +99,24 @@ func cfResolveZoneID(domain string) (string, error) {
 			continue
 		}
 		if len(zones) > 0 {
-			cfZoneCache = zones[0].ID
-			return cfZoneCache, nil
+			cfZoneCache[candidate] = zones[0].ID
+			return zones[0].ID, nil
 		}
 	}
 	return "", fmt.Errorf("zone not found for domain %s", domain)
+}
+
+func cfZoneCandidates(domain string) []string {
+	domain = strings.Trim(strings.TrimSpace(domain), ".")
+	parts := strings.Split(domain, ".")
+	var candidates []string
+	for i := 0; i < len(parts)-1; i++ {
+		candidate := strings.Join(parts[i:], ".")
+		if candidate != "" {
+			candidates = append(candidates, candidate)
+		}
+	}
+	return candidates
 }
 
 func cfRequest(method, path string, body any) (*cfResponse, error) {
@@ -143,7 +154,7 @@ func cfFindAAAARecord(domain string) (*cfDNSRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	cr, err := cfRequest("GET", fmt.Sprintf("/zones/%s/dns_records?type=AAAA&name=%s", zoneID, domain), nil)
+	cr, err := cfRequest("GET", fmt.Sprintf("/zones/%s/dns_records?type=AAAA&name=%s", zoneID, url.QueryEscape(domain)), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -33,6 +33,7 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 		eventFilters := filters.NewArgs(
 			filters.KeyValuePair{Key: "type", Value: "container"},
 			filters.KeyValuePair{Key: "event", Value: "start"},
+			filters.KeyValuePair{Key: "label", Value: "com.docker.compose.project=" + composeProjectName()},
 		)
 
 		msgCh, errCh := cli.Events(ctx, events.ListOptions{Filters: eventFilters})
@@ -48,6 +49,9 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 				goto reconnect
 			case msg := <-msgCh:
 				service := msg.Actor.Attributes["com.docker.compose.service"]
+				if msg.Actor.Attributes["com.docker.compose.project"] != composeProjectName() {
+					continue
+				}
 				if service != "xray" && service != "nginx" {
 					continue
 				}

@@ -84,7 +84,7 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 		"__XRAY_REALITY_DEST__":         "addons.mozilla.org:443",
 		"__XRAY_REALITY_SERVER_NAME__":  "addons.mozilla.org",
 		"__XRAY_PRIVATE_KEY__":          "private-key",
-		"__XRAY_SHORT_IDS__":            "0123456789abcdef",
+		"__XRAY_SHORT_IDS_JSON__":       `["0123456789abcdef","abcdef"]`,
 	}
 	for placeholder, value := range replacements {
 		rendered = strings.ReplaceAll(rendered, placeholder, value)
@@ -108,6 +108,27 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	sockopt := nestedMap(t, streamSettings, "sockopt")
 	if sockopt["domainStrategy"] != "UseIP" {
 		t.Fatalf("unexpected direct sockopt domainStrategy: %#v", sockopt["domainStrategy"])
+	}
+	reality := outboundByTag(t, doc["inbounds"].([]any), "reality-in")
+	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")
+	shortIDs, ok := realitySettings["shortIds"].([]any)
+	if !ok || len(shortIDs) != 2 {
+		t.Fatalf("unexpected reality shortIds: %#v", realitySettings["shortIds"])
+	}
+}
+
+func TestXrayShortIDsJSON(t *testing.T) {
+	t.Setenv("XRAY_SHORT_IDS", "0123456789abcdef, abcdef")
+
+	got, err := xrayShortIDsJSON()
+	if err != nil {
+		t.Fatalf("xrayShortIDsJSON: %v", err)
+	}
+	if got != `["0123456789abcdef","abcdef"]` {
+		t.Fatalf("unexpected short IDs JSON: %s", got)
+	}
+	if shortID := xrayClientShortID(); shortID != "0123456789abcdef" {
+		t.Fatalf("unexpected client short ID: %s", shortID)
 	}
 }
 
