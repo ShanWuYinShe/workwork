@@ -188,3 +188,19 @@ func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
 	}
 	return &created, nil
 }
+
+func cfDeleteAAAARecord(domain string) error {
+	zoneID, err := cfResolveZoneID(domain)
+	if err != nil {
+		return err
+	}
+	existing, err := cfFindAAAARecord(domain)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	_, err = cfRequest("DELETE", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID), nil)
+	return err
+}

@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("GET /api/admin/claude-code/stored", requireRole("viewer")(apiClaudeCodeStored()))
 	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
 	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("viewer")(apiClaudeCodeServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", requireRole("admin")(apiClaudeCodeDeleteDownload()))
 	// Service logs
 	mux.HandleFunc("GET /api/admin/services/{name}/logs", requireRole("admin")(apiServiceLogs(cli)))
@@ -96,6 +97,7 @@ func main() {
 	mux.HandleFunc("GET /api/admin/xray/stored", requireRole("viewer")(apiXrayStored()))
 	mux.HandleFunc("POST /api/admin/xray/download", requireRole("admin")(apiXrayDownload()))
 	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", requireRole("viewer")(apiXrayServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads", requireRole("admin")(apiXrayDeleteDownload()))
 	mux.HandleFunc("DELETE /api/admin/xray/downloads/", requireRole("admin")(apiXrayDeleteDownload()))
 	// Rate limit management (admin only)
 	mux.HandleFunc("GET /api/admin/security/rate-limit", requireRole("admin")(apiRateLimitStatus()))
@@ -139,7 +141,7 @@ func main() {
 			return
 		}
 
-		ipBlockMiddleware(rateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		rateLimitMiddleware(ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		}))(w, r)
 	})

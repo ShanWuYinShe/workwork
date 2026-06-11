@@ -13,5 +13,9 @@ fi
 CONFIG_COPY=/tmp/xray-config.json
 cp /etc/xray/config.json "$CONFIG_COPY"
 chmod 0400 "$CONFIG_COPY"
-chown appuser:appuser "$CONFIG_COPY"
+chown appuser:xraysocket "$CONFIG_COPY"
+mkdir -p /run/xray
+chown appuser:xraysocket /run/xray
+chmod 0770 /run/xray
+rm -f /run/xray/xrxh.socket
 exec su-exec appuser xray -config "$CONFIG_COPY" "$@"

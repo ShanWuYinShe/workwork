@@ -222,6 +222,8 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
 | `CF_API_TOKEN` | Cloudflare API Token | - |
 | `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
+| `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
+| `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
 | `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
@@ -230,3 +232,7 @@ ssh workwork-server "cd service && git pull origin main && docker compose build 
 | `MEDIA_ASSET_SIGNING_KEY` | 旧版媒体签名密钥变量名（作为 `MEDIA_SERVER_SIGNING_KEY` 的 fallback） | - |
 | `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
 | `MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS` | Media Server 上游元数据 / playurl 请求超时 | `15000` |
+| `MEDIA_SERVER_CATEGORY_MAX_PAGES` | Media Server 分类聚合最多抓取页数 | `6` |
+| `MEDIA_ASSET_CACHE_MAX_BYTES` | Media Server `/asset` 代理磁盘缓存上限 | `53687091200` |
+| `YOUTUBE_API_KEY` | YouTube 来源启用时需要的 Data API key | - |
+| `VOD_EXTRACTOR_URL` | YouTube 点播解析服务内部地址（compose 默认注入） | `http://vod_extractor:8790/extract` |
