@@ -34,7 +34,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
 | **vod_extractor** | Python + yt-dlp | 8790 | 内部点播解析服务 |
 
-Media Server 源码通过 git submodule 引入（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`media_center/media_server/API.md`](./media_center/media_server/API.md)。首次克隆后需执行 `git submodule update --init --recursive`。
+Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
 
@@ -139,14 +139,10 @@ service/
 │   │   ├── fail2ban/
 │   │   └── Dockerfile
 │   │
-│   ├── media_server/        # Media Center 后端服务
-│   │   ├── src/
-│   │   ├── test/
-│   │   └── Dockerfile
-│   │
-│   ├── vod_extractor/       # 内部 yt-dlp 点播解析服务
-│   │   ├── server.py
-│   │   └── Dockerfile
+│   ├── media_center/        # Media Center 子模块
+│   │   ├── media_app/       # Android TV 客户端
+│   │   ├── media_server/    # Go 聚合后端
+│   │   └── vod_extractor/   # 内部 yt-dlp 点播解析服务
 │
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件
