@@ -15,7 +15,9 @@ cp /etc/xray/config.json "$CONFIG_COPY"
 chmod 0400 "$CONFIG_COPY"
 chown appuser:xraysocket "$CONFIG_COPY"
 mkdir -p /run/xray
+# chown 通过 CAP_CHOWN 始终可用（无论 volume 当前归谁）；
+# 不做 chmod：Docker named volume 默认 755，appuser(owner) 有 rwx 可创建
+# socket，nginx(group 101) 有 r-x 可遍历连接，root 有 r-x 可清理残留。
 chown appuser:xraysocket /run/xray
-chmod 0770 /run/xray
 rm -f /run/xray/xrxh.socket
 exec su-exec appuser xray -config "$CONFIG_COPY" "$@"
