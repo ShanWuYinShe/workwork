@@ -424,6 +424,9 @@ func normalizeMediaCenterSources(input []mediaCenterSource) ([]mediaCenterSource
 		if seen[normalized.ID] {
 			return nil, fmt.Errorf("duplicate source id: %s", normalized.ID)
 		}
+		if normalized.ID == "youtube" && normalized.Enabled && strings.TrimSpace(getEnv("YOUTUBE_API_KEY")) == "" {
+			return nil, errors.New("youtube source requires YOUTUBE_API_KEY")
+		}
 		seen[normalized.ID] = true
 		enabled = enabled || normalized.Enabled
 		out = append(out, normalized)

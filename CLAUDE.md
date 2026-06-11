@@ -6,6 +6,8 @@ Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / G
 
 ## 硬约束
 
+**开发隔离：** 所有开发改动必须在 Worktree（默认 `.claude/worktrees/<分支名>`，已被 `.gitignore` 忽略）中进行，主工作树保持干净，只用于同步、只读分析和最终合并，严禁在主目录直接堆改动。
+
 **所有服务功能必须隔离在 Docker 容器内。** 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务通过 `docker.sock` 和 `containerExec()` 操作其他容器。
 
 ## 构建 & 部署

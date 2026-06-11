@@ -21,6 +21,11 @@ services:
       ipvlan_docker:
         ipv6_address: "${NGINX_IPV6}"
       internal_docker:
+    group_add:
+      # 1001: read .wework/.internal-token after admin tightens it to 0640.
+      - "1001"
+      # 101: nginx workers need group access to xray's 0660 Unix socket.
+      - "101"
     volumes:
       - ./cert:/etc/nginx/certs:ro
       - ./.wework/generated/nginx:/etc/nginx/conf.d:ro
@@ -29,7 +34,7 @@ services:
       - ./services/nginx/config/fail2ban:/etc/fail2ban/custom:ro
       - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
       - ./.wework:/etc/workwork:ro
-      - /dev/shm:/dev/shm
+      - xray_socket:/run/xray
     cap_drop:
       - ALL
     cap_add:
@@ -93,12 +98,12 @@ services:
     volumes:
       - ./services/xray/entrypoint.sh:/entrypoint.sh:ro
       - ./.wework/generated/xray:/etc/xray:ro
-      - /dev/shm:/dev/shm
+      - xray_socket:/run/xray
     depends_on:
       admin:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "test -S /dev/shm/xrxh.socket && nc -z 127.0.0.1 443"]
+      test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket && nc -z 127.0.0.1 443"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -167,10 +172,17 @@ services:
       - MEDIA_SERVER_SIGNING_KEY=${MEDIA_SERVER_SIGNING_KEY:-}
       - MEDIA_ASSET_SIGNING_KEY=${MEDIA_ASSET_SIGNING_KEY:-}
       - MEDIA_SERVER_CATEGORY_MAX_PAGES=${MEDIA_SERVER_CATEGORY_MAX_PAGES:-6}
+      - MEDIA_ASSET_CACHE_DIR=/cache
+      - MEDIA_ASSET_CACHE_MAX_BYTES=${MEDIA_ASSET_CACHE_MAX_BYTES:-53687091200}
+      - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
     volumes:
       - ./.wework/generated/media_center:/config:ro
+      - media_asset_cache:/cache
     depends_on:
       admin:
+        condition: service_healthy
+      vod_extractor:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8787/health"]
@@ -201,6 +213,8 @@ services:
     environment:
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-}
+      - TRUSTED_PROXY_HOSTS=${TRUSTED_PROXY_HOSTS:-}
       # IPv6 轮换（startupRotateIPv6 必需）
       - IPV6_SUBNET=${IPV6_SUBNET:-}
       - XRAY_IPV6=${XRAY_IPV6:-}
@@ -227,3 +241,7 @@ networks:
     external: true
   internal_docker:
     driver: bridge
+
+volumes:
+  xray_socket:
+  media_asset_cache:

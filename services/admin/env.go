@@ -46,5 +46,8 @@ func loadEnv() {
 
 func getEnv(key string) string {
 	loadEnv()
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
 	return envMap[key]
 }

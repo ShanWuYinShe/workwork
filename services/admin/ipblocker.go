@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,9 +31,12 @@ func (s *ipBlockStore) load() {
 	defer s.mu.Unlock()
 	data, err := os.ReadFile(s.path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("WARNING: failed to read blocked-ips.json: %v", err)
+		}
 		return
 	}
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := json.Unmarshal(data, s); err != nil {
 		log.Printf("WARNING: failed to parse blocked-ips.json: %v", err)
 	}
 }
@@ -114,18 +118,45 @@ func (s *ipBlockStore) list() []ipBlockEntry {
 }
 
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	if isTrustedProxy(r.RemoteAddr) {
+		if ip := headerIP(r.Header.Get("X-Real-IP")); ip != nil {
+			return ip.String()
+		}
+		if ip := forwardedForIP(r.Header.Get("X-Forwarded-For")); ip != nil {
+			return ip.String()
+		}
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return host
+	if ip := remoteIP(r.RemoteAddr); ip != nil {
+		return ip.String()
+	}
+	return ""
+}
+
+func headerIP(raw string) net.IP {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		raw = host
+	}
+	return net.ParseIP(raw)
+}
+
+func forwardedForIP(raw string) net.IP {
+	for _, part := range strings.Split(raw, ",") {
+		if ip := headerIP(part); ip != nil {
+			return ip
+		}
+	}
+	return nil
 }
 
 func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 已认证用户（来自可信代理且 nginx basic auth 已设置 X-Forwarded-User）跳过 IP 封锁
-		// 必须同时验证 isTrustedProxy，否则外部攻击者可伪造 X-Forwarded-User 绕过
-		if isTrustedProxy(r.RemoteAddr) && r.Header.Get("X-Forwarded-User") != "" {
+		// Internal service calls are authenticated by shared secret and must
+		// still work when fail2ban has just blocked an external client IP.
+		if isInternalRequest(r) {
 			next(w, r)
 			return
 		}
@@ -151,6 +182,12 @@ func apiBlockIP() http.HandlerFunc {
 		}
 		if net.ParseIP(body.IP) == nil {
 			writeError(w, "Invalid IP address", 400)
+			return
+		}
+		// duration < 0 silently creates a permanent block; reject it explicitly.
+		// duration == 0 is allowed (= permanent).
+		if body.Duration < 0 {
+			writeError(w, "Duration must be >= 0 (0 = permanent)", 400)
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second

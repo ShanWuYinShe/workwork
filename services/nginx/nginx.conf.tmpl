@@ -93,7 +93,7 @@ server {
         access_log /dev/stdout auth_log;
         client_max_body_size 0;
         client_body_timeout 3600s;
-        proxy_pass http://unix:/dev/shm/xrxh.socket;
+        proxy_pass http://unix:/run/xray/xrxh.socket;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_request_buffering off;
@@ -154,5 +154,11 @@ server {
         proxy_pass http://$admin_upstream;
         expires 30d;
         add_header Cache-Control "public, max-age=2592000, immutable";
+        # add_header in a location block does NOT inherit server-level add_header
+        # directives in nginx; security headers must be repeated here.
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     }
 }
