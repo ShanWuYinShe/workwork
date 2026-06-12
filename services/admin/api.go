@@ -66,6 +66,21 @@ func writeInternalError(w http.ResponseWriter, err error) {
 	writeError(w, "Internal error", http.StatusInternalServerError)
 }
 
+func decodeStrictJSON(r io.Reader, dest any) error {
+	dec := json.NewDecoder(r)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dest); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body must contain only one JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, perm); err != nil {
@@ -86,14 +101,22 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 func loadJSONFile(path string, dest any) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("ERROR: loadJSONFile read %s: %v", path, err)
+		}
 		return
 	}
-	json.Unmarshal(data, dest)
+	if err := json.Unmarshal(data, dest); err != nil {
+		log.Printf("ERROR: loadJSONFile decode %s: %v", path, err)
+	}
 }
 
 // saveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
 func saveJSONFile(path string, v any) {
-	os.MkdirAll(filepath.Dir(path), 0755)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		log.Printf("ERROR: saveJSONFile mkdir %s: %v", filepath.Dir(path), err)
+		return
+	}
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		log.Printf("ERROR: saveJSONFile marshal %s: %v", path, err)
@@ -127,15 +150,18 @@ func verifyHtpasswdLine(user, pass, line string) bool {
 
 // proxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
 // Creates a per-user proxy password on first call.
-func proxyAuthForUser(username string) string {
+func proxyAuthForUser(username string) (string, error) {
 	if username == "" || username == "internal" {
-		return ""
+		return "", nil
 	}
 	pass, err := getOrCreateProxyPassword(username)
-	if err != nil || pass == "" {
-		return ""
+	if err != nil {
+		return "", err
 	}
-	return username + ":" + pass
+	if pass == "" {
+		return "", nil
+	}
+	return username + ":" + pass, nil
 }
 
 func apiDashboard(cli *client.Client) http.HandlerFunc {
@@ -145,12 +171,23 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 		// For non-admin users, return personalized dashboard
 		if userInfo != nil && userInfo.Role != "admin" {
 			allClients, err := readXrayClientMaps()
+			if err != nil {
+				log.Printf("Failed to read clients for dashboard: %v", err)
+				writeInternalError(w, err)
+				return
+			}
 			var myClients []map[string]string
-			if err == nil {
-				for _, c := range allClients {
-					if c["owner"] == username {
-						myClients = append(myClients, c)
-					}
+			for _, c := range allClients {
+				if c["owner"] == username {
+					myClients = append(myClients, c)
+				}
+			}
+			proxyAuth := ""
+			if len(myClients) > 0 {
+				proxyAuth, err = proxyAuthForUser(username)
+				if err != nil {
+					writeInternalError(w, err)
+					return
 				}
 			}
 			genJSON := handlers.GenerateClientConfig(myClients, handlers.ClientConfig{
@@ -159,7 +196,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 				RealityShortID:    xrayClientShortID(),
 				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-				XHTTPProxyAuth:    proxyAuthForUser(username),
+				XHTTPProxyAuth:    proxyAuth,
 			})
 			writeJSON(w, map[string]any{
 				"role":          userInfo.Role,
@@ -215,13 +252,20 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
-		if err != nil || len(containers) == 0 {
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if len(containers) == 0 {
 			writeError(w, "Service not found", 404)
 			return
 		}
 		switch action {
 		case "start":
 			err = cli.ContainerStart(r.Context(), containers[0].ID, container.StartOptions{})
+			if err == nil && (name == "xray" || name == "nginx") {
+				restoreServiceRotatingIP(r.Context(), cli, containers[0].ID, name)
+			}
 		case "stop":
 			t := 10
 			err = cli.ContainerStop(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
@@ -372,17 +416,29 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		if len(filtered) > 0 && filtered[0]["owner"] != "" {
 			proxyUser = filtered[0]["owner"]
 		}
+		proxyAuth := ""
+		if len(filtered) > 0 {
+			proxyAuth, err = proxyAuthForUser(proxyUser)
+			if err != nil {
+				writeInternalError(w, err)
+				return
+			}
+		}
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    xrayClientShortID(),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuthForUser(proxyUser),
+			XHTTPProxyAuth:    proxyAuth,
 		})
 
 		// Build adminUsers with role info
-		doc, _ := readUsersMeta()
+		doc, err := readUsersMeta()
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
 		type adminUserJSON struct {
 			Username  string `json:"username"`
 			Role      string `json:"role"`
@@ -428,6 +484,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
 			return
 		}
+		if _, err := getOrCreateProxyPassword(username); err != nil {
+			log.Printf("Failed to create proxy password for %s: %v", username, err)
+			writeInternalError(w, err)
+			return
+		}
 
 		isAdmin := userInfo == nil || userInfo.Role == "admin"
 		entry := xrayClientEntry{ID: body.UUID, Owner: username, Email: username}
@@ -446,11 +507,6 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			log.Printf("Failed to save client: %v", err)
 			writeInternalError(w, err)
 			return
-		}
-
-		// Ensure the owner has a proxy password for xhttp auth
-		if _, err := getOrCreateProxyPassword(username); err != nil {
-			log.Printf("WARNING: failed to create proxy password for %s: %v", username, err)
 		}
 
 		// genXrayConfig() reads clients under xrayClientsMu and releases it before
@@ -548,13 +604,18 @@ func apiXrayClientConfig() http.HandlerFunc {
 			return
 		}
 
+		proxyAuth, err := proxyAuthForUser(client["owner"])
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
 		genJSON := handlers.GenerateClientConfig([]map[string]string{client}, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    xrayClientShortID(),
 			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuthForUser(client["owner"]),
+			XHTTPProxyAuth:    proxyAuth,
 		})
 		writeJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],
@@ -652,6 +713,10 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Username and password required", 400)
 			return
 		}
+		if !isValidUsername(body.Username) {
+			writeError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			return
+		}
 		// Non-admin can only change their own password
 		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
 			writeError(w, "Forbidden: can only change your own password", 403)
@@ -682,7 +747,7 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
-			writeError(w, "Failed to update password", 500)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -767,7 +832,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		// Prevent deleting the last admin
 		doc, err := readUsersMeta()
 		if err != nil {
-			writeError(w, "Failed to read users", 500)
+			writeInternalError(w, err)
 			return
 		}
 		adminCount := 0
@@ -818,7 +883,7 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 		if body.Role != "admin" {
 			doc, err := readUsersMeta()
 			if err != nil {
-				writeError(w, "Failed to read users", 500)
+				writeInternalError(w, err)
 				return
 			}
 			adminCount := 0

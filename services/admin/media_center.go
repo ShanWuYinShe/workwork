@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -32,9 +33,24 @@ const (
 
 var (
 	mediaCenterConfigMu        sync.Mutex
+	mediaCenterApplyMu         sync.Mutex
 	mediaCenterIDPattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,79}$`)
 	mediaCenterUpstreamPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+:[0-9]{1,5}$`)
 	mediaCenterPathPattern     = regexp.MustCompile(`^/[A-Za-z0-9._~/-]*$`)
+)
+
+var (
+	mediaCenterReservedPublicPathPrefixes = []string{
+		"/admin",
+		"/api/admin",
+		"/api/transfer",
+		"/proxy",
+		"/assets",
+	}
+	mediaCenterReservedPublicPaths = map[string]struct{}{
+		"/favicon.svg": {},
+		"/icons.svg":   {},
+	}
 )
 
 type mediaCenterConfig struct {
@@ -85,7 +101,19 @@ func apiMediaCenterConfig() http.HandlerFunc {
 			"config":             cfg,
 			"default_sources":    defaultCfg.Sources,
 			"default_categories": defaultCfg.Categories,
-			"runtime_file":       mediaCenterCategoriesPath,
+			"files": map[string]string{
+				"admin_config":   mediaCenterConfigPath,
+				"runtime_config": mediaCenterCategoriesPath,
+				"defaults":       mediaCenterDefaultCategoriesPath,
+			},
+			"limits": map[string]int{
+				"max_categories":              maxMediaCenterCategories,
+				"max_sources":                 maxMediaCenterSources,
+				"max_keywords_per_category":   maxCategoryKeywords,
+				"max_excludes_per_category":   maxCategoryExcludes,
+				"max_source_queries_per_rule": maxCategorySourceQueries,
+			},
+			"runtime_file": mediaCenterCategoriesPath,
 		})
 	}
 }
@@ -93,9 +121,7 @@ func apiMediaCenterConfig() http.HandlerFunc {
 func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incoming mediaCenterConfig
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&incoming); err != nil {
+		if err := decodeStrictJSON(r.Body, &incoming); err != nil {
 			writeError(w, "Invalid media center config JSON", http.StatusBadRequest)
 			return
 		}
@@ -105,24 +131,10 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := persistMediaCenterConfig(cfg); err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		if err := writeMediaCenterCategoriesFile(cfg); err != nil {
-			log.Printf("write media center categories: %v", err)
-			writeInternalError(w, err)
-			return
-		}
-		if err := genNginxConfig(); err != nil {
-			log.Printf("regenerate nginx config after media center save: %v", err)
-			writeInternalError(w, err)
-			return
-		}
-
-		restarted, warnings, err := restartMediaCenterServices(r.Context(), cli)
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
+		defer cancel()
+		restarted, warnings, err := applyMediaCenterConfig(restartCtx, cli, cfg)
 		if err != nil {
-			log.Printf("restart media center services: %v", err)
 			writeInternalError(w, err)
 			return
 		}
@@ -133,6 +145,26 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			"warnings":  warnings,
 		})
 	}
+}
+
+func applyMediaCenterConfig(ctx context.Context, cli *client.Client, cfg mediaCenterConfig) ([]string, []string, error) {
+	mediaCenterApplyMu.Lock()
+	defer mediaCenterApplyMu.Unlock()
+
+	if err := persistMediaCenterConfig(cfg); err != nil {
+		return nil, nil, fmt.Errorf("persist media center config: %w", err)
+	}
+	if err := writeMediaCenterCategoriesFile(cfg); err != nil {
+		return nil, nil, fmt.Errorf("write media center categories: %w", err)
+	}
+	if err := genNginxConfigForMediaCenter(cfg); err != nil {
+		return nil, nil, fmt.Errorf("regenerate nginx config after media center save: %w", err)
+	}
+	restarted, warnings, err := restartMediaCenterServices(ctx, cli)
+	if err != nil {
+		return restarted, warnings, fmt.Errorf("restart media center services: %w", err)
+	}
+	return restarted, warnings, nil
 }
 
 func ensureMediaCenterConfig() error {
@@ -527,19 +559,20 @@ func normalizeMediaCenterSourceQueries(values map[string]string) (map[string]str
 	if len(values) == 0 {
 		return nil, nil
 	}
-	if len(values) > maxCategorySourceQueries {
-		return nil, fmt.Errorf("too many source queries: max %d", maxCategorySourceQueries)
-	}
 	defaults := mediaCenterSourceDefaultsByID()
 	out := make(map[string]string, len(values))
 	for id, value := range values {
 		normalizedID := strings.TrimSpace(id)
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
 		if _, ok := defaults[normalizedID]; !ok {
 			return nil, fmt.Errorf("unsupported source: %s", normalizedID)
 		}
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			out[normalizedID] = trimmed
+		out[normalizedID] = trimmed
+		if len(out) > maxCategorySourceQueries {
+			return nil, fmt.Errorf("too many source queries: max %d", maxCategorySourceQueries)
 		}
 	}
 	if len(out) == 0 {
@@ -585,7 +618,22 @@ func normalizeMediaCenterPublicPath(path string) (string, error) {
 	if strings.Contains(path, "//") || !mediaCenterPathPattern.MatchString(path) {
 		return "", errors.New("media center public path contains invalid characters")
 	}
+	if isReservedMediaCenterPublicPath(path) {
+		return "", fmt.Errorf("media center public path conflicts with reserved route: %s", path)
+	}
 	return path, nil
+}
+
+func isReservedMediaCenterPublicPath(path string) bool {
+	if _, ok := mediaCenterReservedPublicPaths[path]; ok {
+		return true
+	}
+	for _, prefix := range mediaCenterReservedPublicPathPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func envOrDefault(key, fallback string) string {
@@ -634,12 +682,11 @@ func restartComposeService(ctx context.Context, cli *client.Client, service stri
 		return false, nil
 	}
 	id := containers[0].ID
+	var restartErr error
 	if containers[0].State == "running" {
 		t := 10
 		if err := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t}); err != nil {
-			// ContainerRestart 超时/cancel 时 daemon 通常已完成重启；
-			// 记录警告但不跳过后续的轮换 IP 恢复。
-			log.Printf("WARNING: restart %s returned error (container may have restarted anyway): %v", service, err)
+			restartErr = fmt.Errorf("restart %s: %w", service, err)
 		}
 	} else if err := cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		return false, fmt.Errorf("start %s: %w", service, err)
@@ -649,6 +696,9 @@ func restartComposeService(ctx context.Context, cli *client.Client, service stri
 	// 容器实际未运行时 addContainerIP 会静默失败，不影响正确性。
 	if service == "xray" || service == "nginx" {
 		restoreServiceRotatingIP(ctx, cli, id, service)
+	}
+	if restartErr != nil {
+		return false, restartErr
 	}
 	return true, nil
 }
