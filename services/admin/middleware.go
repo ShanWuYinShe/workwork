@@ -36,9 +36,10 @@ var (
 	usersMetaMu   sync.Mutex
 )
 
-// internalToken 由 genInternalToken 写入，isInternalRequest 读取。
+// internalToken/fail2banToken 由 deploy.go 生成并加载。
 // 避免使用 os.Setenv 注入进程环境（并发不安全）以及 getEnv 的双重来源行为。
 var internalToken atomic.Value // holds string
+var fail2banToken atomic.Value // holds string
 
 func getInternalToken() string {
 	v, _ := internalToken.Load().(string)
@@ -47,6 +48,15 @@ func getInternalToken() string {
 
 func setInternalToken(tok string) {
 	internalToken.Store(tok)
+}
+
+func getFail2BanToken() string {
+	v, _ := fail2banToken.Load().(string)
+	return v
+}
+
+func setFail2BanToken(tok string) {
+	fail2banToken.Store(tok)
 }
 
 const (
@@ -112,7 +122,9 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 		return err
 	}
 
-	os.MkdirAll("/app/data", 0755)
+	if err := os.MkdirAll("/app/data", 0755); err != nil {
+		return err
+	}
 	data, err = json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -182,12 +194,29 @@ func getOrCreateProxyPassword(username string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if created {
+	if created || !proxyHtpasswdContainsUser(username) {
 		if err := genProxyHtpasswd(); err != nil {
 			return "", err
 		}
 	}
 	return password, nil
+}
+
+func proxyHtpasswdContainsUser(username string) bool {
+	data, err := os.ReadFile(proxyHtpasswdPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("WARNING: read proxy htpasswd: %v", err)
+		}
+		return false
+	}
+	prefix := username + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // trustedProxyCIDRs returns the set of networks allowed to forge X-Forwarded-User.
@@ -326,6 +355,29 @@ func isInternalRequest(r *http.Request) bool {
 		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(tok)) == 1
 }
 
+func isFail2BanRequest(r *http.Request) bool {
+	tok := getFail2BanToken()
+	return tok != "" &&
+		isFail2BanEndpoint(r) &&
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Fail2Ban-Token")), []byte(tok)) == 1
+}
+
+func isFail2BanEndpoint(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/admin/security/block", "/api/admin/security/unblock":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPrivilegedServiceRequest(r *http.Request) bool {
+	return isInternalRequest(r) || isFail2BanRequest(r)
+}
+
 func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
 
@@ -334,11 +386,13 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			var info *UserInfo
 			var username string
 
-			// Internal services (fail2ban) authenticate via shared secret.
-			// This bypass is intentional and only requires the INTERNAL_TOKEN.
+			// Internal automation uses scoped shared secrets.
 			if isInternalRequest(r) {
 				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 				username = "internal"
+			} else if isFail2BanRequest(r) {
+				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+				username = "fail2ban"
 			} else {
 				// External requests must come through a trusted reverse proxy
 				// (nginx on the docker bridge), and the proxy must have set
@@ -355,7 +409,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 				var err error
 				info, err = ensureUserMeta(username)
 				if err != nil {
-					writeError(w, "Internal error", 500)
+					writeInternalError(w, err)
 					return
 				}
 				if info == nil {
@@ -369,6 +423,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 
 			requiredLevel, ok := roleLevel[minRole]
 			if !ok {
+				log.Printf("invalid required role %q", minRole)
 				writeError(w, "Internal error", 500)
 				return
 			}

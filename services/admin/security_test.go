@@ -64,6 +64,23 @@ func TestIPBlockStoreLoadPopulatesEntries(t *testing.T) {
 	}
 }
 
+func TestFail2BanTokenOnlyAuthorizesBlockEndpoints(t *testing.T) {
+	setFail2BanToken("fail2ban-secret")
+	t.Cleanup(func() { setFail2BanToken("") })
+
+	req := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/security/block", nil)
+	req.Header.Set("X-Fail2Ban-Token", "fail2ban-secret")
+	if !isFail2BanRequest(req) || !isPrivilegedServiceRequest(req) {
+		t.Fatal("expected fail2ban token to authorize block endpoint")
+	}
+
+	other := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/users/admin/add", nil)
+	other.Header.Set("X-Fail2Ban-Token", "fail2ban-secret")
+	if isFail2BanRequest(other) || isPrivilegedServiceRequest(other) {
+		t.Fatal("fail2ban token must not authorize unrelated admin endpoints")
+	}
+}
+
 func newRequestWithRemoteAddr(remoteAddr string) *http.Request {
 	req := httptest.NewRequest("GET", "http://example.test/", nil)
 	req.RemoteAddr = remoteAddr

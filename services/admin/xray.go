@@ -427,7 +427,9 @@ func parseXrayStoredFilename(name string) (version, plat, platName string) {
 }
 
 func downloadXrayArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
-	os.MkdirAll(xrayDownloadsDir, 0755)
+	if err := os.MkdirAll(xrayDownloadsDir, 0755); err != nil {
+		return 0, "", err
+	}
 
 	tmpPath := filepath.Join(xrayDownloadsDir, filename+".download")
 	defer os.Remove(tmpPath)
