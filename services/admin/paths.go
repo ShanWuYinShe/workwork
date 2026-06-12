@@ -13,6 +13,9 @@ const (
 	legacyHtpasswdPath = "/app/legacy-nginx/.htpasswd"
 	proxyHtpasswdPath  = nginxAuthDir + "/.htpasswd-proxy"
 
+	internalTokenPath = "/app/data/.internal-token"
+	fail2banTokenPath = "/app/data/.fail2ban-token"
+
 	mediaCenterConfigPath            = "/app/data/media-center/config.json"
 	mediaCenterCategoriesPath        = "/app/data/generated/media_center/contentCategories.json"
 	mediaCenterDefaultCategoriesPath = "/app/configs/media-center-content-categories.json"

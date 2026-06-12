@@ -5,6 +5,14 @@
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
+  const defaultLimits = {
+    max_categories: 50,
+    max_sources: 10,
+    max_keywords_per_category: 100,
+    max_excludes_per_category: 200,
+    max_source_queries_per_rule: 10,
+  };
+
   const emptyConfig = {
     service: {
       upstream: 'media_server:8787',
@@ -14,22 +22,31 @@
     categories: [],
   };
 
+  const categoryIdPattern = /^[a-z0-9][a-z0-9-]{0,79}$/;
+  const publicPathPattern = /^\/[A-Za-z0-9._~/-]*$/;
+  const upstreamPattern = /^[A-Za-z0-9._-]+:[0-9]{1,5}$/;
+  const reservedPublicPathPrefixes = ['/admin', '/api/admin', '/api/transfer', '/proxy', '/assets'];
+  const reservedPublicPaths = new Set(['/favicon.svg', '/icons.svg']);
+
   let uidCounter = 0;
   const nextUid = () => `c${(uidCounter += 1)}`;
 
   let config = $state(clone(emptyConfig));
   let defaultSources = $state([]);
   let defaultCategories = $state([]);
+  let configFiles = $state({ admin_config: '', runtime_config: '', defaults: '' });
+  let limits = $state({ ...defaultLimits });
   let warnings = $state([]);
   let loading = $state(true);
   let saving = $state(false);
-  let expanded = $state(new Set());
+  let expandedIds = $state([]);
 
   let appPublicURL = $derived(`${window.location.origin}${publicPathForDisplay()}`);
   let enabledSourceCount = $derived((config.sources || []).filter((s) => s.enabled).length);
   let allExpanded = $derived(
-    config.categories.length > 0 && expanded.size >= config.categories.length,
+    config.categories.length > 0 && expandedIds.length >= config.categories.length,
   );
+  let validationErrors = $derived(validateConfig(config));
 
   onMount(load);
 
@@ -38,10 +55,16 @@
     warnings = [];
     try {
       const data = await getMediaCenterConfig();
-      config = withUids(clone(data.config || emptyConfig));
+      config = withUids(normalizeConfigShape(clone(data.config || emptyConfig)));
       defaultSources = clone(data.default_sources || []);
       defaultCategories = clone(data.default_categories || []);
-      expanded = new Set();
+      configFiles = {
+        admin_config: data.files?.admin_config || '',
+        runtime_config: data.files?.runtime_config || data.runtime_file || '',
+        defaults: data.files?.defaults || '',
+      };
+      limits = { ...defaultLimits, ...(data.limits || {}) };
+      expandedIds = [];
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -50,15 +73,27 @@
   }
 
   async function save() {
+    const errors = validateConfig(config);
+    if (errors.length > 0) {
+      expandInvalidCategories();
+      toast(t('mediaCenterValidationFailed'), 'error');
+      return;
+    }
+
     saving = true;
     warnings = [];
     try {
+      const openCategoryIDs = new Set(
+        config.categories.filter((category) => isExpanded(category._uid)).map((category) => category.id),
+      );
       const result = await saveMediaCenterConfig(toPayload(config));
-      config = withUids(clone(result.config || config));
-      expanded = new Set();
+      config = withUids(normalizeConfigShape(clone(result.config || config)));
+      expandedIds = config.categories
+        .filter((category) => openCategoryIDs.has(category.id))
+        .map((category) => category._uid);
       warnings = result.warnings || [];
       if (warnings.length > 0) {
-        toast(t('mediaCenterSavedWithWarnings'), 'error', 4000);
+        toast(t('mediaCenterSavedWithWarnings'), 'warning', 5000);
       } else {
         toast(t('mediaCenterSaved'), 'success');
       }
@@ -71,6 +106,14 @@
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function normalizeConfigShape(cfg) {
+    return {
+      service: { ...emptyConfig.service, ...(cfg.service || {}) },
+      sources: cfg.sources || [],
+      categories: cfg.categories || [],
+    };
   }
 
   function withUids(cfg) {
@@ -86,13 +129,18 @@
   function toPayload(cfg) {
     return {
       ...cfg,
+      service: {
+        upstream: cfg.service?.upstream || emptyConfig.service.upstream,
+        public_path: cfg.service?.public_path || emptyConfig.service.public_path,
+      },
       categories: (cfg.categories || []).map(({ _uid, ...rest }) => rest),
     };
   }
 
   function publicPathForDisplay() {
     const path = config.service?.public_path || '/api/media';
-    return path.startsWith('/') ? path : `/${path}`;
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    return normalized.replace(/\/+$/, '') || '/';
   }
 
   function updateService(field, value) {
@@ -138,16 +186,18 @@
     updateCategory(index, { [field]: listFromText(value) });
   }
 
+  function isExpanded(uid) {
+    return expandedIds.includes(uid);
+  }
+
   function toggleExpanded(uid) {
-    if (expanded.has(uid)) {
-      expanded.delete(uid);
-    } else {
-      expanded.add(uid);
-    }
+    expandedIds = isExpanded(uid)
+      ? expandedIds.filter((id) => id !== uid)
+      : [...expandedIds, uid];
   }
 
   function setAllExpanded(open) {
-    expanded = open ? new Set(config.categories.map((c) => c._uid)) : new Set();
+    expandedIds = open ? config.categories.map((c) => c._uid) : [];
   }
 
   function addCategory() {
@@ -175,7 +225,7 @@
         },
       ],
     };
-    expanded.add(uid);
+    expandedIds = [...expandedIds, uid];
   }
 
   async function removeCategory(index) {
@@ -186,7 +236,7 @@
       ))
     )
       return;
-    if (category?._uid) expanded.delete(category._uid);
+    if (category?._uid) expandedIds = expandedIds.filter((id) => id !== category._uid);
     config = {
       ...config,
       categories: config.categories.filter((_, i) => i !== index),
@@ -208,7 +258,7 @@
       ...config,
       categories: withUids({ categories: clone(defaultCategories) }).categories,
     };
-    expanded = new Set();
+    expandedIds = [];
   }
 
   async function resetSources() {
@@ -239,6 +289,148 @@
   function categorySourceTuned(category) {
     return Object.keys(category.sourceQueries || {}).length > 0;
   }
+
+  function sourceStatusLabel(source) {
+    return source.enabled ? t('enabledLabel') : t('disabledLabel');
+  }
+
+  function validateConfig(cfg) {
+    const errors = [];
+    const service = cfg.service || {};
+    const publicPath = `${service.public_path || ''}`.trim();
+    const normalizedPath = publicPath.startsWith('/') ? publicPath : `/${publicPath}`;
+    const trimmedPath = normalizedPath.replace(/\/+$/, '');
+    if (!publicPath || trimmedPath === '' || trimmedPath === '/') {
+      errors.push(t('invalidPublicPath'));
+    } else if (normalizedPath.includes('//') || !publicPathPattern.test(normalizedPath)) {
+      errors.push(t('invalidPublicPath'));
+    } else if (isReservedPublicPath(trimmedPath)) {
+      errors.push(t('reservedPublicPath', { path: trimmedPath }));
+    }
+
+    const upstream = `${service.upstream || ''}`.trim();
+    if (!upstreamPattern.test(upstream)) {
+      errors.push(t('invalidUpstream'));
+    } else {
+      const port = Number(upstream.split(':').pop());
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        errors.push(t('invalidUpstream'));
+      }
+    }
+
+    const sources = cfg.sources || [];
+    const sourceIDs = new Set(sources.map((source) => `${source.id || ''}`.trim()).filter(Boolean));
+    if (!sources.some((source) => source.enabled)) {
+      errors.push(t('noEnabledSources'));
+    }
+    if (sources.length > limits.max_sources) {
+      errors.push(t('tooManySources', { max: limits.max_sources }));
+    }
+
+    const categories = cfg.categories || [];
+    if (categories.length === 0) {
+      errors.push(t('categoriesRequired'));
+    }
+    if (categories.length > limits.max_categories) {
+      errors.push(t('tooManyCategories', { max: limits.max_categories }));
+    }
+
+    const seenIDs = new Map();
+    categories.forEach((category, index) => {
+      const number = index + 1;
+      const label = category.title || category.id || `#${number}`;
+      const id = `${category.id || ''}`.trim();
+      if (!categoryIdPattern.test(id)) {
+        errors.push(t('invalidCategoryId', { label }));
+      } else if (seenIDs.has(id)) {
+        errors.push(t('duplicateCategoryId', { id }));
+      }
+      seenIDs.set(id, true);
+
+      if (!`${category.title || ''}`.trim()) {
+        errors.push(t('categoryTitleRequired', { label }));
+      }
+      if (!`${category.description || ''}`.trim()) {
+        errors.push(t('categoryDescRequired', { label }));
+      }
+      if ((category.keywords || []).length === 0) {
+        errors.push(t('categoryKeywordsRequired', { label }));
+      }
+      if ((category.keywords || []).length > limits.max_keywords_per_category) {
+        errors.push(
+          t('categoryTooManyKeywords', {
+            label,
+            max: limits.max_keywords_per_category,
+          }),
+        );
+      }
+      if ((category.excludes || []).length > limits.max_excludes_per_category) {
+        errors.push(
+          t('categoryTooManyExcludes', {
+            label,
+            max: limits.max_excludes_per_category,
+          }),
+        );
+      }
+      const sourceQueries = category.sourceQueries || {};
+      const sourceQueryIDs = Object.keys(sourceQueries);
+      if (sourceQueryIDs.length > limits.max_source_queries_per_rule) {
+        errors.push(
+          t('categoryTooManySourceQueries', {
+            label,
+            max: limits.max_source_queries_per_rule,
+          }),
+        );
+      }
+      sourceQueryIDs.forEach((sourceID) => {
+        if (!sourceIDs.has(sourceID)) {
+          errors.push(t('categoryUnknownSourceQuery', { label, source: sourceID }));
+        }
+      });
+    });
+    return errors;
+  }
+
+  function isReservedPublicPath(path) {
+    if (reservedPublicPaths.has(path)) return true;
+    return reservedPublicPathPrefixes.some(
+      (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+    );
+  }
+
+  function expandInvalidCategories() {
+    const sourceIDs = new Set(
+      (config.sources || []).map((source) => `${source.id || ''}`.trim()).filter(Boolean),
+    );
+    const duplicateIDs = new Set();
+    const seenIDs = new Set();
+    for (const category of config.categories || []) {
+      const id = `${category.id || ''}`.trim();
+      if (seenIDs.has(id)) duplicateIDs.add(id);
+      seenIDs.add(id);
+    }
+    const invalidUids = (config.categories || [])
+      .filter((category) => {
+        const id = `${category.id || ''}`.trim();
+        const sourceQueries = category.sourceQueries || {};
+        const sourceQueryIDs = Object.keys(sourceQueries);
+        const hasInvalidSourceQuery =
+          sourceQueryIDs.length > limits.max_source_queries_per_rule ||
+          sourceQueryIDs.some((sourceID) => !sourceIDs.has(sourceID));
+        return (
+          !categoryIdPattern.test(id) ||
+          duplicateIDs.has(id) ||
+          !`${category.title || ''}`.trim() ||
+          !`${category.description || ''}`.trim() ||
+          (category.keywords || []).length === 0 ||
+          (category.keywords || []).length > limits.max_keywords_per_category ||
+          (category.excludes || []).length > limits.max_excludes_per_category ||
+          hasInvalidSourceQuery
+        );
+      })
+      .map((category) => category._uid);
+    expandedIds = [...new Set([...expandedIds, ...invalidUids])];
+  }
 </script>
 
 <div class="page">
@@ -251,7 +443,11 @@
       <button class="btn btn-sm btn-ghost" onclick={load} disabled={loading || saving}>
         {t('refresh')}
       </button>
-      <button class="btn btn-sm btn-primary" onclick={save} disabled={loading || saving}>
+      <button
+        class="btn btn-sm btn-primary"
+        onclick={save}
+        disabled={loading || saving}
+      >
         {#if saving}<span class="spinner"></span>{/if}
         {saving ? t('saving') : t('saveAndApply')}
       </button>
@@ -273,7 +469,50 @@
       </div>
     {/if}
 
-    <!-- Public access — the only editable runtime knob -->
+    {#if validationErrors.length}
+      <div class="card validation-card" role="alert">
+        <div class="card-title">{t('validationErrors')}</div>
+        <ul>
+          {#each validationErrors as error}
+            <li>{error}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">{t('mediaConfigFlow')}</div>
+          <div class="card-subtitle">{t('mediaConfigFlowDesc')}</div>
+        </div>
+      </div>
+
+      <div class="config-flow">
+        <div class="config-step">
+          <span class="config-step-label">{t('editableConfigFile')}</span>
+          <code>{configFiles.admin_config || t('configPathUnavailable')}</code>
+        </div>
+        <div class="config-flow-arrow">→</div>
+        <div class="config-step">
+          <span class="config-step-label">{t('generatedRuntimeFile')}</span>
+          <code>{configFiles.runtime_config || t('configPathUnavailable')}</code>
+        </div>
+        <div class="config-flow-arrow">→</div>
+        <div class="config-step">
+          <span class="config-step-label">{t('mediaServerMount')}</span>
+          <code>/config/contentCategories.json</code>
+        </div>
+      </div>
+      <div class="helper-text runtime-hint">{t('runtimeApplyHint')}</div>
+      {#if configFiles.defaults}
+        <div class="helper-text runtime-hint">
+          {t('bundledDefaultsFile')}: <code>{configFiles.defaults}</code>
+        </div>
+      {/if}
+    </div>
+
+    <!-- Public access and internal runtime wiring -->
     <div class="card">
       <div class="card-header">
         <div>
@@ -297,6 +536,22 @@
           <code>{appPublicURL}</code>
         </div>
       </div>
+
+      <details class="advanced-panel">
+        <summary>{t('advancedRuntimeSettings')}</summary>
+        <div class="form-grid advanced-panel-body">
+          <div class="form-group">
+            <label for="media-upstream">{t('upstreamTarget')}</label>
+            <input
+              id="media-upstream"
+              value={config.service.upstream}
+              oninput={(e) => updateService('upstream', e.currentTarget.value)}
+              placeholder="media_server:8787"
+            />
+            <div class="helper-text">{t('upstreamTargetHelp')}</div>
+          </div>
+        </div>
+      </details>
     </div>
 
     <!-- Sources — known sources, only the on/off switch is editable -->
@@ -331,6 +586,9 @@
             <div class="source-top">
               <div class="source-id-row">
                 <span class="source-name">{source.title || source.id}</span>
+                <span class={`badge ${source.enabled ? 'badge-green' : 'badge-gray'}`}>
+                  {sourceStatusLabel(source)}
+                </span>
                 <span class={`badge ${sourceRiskBadge(source.riskLevel)}`}>
                   {sourceRiskLabel(source.riskLevel)}
                 </span>
@@ -390,7 +648,7 @@
 
       <div class="category-list">
         {#each config.categories as category, index (category._uid)}
-          {@const open = expanded.has(category._uid)}
+          {@const open = isExpanded(category._uid)}
           <section class="category-card" class:is-open={open}>
             <div class="category-summary">
               <button
@@ -466,6 +724,7 @@
                       oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
                       placeholder={category.keywords?.[0] || ''}
                     />
+                    <div class="helper-text">{t('searchQueryHelp')}</div>
                   </div>
                 </div>
 
@@ -481,12 +740,17 @@
                 </div>
 
                 {#if config.sources?.length}
-                  <div class="field-section">
-                    <div class="source-query-grid">
+                  <details class="field-section advanced-panel">
+                    <summary>{t('sourceSpecificQueries')}</summary>
+                    <div class="helper-text source-query-help">{t('sourceSpecificQueriesDesc')}</div>
+                    <div class="source-query-grid advanced-panel-body">
                       {#each config.sources as source}
                         <div class="form-group">
                           <label for={`category-${category._uid}-source-${source.id}`}>
                             {t('sourceSearchQuery', { source: source.title || source.id })}
+                            {#if !source.enabled}
+                              <span class="inline-muted">({t('disabledLabel')})</span>
+                            {/if}
                           </label>
                           <input
                             id={`category-${category._uid}-source-${source.id}`}
@@ -498,7 +762,7 @@
                         </div>
                       {/each}
                     </div>
-                  </div>
+                  </details>
                 {/if}
 
                 <div class="textarea-grid">
@@ -512,6 +776,7 @@
                       value={(category.keywords || []).join('\n')}
                       oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
                     ></textarea>
+                    <div class="helper-text">{t('keywordsHelp')}</div>
                   </div>
                   <div class="form-group">
                     <label for={`category-${category._uid}-excludes`}
@@ -523,6 +788,7 @@
                       value={(category.excludes || []).join('\n')}
                       oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
                     ></textarea>
+                    <div class="helper-text">{t('excludesHelp')}</div>
                   </div>
                 </div>
               </div>
@@ -549,10 +815,79 @@
     border-color: var(--c-warning);
     color: #fbbf24;
   }
-  .warning-card ul {
+  .warning-card ul,
+  .validation-card ul {
     margin: 0.75rem 0 0 1rem;
     font-size: 0.78rem;
     line-height: 1.6;
+  }
+  .validation-card {
+    border-color: var(--c-danger);
+    color: #fca5a5;
+  }
+
+  /* ── Config flow ── */
+  .config-flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: stretch;
+  }
+  .config-step {
+    min-width: 0;
+    background: var(--c-bg-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg);
+    padding: 0.75rem;
+  }
+  .config-step-label {
+    display: block;
+    color: var(--c-text-secondary);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.45rem;
+    text-transform: uppercase;
+  }
+  .config-step code,
+  .runtime-hint code {
+    color: var(--c-accent);
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 0.72rem;
+    overflow-wrap: anywhere;
+  }
+  .config-flow-arrow {
+    align-self: center;
+    color: var(--c-text-muted);
+    font-weight: 700;
+  }
+  .runtime-hint {
+    margin-top: 0.65rem;
+    line-height: 1.5;
+  }
+
+  .advanced-panel {
+    margin-top: 0.85rem;
+  }
+  .advanced-panel summary {
+    color: var(--c-text-secondary);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .advanced-panel summary:hover {
+    color: var(--c-text);
+  }
+  .advanced-panel-body {
+    margin-top: 0.75rem;
+  }
+  .source-query-help {
+    margin-top: 0.45rem;
+  }
+  .inline-muted {
+    color: var(--c-text-muted);
+    font-weight: 500;
+    text-transform: none;
   }
 
   /* ── Public access ── */
@@ -796,6 +1131,12 @@
   }
 
   @media (max-width: 760px) {
+    .config-flow {
+      grid-template-columns: 1fr;
+    }
+    .config-flow-arrow {
+      display: none;
+    }
     .category-meta {
       display: none;
     }

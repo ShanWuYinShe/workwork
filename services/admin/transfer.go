@@ -199,7 +199,10 @@ func apiTransferUpload() http.HandlerFunc {
 		}
 
 		// Phase 1: 文件写入磁盘（在锁外进行，避免阻塞其他 transfer 操作）
-		os.MkdirAll(transferDir, 0755)
+		if err := os.MkdirAll(transferDir, 0755); err != nil {
+			writeInternalError(w, err)
+			return
+		}
 		tmpPath := filepath.Join(transferDir, fmt.Sprintf(".upload-%d.tmp", time.Now().UnixNano()))
 		dst, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {

@@ -49,6 +49,9 @@ func generateConfigs() error {
 	if err := genInternalToken(); err != nil {
 		return fmt.Errorf("internal token: %w", err)
 	}
+	if err := genFail2BanToken(); err != nil {
+		return fmt.Errorf("fail2ban token: %w", err)
+	}
 	return nil
 }
 
@@ -59,7 +62,8 @@ func runtimeFilesReady() error {
 		mediaCenterCategoriesPath,
 		htpasswdFile,
 		proxyHtpasswdPath,
-		"/app/data/.internal-token",
+		internalTokenPath,
+		fail2banTokenPath,
 	}
 	for _, path := range required {
 		info, err := os.Stat(path)
@@ -160,10 +164,10 @@ func genXrayConfig() error {
 	}
 	existing, _ := os.ReadFile(xrayConfigPath)
 	if string(existing) == out {
-		return ensurePerm(xrayConfigPath, 0644)
+		return ensurePerm(xrayConfigPath, 0640)
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return atomicWriteFile(xrayConfigPath, []byte(out), 0644)
+	return atomicWriteFile(xrayConfigPath, []byte(out), 0640)
 }
 
 func validateProxyConfigEnv() error {
@@ -236,15 +240,19 @@ func xrayShortIDs() ([]string, error) {
 }
 
 func genNginxConfig() error {
+	mediaCfg, err := readMediaCenterConfig()
+	if err != nil {
+		return err
+	}
+	return genNginxConfigForMediaCenter(mediaCfg)
+}
+
+func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) error {
 	tmpl, err := os.ReadFile(nginxConfigTemplatePath)
 	if err != nil {
 		return err
 	}
 	out := string(tmpl)
-	mediaCfg, err := readMediaCenterConfig()
-	if err != nil {
-		return err
-	}
 	out = renderNginxConfigWithMediaCenter(out, mediaCfg)
 	// XHTTP proxy auth: always use per-user proxy htpasswd
 	proxyAuth := "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
@@ -304,21 +312,21 @@ func seedAdminUser() error {
 
 func genInternalToken() error {
 	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
-		if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil && strings.TrimSpace(string(existing)) == tok {
+		if existing, err := os.ReadFile(internalTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
 			setInternalToken(tok)
-			return ensurePerm("/app/data/.internal-token", 0640)
+			return ensurePerm(internalTokenPath, 0640)
 		}
-		if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0640); err != nil {
+		if err := atomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
 			return err
 		}
 		setInternalToken(tok)
 		return nil
 	}
-	if existing, err := os.ReadFile("/app/data/.internal-token"); err == nil {
+	if existing, err := os.ReadFile(internalTokenPath); err == nil {
 		tok := strings.TrimSpace(string(existing))
 		if tok != "" {
 			setInternalToken(tok)
-			return ensurePerm("/app/data/.internal-token", 0640)
+			return ensurePerm(internalTokenPath, 0640)
 		}
 	}
 	b := make([]byte, 16)
@@ -326,10 +334,41 @@ func genInternalToken() error {
 		return err
 	}
 	tok := hex.EncodeToString(b)
-	if err := atomicWriteFile("/app/data/.internal-token", []byte(tok), 0640); err != nil {
+	if err := atomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
 		return err
 	}
 	setInternalToken(tok)
+	return nil
+}
+
+func genFail2BanToken() error {
+	if tok := getEnv("FAIL2BAN_TOKEN"); tok != "" {
+		if existing, err := os.ReadFile(fail2banTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
+			setFail2BanToken(tok)
+			return ensurePerm(fail2banTokenPath, 0640)
+		}
+		if err := atomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
+			return err
+		}
+		setFail2BanToken(tok)
+		return nil
+	}
+	if existing, err := os.ReadFile(fail2banTokenPath); err == nil {
+		tok := strings.TrimSpace(string(existing))
+		if tok != "" {
+			setFail2BanToken(tok)
+			return ensurePerm(fail2banTokenPath, 0640)
+		}
+	}
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	tok := hex.EncodeToString(b)
+	if err := atomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
+		return err
+	}
+	setFail2BanToken(tok)
 	return nil
 }
 
