@@ -240,10 +240,18 @@ services:
 networks:
   ipvlan_docker:
     external: true
+  # 固定子网：与 CLAUDE.md 文档一致，且让 xray entrypoint 的 /172\./ 网卡匹配
+  # 始终命中 172.x，避免 Docker 默认池耗尽时自动分配到非 172 段而断 IPv4 出口。
   internal_docker:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
   xray_egress:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
 
 volumes:
   xray_socket:

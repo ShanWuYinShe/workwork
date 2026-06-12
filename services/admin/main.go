@@ -127,8 +127,9 @@ func main() {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		// Transfer upload handles its own body limit via ParseMultipartForm (2GB);
-		// use exact match to avoid false positives on similar paths.
+		// Transfer upload streams large bodies (per-file cap enforced in the
+		// handler via io.LimitReader); use exact match to avoid false positives
+		// on similar paths.
 		if r.URL.Path != "/api/admin/transfer/upload" {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 		}
