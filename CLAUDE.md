@@ -2,11 +2,7 @@
 
 Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
 
-通用约束（Git 规范、验证流程、工具链偏好）见全局 `~/.claude/CLAUDE.md`。
-
 ## 硬约束
-
-**开发隔离：** 所有开发改动必须在 Worktree（默认 `.claude/worktrees/<分支名>`，已被 `.gitignore` 忽略）中进行，主工作树保持干净，只用于同步、只读分析和最终合并，严禁在主目录直接堆改动。
 
 **所有服务功能必须隔离在 Docker 容器内。** 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务通过 `docker.sock` 和 `containerExec()` 操作其他容器。
 
@@ -55,7 +51,6 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #     docker compose up -d <受影响服务...>
 # admin 的 deploy.go / 模板改动可能影响运行时生成的 nginx/xray/media 配置；
 # admin 重启后只重启实际配置变化的下游服务。
-# 构建后可按需清理旧镜像：docker image prune -f；不要把 volume prune 当作常规步骤。
 ```
 
 ## 架构
