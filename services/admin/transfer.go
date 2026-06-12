@@ -24,6 +24,9 @@ const (
 	transferMaxFile      = 2 << 30  // 2GB per file
 	transferCodeLen      = 8
 	transferDefaultExp   = 7 * 24 * time.Hour
+	// transferUploadMemory 是 multipart 解析的内存缓冲阈值；超出部分自动落盘为
+	// 临时文件。单文件大小上限由 io.LimitReader + 截断检测强制执行，不能用这个值。
+	transferUploadMemory = 32 << 20 // 32MB
 )
 
 var transferCodeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -155,11 +158,18 @@ func apiTransferUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, username := getUserFromContext(r)
 
-		// 限制 multipart form 大小为 2GB
-		if err := r.ParseMultipartForm(transferMaxFile); err != nil {
+		// 限制 multipart 内存缓冲为 32MB；更大的部分自动落盘为临时文件，
+		// 避免单次上传占用 2GB 堆内存导致 OOM。单文件上限在下方强制执行。
+		if err := r.ParseMultipartForm(transferUploadMemory); err != nil {
 			writeError(w, "文件过大（最大 2GB）或请求格式错误", 400)
 			return
 		}
+		// multipart 落盘的临时文件不会被自动清理，请求结束时显式删除。
+		defer func() {
+			if r.MultipartForm != nil {
+				r.MultipartForm.RemoveAll()
+			}
+		}()
 
 		file, header, err := r.FormFile("file")
 		if err != nil {

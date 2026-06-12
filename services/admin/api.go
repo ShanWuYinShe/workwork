@@ -82,11 +82,25 @@ func decodeStrictJSON(r io.Reader, dest any) error {
 }
 
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	// 使用唯一临时文件名，使同一目标路径的并发写入互不干扰。
+	// 固定的 path+".tmp" 会让并发写入者争用同一 inode，导致内容损坏或 rename ENOENT。
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(tmp, perm); err != nil {
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	// fchmod 不受 umask 影响，确保精确权限。
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
 		os.Remove(tmp)
 		return err
 	}
@@ -788,10 +802,40 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		previousInfo, hadPrevious := docBefore.Users[body.Username]
-		if err := updateUserMeta(body.Username, UserInfo{
+
+		// This handler doubles as the edit path for an existing username, so it
+		// must enforce the same lockout guards as apiSetRole when demoting an
+		// admin, and must preserve durable fields instead of wiping them.
+		if hadPrevious && previousInfo.Role == "admin" && body.Role != "admin" {
+			if isProtectedAdmin(body.Username) {
+				writeError(w, "Cannot demote the default admin account", 403)
+				return
+			}
+			adminCount := 0
+			for _, info := range docBefore.Users {
+				if info.Role == "admin" {
+					adminCount++
+				}
+			}
+			if adminCount <= 1 {
+				writeError(w, "Cannot demote the last admin user", 400)
+				return
+			}
+		}
+
+		newInfo := UserInfo{
 			Role:      body.Role,
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		}); err != nil {
+		}
+		if hadPrevious {
+			// Keep the existing XHTTP proxy password and creation time so we
+			// don't break client configs or reset account metadata on edit.
+			newInfo.ProxyPassword = previousInfo.ProxyPassword
+			if previousInfo.CreatedAt != "" {
+				newInfo.CreatedAt = previousInfo.CreatedAt
+			}
+		}
+		if err := updateUserMeta(body.Username, newInfo); err != nil {
 			writeInternalError(w, err)
 			return
 		}
