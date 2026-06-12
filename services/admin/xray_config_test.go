@@ -109,6 +109,23 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if sockopt["domainStrategy"] != "UseIP" {
 		t.Fatalf("unexpected direct sockopt domainStrategy: %#v", sockopt["domainStrategy"])
 	}
+	blocked := outboundByTag(t, outbounds, "blocked")
+	if blocked["protocol"] != "blackhole" {
+		t.Fatalf("unexpected blocked outbound: %#v", blocked)
+	}
+	routing := nestedMap(t, doc, "routing")
+	rules, ok := routing["rules"].([]any)
+	if !ok || len(rules) == 0 {
+		t.Fatalf("missing routing rules: %#v", routing["rules"])
+	}
+	privateRule := nestedMapFromAny(t, rules[0])
+	if privateRule["outboundTag"] != "blocked" {
+		t.Fatalf("expected private rule to block, got %#v", privateRule)
+	}
+	ips, ok := privateRule["ip"].([]any)
+	if !ok || !containsAny(ips, "geoip:private") || !containsAny(ips, "100.64.0.0/10") || !containsAny(ips, "fc00::/7") {
+		t.Fatalf("private routing rule missing expected ranges: %#v", privateRule["ip"])
+	}
 	reality := outboundByTag(t, doc["inbounds"].([]any), "reality-in")
 	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")
 	shortIDs, ok := realitySettings["shortIds"].([]any)

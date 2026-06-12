@@ -77,14 +77,14 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- 单容器双网络：IPv4 via Docker bridge NAT（`ports: "443:443"`），IPv6 via ipvlan L3；不要添加 `xray-forward`/socat 转发容器
+- 单容器双网络：IPv4 via 专用 `xray_egress` bridge NAT（`ports: "0.0.0.0:443:443"`），IPv6 via ipvlan L3；不要让 xray 加入 `internal_docker`，不要添加 `xray-forward`/socat 转发容器
 - Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
 - **XHTTP 模式必须是 `packet-up`**——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
 - Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
 
 ### services/nginx/ — Nginx + fail2ban
 
-托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray:8447。fail2ban 通过 `X-Internal-Token` 调用 admin API 封禁真实客户端 IP。
+托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray Unix socket。fail2ban 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实客户端 IP。
 
 ### services/media_center/media_server/ — Media Center 后端（git submodule）
 
@@ -96,7 +96,7 @@ Python + yt-dlp 内部服务，只在 `internal_docker` 网络暴露 HTTP `/extr
 
 ### docker-compose.yml
 
-5 服务: admin, xray, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（bridge，172.20.0.0/16）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
+5 服务: admin, xray, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
 
 ## Security — 多层防御
 
@@ -121,7 +121,8 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 
 - `requireRole("admin")`: users.json 中 role=admin
 - `requireRole("viewer")`: 任何已认证用户
-- `X-Internal-Token` bypass: 内部服务（fail2ban）通过共享 `INTERNAL_TOKEN` 调用 admin API，**这是唯一的绕过方式**
+- `X-Internal-Token` bypass: 仅保留给可信内部自动化的全权限共享 token；nginx/fail2ban 不挂载此 token
+- `X-Fail2Ban-Token` scoped bypass: 只允许 fail2ban 调用 `POST /api/admin/security/block|unblock`
 
 ### 页面/API 访问矩阵
 
@@ -153,7 +154,7 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 
 - **配置字段核对**: Xray、Nginx、Docker 等配置以官方源码/文档为准；优先读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档确认字段名大小写、合法值范围和字段语义。
 - **Never use `RemoteAddr` for auth** — 所有流量经 Docker bridge，看起来都是内网地址。
-- **Internal auth**: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）。
+- **Internal auth**: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/.fail2ban-token`）。
 - **Secrets**: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
 - **Xray 客户端归属**: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
 - **配置文件写入**：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
