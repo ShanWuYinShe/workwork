@@ -440,7 +440,9 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 }
 
 func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
-	os.MkdirAll(claudeDownloadsDir, 0755)
+	if err := os.MkdirAll(claudeDownloadsDir, 0755); err != nil {
+		return 0, "", err
+	}
 
 	tmpPath := filepath.Join(claudeDownloadsDir, filename+".download")
 	defer os.Remove(tmpPath)

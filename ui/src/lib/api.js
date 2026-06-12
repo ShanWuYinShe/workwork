@@ -1,5 +1,6 @@
 const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
+const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
 
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
@@ -18,13 +19,33 @@ async function req(path, opts = {}) {
       signal,
       headers,
     });
-    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    const json = await r.json();
-    if (!json.success) throw new Error(json.error || 'API error');
+    const json = await parseJSONResponse(r);
+    if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
     return json.data;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function parseJSONResponse(response) {
+  try {
+    return await response.json();
+  } catch (error) {
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    throw error;
+  }
+}
+
+async function responseErrorMessage(response) {
+  try {
+    const json = await response.json();
+    if (json?.error) return json.error;
+  } catch {
+    // Fall through to the HTTP status when the body is not JSON.
+  }
+  return `${response.status} ${response.statusText}`;
 }
 
 export async function getCurrentUser() {
@@ -102,7 +123,11 @@ export async function getMediaCenterConfig() {
 }
 
 export async function saveMediaCenterConfig(config) {
-  return req('/media-center/config', { method: 'PUT', body: JSON.stringify(config) });
+  return req('/media-center/config', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
 }
 
 export async function getBlockedIPs() {
@@ -144,7 +169,7 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
     signal: ctrl.signal,
   });
   clearTimeout(timeout);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) throw new Error(await responseErrorMessage(r));
 
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
@@ -225,7 +250,7 @@ export async function downloadXrayVersion(version, plat, onProgress) {
     signal: ctrl.signal,
   });
   clearTimeout(timeout);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) throw new Error(await responseErrorMessage(r));
 
   const reader = r.body.getReader();
   const decoder = new TextDecoder();

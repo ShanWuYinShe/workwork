@@ -52,7 +52,9 @@ func readXrayClientsNoLock() ([]xrayClientEntry, error) {
 }
 
 func writeXrayClientsNoLock(clients []xrayClientEntry) error {
-	os.MkdirAll("/app/data", 0755)
+	if err := os.MkdirAll("/app/data", 0755); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(clients, "", "  ")
 	if err != nil {
 		return err

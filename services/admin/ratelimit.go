@@ -126,7 +126,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
-		if isInternalRequest(r) {
+		if isPrivilegedServiceRequest(r) {
 			next(w, r)
 			return
 		}

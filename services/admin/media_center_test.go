@@ -90,6 +90,33 @@ func TestMediaCenterConfigNormalizesSourceQueries(t *testing.T) {
 	}
 }
 
+func TestMediaCenterConfigIgnoresBlankSourceQueriesBeforeValidation(t *testing.T) {
+	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
+		Service: mediaCenterServiceConfig{
+			Upstream:   "media_server:8787",
+			PublicPath: "/api/media",
+		},
+		Categories: []mediaCenterCategory{
+			{
+				ID:          "documentaries",
+				Title:       "纪录片",
+				Description: "纪录片",
+				SourceQueries: map[string]string{
+					"youtube":       "",
+					"unknown-empty": " ",
+				},
+				Keywords: []string{"纪录片"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize config: %v", err)
+	}
+	if got := cfg.Categories[0].SourceQueries; got != nil {
+		t.Fatalf("expected blank source queries to be omitted, got %#v", got)
+	}
+}
+
 func TestMediaCenterConfigRejectsDuplicateCategoryIDs(t *testing.T) {
 	_, err := normalizeMediaCenterConfig(mediaCenterConfig{
 		Service: mediaCenterServiceConfig{
@@ -103,6 +130,31 @@ func TestMediaCenterConfigRejectsDuplicateCategoryIDs(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "duplicate category id") {
 		t.Fatalf("expected duplicate id error, got %v", err)
+	}
+}
+
+func TestMediaCenterConfigDecodeRejectsTrailingJSON(t *testing.T) {
+	var cfg mediaCenterConfig
+	err := decodeStrictJSON(strings.NewReader(`{"service":{"upstream":"media_server:8787","public_path":"/api/media"},"categories":[{"id":"movies","title":"电影","description":"电影","keywords":["电影"]}]} {"extra":true}`), &cfg)
+	if err == nil {
+		t.Fatal("expected trailing JSON to be rejected")
+	}
+}
+
+func TestMediaCenterConfigRejectsReservedPublicPaths(t *testing.T) {
+	for _, publicPath := range []string{"/admin", "/admin/media", "/api/admin", "/api/admin/media", "/api/transfer", "/proxy/query", "/assets/media", "/favicon.svg"} {
+		_, err := normalizeMediaCenterConfig(mediaCenterConfig{
+			Service: mediaCenterServiceConfig{
+				Upstream:   "media_server:8787",
+				PublicPath: publicPath,
+			},
+			Categories: []mediaCenterCategory{
+				{ID: "movies", Title: "电影", Description: "电影", Keywords: []string{"电影"}},
+			},
+		})
+		if err == nil || !strings.Contains(err.Error(), "reserved route") {
+			t.Fatalf("expected reserved path %q to be rejected, got %v", publicPath, err)
+		}
 	}
 }
 
