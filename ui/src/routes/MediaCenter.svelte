@@ -480,38 +480,6 @@
       </div>
     {/if}
 
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">{t('mediaConfigFlow')}</div>
-          <div class="card-subtitle">{t('mediaConfigFlowDesc')}</div>
-        </div>
-      </div>
-
-      <div class="config-flow">
-        <div class="config-step">
-          <span class="config-step-label">{t('editableConfigFile')}</span>
-          <code>{configFiles.admin_config || t('configPathUnavailable')}</code>
-        </div>
-        <div class="config-flow-arrow">→</div>
-        <div class="config-step">
-          <span class="config-step-label">{t('generatedRuntimeFile')}</span>
-          <code>{configFiles.runtime_config || t('configPathUnavailable')}</code>
-        </div>
-        <div class="config-flow-arrow">→</div>
-        <div class="config-step">
-          <span class="config-step-label">{t('mediaServerMount')}</span>
-          <code>/config/contentCategories.json</code>
-        </div>
-      </div>
-      <div class="helper-text runtime-hint">{t('runtimeApplyHint')}</div>
-      {#if configFiles.defaults}
-        <div class="helper-text runtime-hint">
-          {t('bundledDefaultsFile')}: <code>{configFiles.defaults}</code>
-        </div>
-      {/if}
-    </div>
-
     <!-- Public access and internal runtime wiring -->
     <div class="card">
       <div class="card-header">
@@ -551,6 +519,28 @@
             <div class="helper-text">{t('upstreamTargetHelp')}</div>
           </div>
         </div>
+        <div class="config-flow runtime-config-flow">
+          <div class="config-step">
+            <span class="config-step-label">{t('editableConfigFile')}</span>
+            <code>{configFiles.admin_config || t('configPathUnavailable')}</code>
+          </div>
+          <div class="config-flow-arrow">→</div>
+          <div class="config-step">
+            <span class="config-step-label">{t('generatedRuntimeFile')}</span>
+            <code>{configFiles.runtime_config || t('configPathUnavailable')}</code>
+          </div>
+          <div class="config-flow-arrow">→</div>
+          <div class="config-step">
+            <span class="config-step-label">{t('mediaServerMount')}</span>
+            <code>/config/contentCategories.json</code>
+          </div>
+        </div>
+        <div class="helper-text runtime-hint">{t('runtimeApplyHint')}</div>
+        {#if configFiles.defaults}
+          <div class="helper-text runtime-hint">
+            {t('bundledDefaultsFile')}: <code>{configFiles.defaults}</code>
+          </div>
+        {/if}
       </details>
     </div>
 
@@ -655,15 +645,20 @@
                 type="button"
                 class="category-toggle"
                 aria-expanded={open}
+                aria-label={`${open ? t('collapseLabel') : t('expandLabel')} ${category.title || category.id}`}
                 onclick={() => toggleExpanded(category._uid)}
               >
-                <span class="chevron" class:chevron-open={open}>›</span>
-                <span class="category-title">{category.title || category.id}</span>
-                <span class="category-id-tag">{category.id}</span>
-              </button>
-
-              <div class="category-meta">
-                {#if !open}
+                <span class="chevron" class:chevron-open={open} aria-hidden="true">›</span>
+                <span class="category-main">
+                  <span class="category-heading">
+                    <span class="category-title">{category.title || category.id}</span>
+                    <span class="category-id-tag">{category.id}</span>
+                  </span>
+                  {#if category.description}
+                    <span class="category-summary-desc">{category.description}</span>
+                  {/if}
+                </span>
+                <span class="category-meta">
                   <span class="meta-pill"
                     >{t('categoryKeywordsCount', { count: categoryKeywordCount(category) })}</span
                   >
@@ -675,8 +670,11 @@
                   {#if categorySourceTuned(category)}
                     <span class="meta-pill meta-pill-accent">{t('categorySourceTuned')}</span>
                   {/if}
-                {/if}
-              </div>
+                </span>
+                <span class="category-toggle-label">
+                  {open ? t('collapseLabel') : t('expandLabel')}
+                </span>
+              </button>
 
               <div class="category-controls">
                 <button
@@ -865,6 +863,9 @@
     margin-top: 0.65rem;
     line-height: 1.5;
   }
+  .runtime-config-flow {
+    margin-top: 1rem;
+  }
 
   .advanced-panel {
     margin-top: 0.85rem;
@@ -1048,7 +1049,7 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.7rem 0.85rem;
+    padding: 0.55rem 0.65rem;
   }
   .category-toggle {
     display: flex;
@@ -1062,7 +1063,20 @@
     font-family: inherit;
     text-align: left;
     min-width: 0;
-    flex-shrink: 1;
+    flex: 1 1 auto;
+    border-radius: var(--radius);
+    min-height: 48px;
+    padding: 0.25rem 0.35rem;
+    transition:
+      background var(--transition),
+      color var(--transition);
+  }
+  .category-toggle:hover {
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .category-toggle:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
   }
   .chevron {
     color: var(--c-text-muted);
@@ -1070,10 +1084,23 @@
     line-height: 1;
     transition: transform var(--transition);
     display: inline-block;
+    flex-shrink: 0;
   }
   .chevron-open {
     transform: rotate(90deg);
     color: var(--c-accent);
+  }
+  .category-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+    min-width: 0;
+  }
+  .category-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
   }
   .category-title {
     color: var(--c-text-heading);
@@ -1082,6 +1109,14 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .category-summary-desc {
+    color: var(--c-text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .category-id-tag {
     font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
@@ -1098,6 +1133,8 @@
     gap: 0.35rem;
     flex-wrap: wrap;
     margin-left: auto;
+    justify-content: flex-end;
+    flex: 0 1 auto;
   }
   .meta-pill {
     font-size: 0.65rem;
@@ -1111,12 +1148,22 @@
     color: var(--c-accent);
     background: var(--c-accent-bg);
   }
+  .category-toggle-label {
+    color: var(--c-accent);
+    background: var(--c-accent-bg);
+    border: 1px solid var(--c-accent-border);
+    border-radius: 999px;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.12rem 0.45rem;
+  }
   .category-controls {
     display: flex;
     align-items: center;
     gap: 0.3rem;
     flex-shrink: 0;
-    margin-left: auto;
+    margin-left: 0;
   }
   .category-body {
     display: flex;
@@ -1137,11 +1184,17 @@
     .config-flow-arrow {
       display: none;
     }
+    .category-summary {
+      flex-wrap: wrap;
+    }
+    .category-toggle {
+      flex-basis: 100%;
+    }
     .category-meta {
       display: none;
     }
-    .category-summary {
-      flex-wrap: wrap;
+    .category-controls {
+      margin-left: 1.8rem;
     }
   }
 </style>
