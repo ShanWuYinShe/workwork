@@ -1,14 +1,14 @@
-ARG NODE_VERSION=22
-ARG GO_VERSION=1.26
-ARG ALPINE_VERSION=3.22
+ARG BUN_VERSION=1.3.14
+ARG GO_VERSION=1.26.2
+ARG ALPINE_VERSION=3.22.4
 
-FROM node:${NODE_VERSION}-alpine AS ui-builder
+FROM oven/bun:${BUN_VERSION}-alpine AS ui-builder
 
 WORKDIR /ui
-COPY ui/package.json ui/package-lock.json ./
-RUN npm ci --silent
+COPY ui/package.json ui/bun.lock ./
+RUN bun install --frozen-lockfile
 COPY ui/ ./
-RUN npm run build
+RUN bun run build
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
 
