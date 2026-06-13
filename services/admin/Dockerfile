@@ -1,4 +1,8 @@
-FROM node:22-alpine AS ui-builder
+ARG NODE_VERSION=22
+ARG GO_VERSION=1.26
+ARG ALPINE_VERSION=3.22
+
+FROM node:${NODE_VERSION}-alpine AS ui-builder
 
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
@@ -6,7 +10,7 @@ RUN npm ci --silent
 COPY ui/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS go-builder
+FROM golang:${GO_VERSION}-alpine AS go-builder
 
 RUN apk add --no-cache git
 
@@ -18,7 +22,7 @@ RUN go mod download
 COPY services/admin/ ./
 RUN CGO_ENABLED=0 go build -o admin .
 
-FROM alpine:3.20
+FROM alpine:${ALPINE_VERSION}
 
 RUN apk add --no-cache ca-certificates bash \
     && mkdir -p /app/configs /app/data

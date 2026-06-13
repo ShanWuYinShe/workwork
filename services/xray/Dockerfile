@@ -1,7 +1,8 @@
+ARG ALPINE_VERSION=3.22
 ARG XRAY_VERSION=26.5.3
 ARG XRAY_LINUX_64_SHA256=f9d7dd7492791430d48a9828fb36f32663577af787e8b363a1548dece21a7897
 
-FROM alpine:3.20 AS downloader
+FROM alpine:${ALPINE_VERSION} AS downloader
 ARG XRAY_VERSION
 ARG XRAY_LINUX_64_SHA256
 RUN apk add --no-cache curl unzip \
@@ -10,7 +11,7 @@ RUN apk add --no-cache curl unzip \
     && unzip /tmp/xray.zip -d /tmp/xray \
     && chmod +x /tmp/xray/xray
 
-FROM alpine:3.20
+FROM alpine:${ALPINE_VERSION}
 RUN apk add --no-cache ca-certificates iproute2 su-exec \
     && addgroup -g 101 xraysocket \
     && adduser -D -H -u 1000 -G xraysocket appuser
