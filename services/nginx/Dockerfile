@@ -1,4 +1,6 @@
-FROM nginx:stable-alpine
+ARG NGINX_VERSION=1.30.1
+
+FROM nginx:${NGINX_VERSION}-alpine
 
 RUN apk add --no-cache fail2ban supervisor curl logrotate
 
