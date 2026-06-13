@@ -130,6 +130,54 @@ export async function saveMediaCenterConfig(config) {
   });
 }
 
+export async function getMediaCatalogOverview() {
+  return req('/media-center/catalog/overview');
+}
+
+export async function getMediaCatalogItems(category, status = '', limit = 200) {
+  const params = new URLSearchParams({ category });
+  if (status) params.set('status', status);
+  if (limit) params.set('limit', String(limit));
+  return req(`/media-center/catalog/items?${params.toString()}`);
+}
+
+export async function reviewMediaCatalogItem(change) {
+  return req('/media-center/catalog/review', {
+    method: 'POST',
+    body: JSON.stringify(change),
+  });
+}
+
+export async function seedMediaCatalog(category = '') {
+  const body = category ? JSON.stringify({ category }) : undefined;
+  return req('/media-center/catalog/seed', {
+    method: 'POST',
+    body,
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
+export async function rebuildMediaSnapshots(category = '') {
+  const body = category ? JSON.stringify({ category }) : undefined;
+  return req('/media-center/snapshots/rebuild', {
+    method: 'POST',
+    body,
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
+export async function getMediaCuration() {
+  return req('/media-center/curation');
+}
+
+export async function saveMediaCuration(curation) {
+  return req('/media-center/curation', {
+    method: 'PUT',
+    body: JSON.stringify(curation),
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
 export async function getBlockedIPs() {
   return req('/security/blocked');
 }
