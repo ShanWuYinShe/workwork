@@ -17,8 +17,9 @@ go vet -C services/admin ./...         # 静态检查
 gofmt -l services/admin/               # 格式化检查（列出不符合的文件）
 go test -C services/admin ./...        # 单元测试
 
-# Svelte 前端构建（因 Docker 多阶段构建 + 远程部署环境限制，此处使用 npm 而非 bun）
-npm --prefix ui run build              # 构建
+# Svelte 前端构建（使用 Bun；Docker 多阶段构建用 oven/bun 镜像 + bun.lock 冻结锁文件）
+bun install --cwd ui                   # 安装依赖（生成/校验 ui/bun.lock）
+bun run --cwd ui build                 # 构建
 
 # Media Server 验证（源码在 services/media_center 子模块；首次需 git submodule update --init --recursive）
 go build -C services/media_center/media_server -o /dev/null .   # 编译检查
