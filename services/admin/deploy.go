@@ -34,6 +34,9 @@ func generateConfigs() error {
 	if err := genMediaCenterCategories(); err != nil {
 		return fmt.Errorf("media center categories: %w", err)
 	}
+	if err := ensureMediaCuration(); err != nil {
+		return fmt.Errorf("media center curation init: %w", err)
+	}
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
 	}

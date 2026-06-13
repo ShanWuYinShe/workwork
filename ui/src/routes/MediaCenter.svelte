@@ -4,6 +4,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import MediaCatalog from './MediaCatalog.svelte';
 
   const defaultLimits = {
     max_categories: 50,
@@ -797,6 +798,9 @@
         {/each}
       </div>
     </div>
+
+    <!-- Pre-collected category management: catalog review + snapshots + curation -->
+    <MediaCatalog />
   {/if}
 </div>
 

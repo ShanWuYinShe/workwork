@@ -180,9 +180,19 @@ services:
       - MEDIA_ASSET_CACHE_MAX_BYTES=${MEDIA_ASSET_CACHE_MAX_BYTES:-53687091200}
       - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      # 分类预采集（catalog 审校 + 运行时快照）持久化目录与内部管理接口令牌。
+      # catalog.db / snapshots 落在持久卷 /app/data；curation.json 由 admin 写入 /config（只读挂载）。
+      - MEDIA_SERVER_SNAPSHOT_ENABLED=${MEDIA_SERVER_SNAPSHOT_ENABLED:-true}
+      - MEDIA_SERVER_SNAPSHOT_REFRESH_HOURS=${MEDIA_SERVER_SNAPSHOT_REFRESH_HOURS:-6}
+      - MEDIA_SERVER_SNAPSHOT_TARGET_SIZE=${MEDIA_SERVER_SNAPSHOT_TARGET_SIZE:-60}
+      - MEDIA_SERVER_SNAPSHOT_DIR=/app/data/snapshots
+      - MEDIA_SERVER_CATALOG_DB=/app/data/catalog.db
+      - MEDIA_SERVER_CURATION_FILE=/config/curation.json
+      - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
     volumes:
       - ./.wework/generated/media_center:/config:ro
       - media_asset_cache:/cache
+      - media_center_data:/app/data
     depends_on:
       admin:
         condition: service_healthy
@@ -228,6 +238,9 @@ services:
       - IPV6_SUBNET=${IPV6_SUBNET:-}
       - XRAY_IPV6=${XRAY_IPV6:-}
       - NGINX_IPV6=${NGINX_IPV6:-}
+      # 媒体中心分类预采集管理：admin 代理 media_server 内部接口（同一令牌）
+      - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
+      - MEDIA_CENTER_INTERNAL_URL=${MEDIA_CENTER_INTERNAL_URL:-http://media_server:8787}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:ro
@@ -256,3 +269,4 @@ networks:
 volumes:
   xray_socket:
   media_asset_cache:
+  media_center_data:

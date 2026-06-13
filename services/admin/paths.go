@@ -18,5 +18,6 @@ const (
 
 	mediaCenterConfigPath            = "/app/data/media-center/config.json"
 	mediaCenterCategoriesPath        = "/app/data/generated/media_center/contentCategories.json"
+	mediaCenterCurationPath          = "/app/data/generated/media_center/curation.json"
 	mediaCenterDefaultCategoriesPath = "/app/configs/media-center-content-categories.json"
 )
