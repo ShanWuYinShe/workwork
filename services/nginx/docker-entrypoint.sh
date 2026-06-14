@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+# nginx master 以 root 运行,但 cap_drop:ALL 去掉了 DAC_OVERRIDE。nginx 在
+# reopen(logrotate 的 USR1)时会把日志文件 chown 给 worker 用户(uid 101),
+# 以便 worker 写入;于是稳定态下 /var/log/nginx/*.log 归 101 所有。下次冷启动
+# 时 root master 需要先 open() 这些已存在的文件,但无 DAC_OVERRIDE 无法打开
+# 101 属主的文件 → [emerg] 退出,nginx 起不来(容器重建即触发)。这里在启动前
+# 把日志重置为 root 属主:master 即可 open()(随后照常 chown 给 worker 供写入)。
+chown -R root:root /var/log/nginx 2>/dev/null || true
+
 # Fetch latest Cloudflare IP ranges on every container start
 fetch-cloudflare-ips.sh 2>/dev/null || echo "WARNING: failed to fetch Cloudflare IP ranges, using cached" >&2
 
