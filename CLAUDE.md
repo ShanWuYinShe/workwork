@@ -89,7 +89,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/media_center/media_server/ — Media Center 后端（git submodule）
 
-Go 服务端，提供合规公开视频聚合 API；源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。YouTube 点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
+Go 服务端，提供合规公开视频聚合 API；源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。公开视频点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
 
 ### services/media_center/vod_extractor/ — 点播解析服务（git submodule）
 
