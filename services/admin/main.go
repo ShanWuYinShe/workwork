@@ -67,10 +67,13 @@ func main() {
 	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", requireRole("admin")(apiMediaCatalogOverview()))
 	mux.HandleFunc("GET /api/admin/media-center/catalog/items", requireRole("admin")(apiMediaCatalogItems()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/review", requireRole("admin")(apiMediaCatalogReview()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/import", requireRole("admin")(apiMediaCatalogImport()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/seed", requireRole("admin")(apiMediaCatalogSeed()))
 	mux.HandleFunc("POST /api/admin/media-center/snapshots/rebuild", requireRole("admin")(apiMediaSnapshotsRebuild()))
 	mux.HandleFunc("GET /api/admin/media-center/curation", requireRole("admin")(apiMediaCurationGet()))
 	mux.HandleFunc("PUT /api/admin/media-center/curation", requireRole("admin")(apiMediaCurationSave()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseGet()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseUpload()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
@@ -138,7 +141,9 @@ func main() {
 		// Transfer upload streams large bodies (per-file cap enforced in the
 		// handler via io.LimitReader); use exact match to avoid false positives
 		// on similar paths.
-		if r.URL.Path != "/api/admin/transfer/upload" {
+		if r.URL.Path != "/api/admin/transfer/upload" &&
+			r.URL.Path != "/api/admin/media-center/app-release" &&
+			r.URL.Path != "/api/admin/media-center/catalog/import" {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 		}
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
