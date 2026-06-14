@@ -182,6 +182,24 @@ func apiMediaCatalogReview() http.HandlerFunc {
 	}
 }
 
+// apiMediaCatalogImport 代理 POST /internal/catalog/import：导入外部工具/AI 收集好的候选为 pending。
+func apiMediaCatalogImport() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if !json.Valid(bytes.TrimSpace(body)) {
+			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
+		defer cancel()
+		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, bytes.TrimSpace(body))
+	}
+}
+
 // apiMediaCatalogSeed 代理 POST /internal/catalog/seed：异步把实时聚合结果灌成 pending 候选。
 func apiMediaCatalogSeed() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

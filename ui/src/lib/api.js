@@ -178,6 +178,25 @@ export async function saveMediaCuration(curation) {
   });
 }
 
+export async function getMediaAppRelease() {
+  return req('/media-center/app-release');
+}
+
+export async function uploadMediaAppRelease(formData) {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), MEDIA_CENTER_SAVE_TIMEOUT);
+  const r = await fetch(BASE + '/media-center/app-release', {
+    credentials: 'same-origin',
+    method: 'POST',
+    body: formData,
+    signal: ctrl.signal,
+  });
+  clearTimeout(timeout);
+  const json = await parseJSONResponse(r);
+  if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
+  return json.data;
+}
+
 export async function getBlockedIPs() {
   return req('/security/blocked');
 }
