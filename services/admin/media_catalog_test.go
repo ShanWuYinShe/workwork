@@ -159,3 +159,33 @@ func TestApiMediaCatalogReviewInjectsReviewer(t *testing.T) {
 		t.Errorf("reviewer = %q, want injected login user 'alice'", gotReviewer)
 	}
 }
+
+func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
+	var gotPath string
+	var gotBody string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"imported":1,"skipped":0}`))
+	}))
+	defer backend.Close()
+	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
+	t.Setenv("MEDIA_CENTER_INTERNAL_URL", backend.URL)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(`{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1","title":"T"}]}`))
+	rec := httptest.NewRecorder()
+	apiMediaCatalogImport()(rec, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/internal/catalog/import" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotBody, `"nativeId":"BV1"`) {
+		t.Fatalf("unexpected proxied body: %s", gotBody)
+	}
+}

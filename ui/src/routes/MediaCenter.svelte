@@ -1,6 +1,11 @@
 <script>
   import { onMount } from 'svelte';
-  import { getMediaCenterConfig, saveMediaCenterConfig } from '../lib/api.js';
+  import {
+    getMediaAppRelease,
+    getMediaCenterConfig,
+    saveMediaCenterConfig,
+    uploadMediaAppRelease,
+  } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
@@ -41,6 +46,11 @@
   let loading = $state(true);
   let saving = $state(false);
   let expandedIds = $state([]);
+  let appRelease = $state(null);
+  let appReleaseLoading = $state(false);
+  let appReleaseUploading = $state(false);
+  let appReleaseForm = $state({ versionCode: '', versionName: '', releaseNotes: '' });
+  let appReleaseFile = $state(null);
 
   let appPublicURL = $derived(`${window.location.origin}${publicPathForDisplay()}`);
   let enabledSourceCount = $derived((config.sources || []).filter((s) => s.enabled).length);
@@ -66,11 +76,71 @@
       };
       limits = { ...defaultLimits, ...(data.limits || {}) };
       expandedIds = [];
+      await loadAppRelease();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
       loading = false;
     }
+  }
+
+  async function loadAppRelease() {
+    appReleaseLoading = true;
+    try {
+      appRelease = await getMediaAppRelease();
+      const manifest = appRelease?.manifest || null;
+      if (manifest?.versionCode) {
+        appReleaseForm = {
+          versionCode: String(manifest.versionCode + 1),
+          versionName: '',
+          releaseNotes: '',
+        };
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      appReleaseLoading = false;
+    }
+  }
+
+  async function publishAppRelease() {
+    if (!appReleaseFile) {
+      toast('请选择 APK 文件', 'error');
+      return;
+    }
+    const versionCode = Number(appReleaseForm.versionCode);
+    if (!Number.isInteger(versionCode) || versionCode <= 0) {
+      toast('versionCode 必须是正整数', 'error');
+      return;
+    }
+    if (!appReleaseForm.versionName.trim()) {
+      toast('versionName 不能为空', 'error');
+      return;
+    }
+    const form = new FormData();
+    form.set('versionCode', String(versionCode));
+    form.set('versionName', appReleaseForm.versionName.trim());
+    form.set('releaseNotes', appReleaseForm.releaseNotes.trim());
+    form.set('apk', appReleaseFile);
+    appReleaseUploading = true;
+    try {
+      appRelease = await uploadMediaAppRelease(form);
+      appReleaseFile = null;
+      toast('App 更新已发布', 'success');
+      await loadAppRelease();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      appReleaseUploading = false;
+    }
+  }
+
+  function formatBytes(bytes) {
+    const n = Number(bytes || 0);
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`;
+    return `${n} B`;
   }
 
   async function save() {
@@ -545,6 +615,90 @@
       </details>
     </div>
 
+    <!-- Android TV App release: admin publishes reviewed APK, app consumes /api/media/app/update -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Android TV App 更新发布</div>
+          <div class="card-subtitle">
+            上传审核后的 APK；客户端启动时会自动检查、下载、校验并拉起安装器。
+          </div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick={loadAppRelease} disabled={appReleaseLoading}>
+          {appReleaseLoading ? '刷新中…' : t('refresh')}
+        </button>
+      </div>
+
+      <div class="release-status">
+        {#if appRelease?.published}
+          {@const manifest = appRelease.manifest}
+          <div class="release-current">
+            <span class="badge badge-green">已发布</span>
+            <strong>{manifest.versionName}</strong>
+            <span>versionCode {manifest.versionCode}</span>
+            <span>{formatBytes(manifest.sizeBytes)}</span>
+            {#if manifest.publishedAt}<span>{manifest.publishedAt}</span>{/if}
+          </div>
+          <code class="release-sha">{manifest.sha256}</code>
+        {:else}
+          <div class="helper-text">尚未发布 App 更新；客户端会继续使用当前版本。</div>
+        {/if}
+      </div>
+
+      <div class="form-grid app-release-form">
+        <div class="form-group">
+          <label for="app-version-code">versionCode</label>
+          <input
+            id="app-version-code"
+            inputmode="numeric"
+            value={appReleaseForm.versionCode}
+            oninput={(e) =>
+              (appReleaseForm = { ...appReleaseForm, versionCode: e.currentTarget.value })}
+            placeholder="2"
+          />
+        </div>
+        <div class="form-group">
+          <label for="app-version-name">versionName</label>
+          <input
+            id="app-version-name"
+            value={appReleaseForm.versionName}
+            oninput={(e) =>
+              (appReleaseForm = { ...appReleaseForm, versionName: e.currentTarget.value })}
+            placeholder="1.1.0"
+          />
+        </div>
+        <div class="form-group">
+          <label for="app-apk-file">APK 文件</label>
+          <input
+            id="app-apk-file"
+            type="file"
+            accept=".apk,application/vnd.android.package-archive"
+            onchange={(e) => (appReleaseFile = e.currentTarget.files?.[0] || null)}
+          />
+        </div>
+      </div>
+      <div class="form-group app-release-notes">
+        <label for="app-release-notes">更新说明</label>
+        <textarea
+          id="app-release-notes"
+          rows="4"
+          value={appReleaseForm.releaseNotes}
+          oninput={(e) =>
+            (appReleaseForm = { ...appReleaseForm, releaseNotes: e.currentTarget.value })}
+        ></textarea>
+      </div>
+      <div class="card-actions">
+        <button
+          class="btn btn-sm btn-primary"
+          onclick={publishAppRelease}
+          disabled={appReleaseUploading}
+        >
+          {#if appReleaseUploading}<span class="spinner"></span>{/if}
+          {appReleaseUploading ? '发布中…' : '发布 App 更新'}
+        </button>
+      </div>
+    </div>
+
     <!-- Sources — known sources, only the on/off switch is editable -->
     <div class="card">
       <div class="card-header">
@@ -869,6 +1023,38 @@
   }
   .runtime-config-flow {
     margin-top: 1rem;
+  }
+
+  .release-status {
+    background: var(--c-bg-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 1rem;
+    padding: 0.85rem;
+  }
+  .release-current {
+    align-items: center;
+    color: var(--c-text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    font-size: 0.78rem;
+  }
+  .release-current strong {
+    color: var(--c-text);
+    font-size: 0.95rem;
+  }
+  .release-sha {
+    color: var(--c-text-muted);
+    display: block;
+    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 0.7rem;
+    margin-top: 0.65rem;
+    overflow-wrap: anywhere;
+  }
+  .app-release-form,
+  .app-release-notes {
+    margin-top: 0.75rem;
   }
 
   .advanced-panel {
