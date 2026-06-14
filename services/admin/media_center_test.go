@@ -158,6 +158,35 @@ func TestMediaCenterConfigRejectsReservedPublicPaths(t *testing.T) {
 	}
 }
 
+func TestMediaCenterConfigPreservesSearchQueriesAndMinDuration(t *testing.T) {
+	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
+		Service: mediaCenterServiceConfig{
+			Upstream:   "media_server:8787",
+			PublicPath: "/api/media",
+		},
+		Categories: []mediaCenterCategory{
+			{
+				ID:                 "dota-zone",
+				Title:              "Dota 专区",
+				Description:        "Dota 内容",
+				SearchQueries:      []string{" Dota1 录像 ", "Dota2 比赛", ""},
+				Keywords:           []string{"Dota1", "Dota2"},
+				MinDurationSeconds: 180,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize config: %v", err)
+	}
+	cat := cfg.Categories[0]
+	if len(cat.SearchQueries) != 2 || cat.SearchQueries[0] != "Dota1 录像" || cat.SearchQueries[1] != "Dota2 比赛" {
+		t.Fatalf("searchQueries not normalized correctly: %v", cat.SearchQueries)
+	}
+	if cat.MinDurationSeconds != 180 {
+		t.Fatalf("minDurationSeconds lost: got %d, want 180", cat.MinDurationSeconds)
+	}
+}
+
 func TestRenderNginxConfigWithMediaCenter(t *testing.T) {
 	rendered := renderNginxConfigWithMediaCenter(
 		"set $media_upstream __MEDIA_CENTER_UPSTREAM__; location = __MEDIA_CENTER_PUBLIC_PATH__ { rewrite ^__MEDIA_CENTER_PUBLIC_PATH_REGEX__(/.*)$ /api$1 break; }",
