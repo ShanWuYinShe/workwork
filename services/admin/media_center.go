@@ -74,13 +74,15 @@ type mediaCenterSource struct {
 }
 
 type mediaCenterCategory struct {
-	ID            string            `json:"id"`
-	Title         string            `json:"title"`
-	Description   string            `json:"description"`
-	SearchQuery   string            `json:"searchQuery,omitempty"`
-	SourceQueries map[string]string `json:"sourceQueries,omitempty"`
-	Keywords      []string          `json:"keywords"`
-	Excludes      []string          `json:"excludes,omitempty"`
+	ID                 string            `json:"id"`
+	Title              string            `json:"title"`
+	Description        string            `json:"description"`
+	SearchQuery        string            `json:"searchQuery,omitempty"`
+	SearchQueries      []string          `json:"searchQueries,omitempty"`
+	SourceQueries      map[string]string `json:"sourceQueries,omitempty"`
+	Keywords           []string          `json:"keywords"`
+	Excludes           []string          `json:"excludes,omitempty"`
+	MinDurationSeconds int               `json:"minDurationSeconds,omitempty"`
 }
 
 func apiMediaCenterConfig() http.HandlerFunc {
@@ -528,6 +530,7 @@ func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategor
 		return mediaCenterCategory{}, fmt.Errorf("%s description is required", id)
 	}
 	searchQuery := strings.TrimSpace(input.SearchQuery)
+	searchQueries := normalizeStringList(input.SearchQueries)
 	sourceQueries, err := normalizeMediaCenterSourceQueries(input.SourceQueries)
 	if err != nil {
 		return mediaCenterCategory{}, fmt.Errorf("%s sourceQueries: %w", id, err)
@@ -543,15 +546,21 @@ func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategor
 	if len(excludes) > maxCategoryExcludes {
 		return mediaCenterCategory{}, fmt.Errorf("%s has too many excludes: max %d", id, maxCategoryExcludes)
 	}
+	minDuration := input.MinDurationSeconds
+	if minDuration < 0 {
+		minDuration = 0
+	}
 
 	return mediaCenterCategory{
-		ID:            id,
-		Title:         title,
-		Description:   description,
-		SearchQuery:   searchQuery,
-		SourceQueries: sourceQueries,
-		Keywords:      keywords,
-		Excludes:      excludes,
+		ID:                 id,
+		Title:              title,
+		Description:        description,
+		SearchQuery:        searchQuery,
+		SearchQueries:      searchQueries,
+		SourceQueries:      sourceQueries,
+		Keywords:           keywords,
+		Excludes:           excludes,
+		MinDurationSeconds: minDuration,
 	}, nil
 }
 
