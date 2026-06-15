@@ -63,15 +63,13 @@ func main() {
 	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
 	mux.HandleFunc("GET /api/admin/media-center/config", requireRole("admin")(apiMediaCenterConfig()))
 	mux.HandleFunc("PUT /api/admin/media-center/config", requireRole("admin")(apiSaveMediaCenterConfig(cli)))
-	// 分类预采集管理（catalog 审校 + 运行时快照）。
+	// 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）。
 	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", requireRole("admin")(apiMediaCatalogOverview()))
 	mux.HandleFunc("GET /api/admin/media-center/catalog/items", requireRole("admin")(apiMediaCatalogItems()))
 	mux.HandleFunc("GET /api/admin/media-center/catalog/export", requireRole("admin")(apiMediaCatalogExport()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/review", requireRole("admin")(apiMediaCatalogReview()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", requireRole("admin")(apiMediaCatalogDelete()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/import", requireRole("admin")(apiMediaCatalogImport()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/seed", requireRole("admin")(apiMediaCatalogSeed()))
-	mux.HandleFunc("POST /api/admin/media-center/snapshots/rebuild", requireRole("admin")(apiMediaSnapshotsRebuild()))
 	mux.HandleFunc("GET /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseGet()))
 	mux.HandleFunc("POST /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseUpload()))
 	// IP block management (Go-level, works behind Cloudflare)

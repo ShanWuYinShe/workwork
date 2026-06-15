@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// media_catalog.go：admin 侧的“分类预采集（catalog 审校 + 运行时快照）”管理端点。
+// media_catalog.go：admin 侧的“分类审核（catalog 人工审核：导入候选 → 审核 → 上线 approved）”管理端点。
 // 设计为 Option C：media_server 是 catalog.db 的唯一读写者，对内网暴露 /internal/*
 // 管理接口；admin 仅作代理（requireRole("admin")）并转换响应信封，避免跨容器共享 SQLite 写。
 
@@ -248,33 +248,5 @@ func apiMediaCatalogImport() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body)
-	}
-}
-
-// apiMediaCatalogSeed 代理 POST /internal/catalog/seed：异步把实时聚合结果灌成 pending 候选。
-func apiMediaCatalogSeed() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
-		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/seed", nil, bytes.TrimSpace(body))
-	}
-}
-
-// apiMediaSnapshotsRebuild 代理 POST /internal/snapshots/rebuild：异步重建运行时快照。
-func apiMediaSnapshotsRebuild() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
-		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/snapshots/rebuild", nil, bytes.TrimSpace(body))
 	}
 }
