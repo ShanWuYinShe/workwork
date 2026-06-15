@@ -18,7 +18,6 @@ func TestMediaCenterConfigNormalization(t *testing.T) {
 				Description: " 测试分类 ",
 				SearchQuery: " 公开视频 ",
 				Keywords:    []string{" 公开 ", "", "视频"},
-				Excludes:    []string{" 预告 ", ""},
 			},
 		},
 	})
@@ -38,9 +37,6 @@ func TestMediaCenterConfigNormalization(t *testing.T) {
 	}
 	if got := strings.Join(category.Keywords, ","); got != "公开,视频" {
 		t.Fatalf("unexpected keywords: %q", got)
-	}
-	if got := strings.Join(category.Excludes, ","); got != "预告" {
-		t.Fatalf("unexpected excludes: %q", got)
 	}
 }
 
@@ -158,7 +154,7 @@ func TestMediaCenterConfigRejectsReservedPublicPaths(t *testing.T) {
 	}
 }
 
-func TestMediaCenterConfigPreservesSearchQueriesAndMinDuration(t *testing.T) {
+func TestMediaCenterConfigPreservesSearchQueries(t *testing.T) {
 	cfg, err := normalizeMediaCenterConfig(mediaCenterConfig{
 		Service: mediaCenterServiceConfig{
 			Upstream:   "media_server:8787",
@@ -166,12 +162,11 @@ func TestMediaCenterConfigPreservesSearchQueriesAndMinDuration(t *testing.T) {
 		},
 		Categories: []mediaCenterCategory{
 			{
-				ID:                 "dota-zone",
-				Title:              "Dota 专区",
-				Description:        "Dota 内容",
-				SearchQueries:      []string{" Dota1 录像 ", "Dota2 比赛", ""},
-				Keywords:           []string{"Dota1", "Dota2"},
-				MinDurationSeconds: 180,
+				ID:            "dota-zone",
+				Title:         "Dota 专区",
+				Description:   "Dota 内容",
+				SearchQueries: []string{" Dota1 录像 ", "Dota2 比赛", ""},
+				Keywords:      []string{"Dota1", "Dota2"},
 			},
 		},
 	})
@@ -181,9 +176,6 @@ func TestMediaCenterConfigPreservesSearchQueriesAndMinDuration(t *testing.T) {
 	cat := cfg.Categories[0]
 	if len(cat.SearchQueries) != 2 || cat.SearchQueries[0] != "Dota1 录像" || cat.SearchQueries[1] != "Dota2 比赛" {
 		t.Fatalf("searchQueries not normalized correctly: %v", cat.SearchQueries)
-	}
-	if cat.MinDurationSeconds != 180 {
-		t.Fatalf("minDurationSeconds lost: got %d, want 180", cat.MinDurationSeconds)
 	}
 }
 

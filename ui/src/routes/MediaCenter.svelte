@@ -15,7 +15,6 @@
     max_categories: 50,
     max_sources: 10,
     max_keywords_per_category: 100,
-    max_excludes_per_category: 200,
     max_source_queries_per_rule: 10,
   };
 
@@ -301,7 +300,6 @@
           searchQuery: '',
           sourceQueries: {},
           keywords: [t('newCategoryKeyword')],
-          excludes: [],
         },
       ],
     };
@@ -360,10 +358,6 @@
 
   function categoryKeywordCount(category) {
     return (category.keywords || []).length;
-  }
-
-  function categoryExcludeCount(category) {
-    return (category.excludes || []).length;
   }
 
   function categorySourceTuned(category) {
@@ -444,14 +438,6 @@
           }),
         );
       }
-      if ((category.excludes || []).length > limits.max_excludes_per_category) {
-        errors.push(
-          t('categoryTooManyExcludes', {
-            label,
-            max: limits.max_excludes_per_category,
-          }),
-        );
-      }
       const sourceQueries = category.sourceQueries || {};
       const sourceQueryIDs = Object.keys(sourceQueries);
       if (sourceQueryIDs.length > limits.max_source_queries_per_rule) {
@@ -528,7 +514,6 @@
           !`${category.description || ''}`.trim() ||
           (category.keywords || []).length === 0 ||
           (category.keywords || []).length > limits.max_keywords_per_category ||
-          (category.excludes || []).length > limits.max_excludes_per_category ||
           hasInvalidSourceQuery
         );
       })
@@ -865,11 +850,6 @@
                     <span class="meta-pill"
                       >{t('categoryKeywordsCount', { count: categoryKeywordCount(category) })}</span
                     >
-                    {#if categoryExcludeCount(category) > 0}
-                      <span class="meta-pill"
-                        >{t('categoryExcludesCount', { count: categoryExcludeCount(category) })}</span
-                      >
-                    {/if}
                     {#if categorySourceTuned(category)}
                       <span class="meta-pill meta-pill-accent">{t('categorySourceTuned')}</span>
                     {/if}
@@ -984,18 +964,6 @@
                       ></textarea>
                       <div class="helper-text">{t('keywordsHelp')}</div>
                     </div>
-                    <div class="form-group">
-                      <label for={`category-${category._uid}-excludes`}
-                        >{t('excludesOnePerLine')}</label
-                      >
-                      <textarea
-                        id={`category-${category._uid}-excludes`}
-                        rows="6"
-                        value={(category.excludes || []).join('\n')}
-                        oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
-                      ></textarea>
-                      <div class="helper-text">{t('excludesHelp')}</div>
-                    </div>
                   </div>
                 </div>
               {/if}
@@ -1006,7 +974,7 @@
         </div>
       </div>
     {:else if activeTab === 'catalog'}
-      <!-- Pre-collected category management: catalog review + snapshots + curation -->
+      <!-- Pre-collected category management: catalog review + snapshots -->
       <MediaCatalog />
     {/if}
   {/if}
