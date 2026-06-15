@@ -188,7 +188,7 @@ services:
       # catalog.db / snapshots 落在持久卷 /app/data；curation.json 由 admin 写入 /config（只读挂载）。
       - MEDIA_SERVER_SNAPSHOT_ENABLED=${MEDIA_SERVER_SNAPSHOT_ENABLED:-true}
       - MEDIA_SERVER_SNAPSHOT_REFRESH_HOURS=${MEDIA_SERVER_SNAPSHOT_REFRESH_HOURS:-6}
-      - MEDIA_SERVER_SNAPSHOT_TARGET_SIZE=${MEDIA_SERVER_SNAPSHOT_TARGET_SIZE:-60}
+      - MEDIA_SERVER_SNAPSHOT_TARGET_SIZE=${MEDIA_SERVER_SNAPSHOT_TARGET_SIZE:-600}
       - MEDIA_SERVER_SNAPSHOT_DIR=/app/data/snapshots
       - MEDIA_SERVER_CATALOG_DB=/app/data/catalog.db
       - MEDIA_SERVER_CURATION_FILE=/config/curation.json
