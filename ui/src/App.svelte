@@ -87,7 +87,7 @@
       </button>
       <span class="topbar-title">WorkWork</span>
     </div>
-    <div class="main-scroll">
+    <div class="main-scroll" class:main-scroll-wide={currentPath === '/media-center'}>
       {#if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
           <currentRoute.component />
@@ -482,6 +482,10 @@
     padding: 2rem 2.5rem 3rem;
     max-width: 1200px;
     width: 100%;
+  }
+  .main-scroll.main-scroll-wide {
+    margin: 0 auto;
+    max-width: 1480px;
   }
 
   /* ── Page ── */

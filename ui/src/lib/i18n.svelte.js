@@ -146,6 +146,10 @@ const zh = {
   internalDockerViaNginx: '经由 nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: '经由 nginx /proxy/query',
   mediaCenterSubtitle: '配置视频来源开关与分类搜索规则。',
+  mediaTabRuntime: '基础配置',
+  mediaTabApp: 'App 发布',
+  mediaTabRules: '来源与分类',
+  mediaTabCatalog: '预采集管理',
   mediaConfigFlow: '配置组织',
   mediaConfigFlowDesc:
     'Admin 保存可编辑配置；保存时生成 Media Server 运行时配置并重新加载相关容器。',
@@ -200,6 +204,8 @@ const zh = {
   sourceSpecificQueries: '来源专属搜索词',
   sourceSpecificQueriesDesc:
     '可选。只有某个来源需要不同搜索词时填写；留空则使用通用搜索词或第一个关键词。',
+  moveUp: '上移',
+  moveDown: '下移',
   searchQueryHelp: 'Provider 检索用词；留空时 Media Server 会用第一个关键词兜底。',
   keywordsOnePerLine: '关键词（每行一个）',
   keywordsHelp: '用于相关性评分和分类准入，越靠前权重越高。多数内置分类要求至少命中一个关键词。',
@@ -277,6 +283,9 @@ const zh = {
     '粘贴外部审核好的视频集 JSON，格式固定为 {"items":[...]}。每条需含 categoryId、provider、nativeId、title，可选 description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score。默认导入为待审；勾选下方选项可直接收录上线（catalog 目录直读，approved 即时对客户端可见）。',
   catalogImportPlaceholder:
     '{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"标题"}]}',
+  catalogImportSelectFile: '选择 JSON 文件',
+  catalogImportFileHelp: '选择后会先填入下方文本框，确认无误再导入。',
+  catalogImportFileLoaded: '已读取 {name}：{count} 条。',
   catalogImportApproved: '导入即审核通过（approved，立即对客户端可见）',
   catalogImportRun: '导入',
   catalogImportInvalidJson: '导入内容不是合法 JSON。',
@@ -590,6 +599,10 @@ const en = {
   internalDockerViaNginx: 'via nginx /admin/ + /api/admin/',
   internalDockerViaProxyQuery: 'via nginx /proxy/query',
   mediaCenterSubtitle: 'Configure video source switches and category search rules.',
+  mediaTabRuntime: 'Basics',
+  mediaTabApp: 'App Release',
+  mediaTabRules: 'Sources & Categories',
+  mediaTabCatalog: 'Pre-collection',
   mediaConfigFlow: 'Config organization',
   mediaConfigFlowDesc:
     'Admin stores the editable config, then generates Media Server runtime config and reloads the related containers on save.',
@@ -645,6 +658,8 @@ const en = {
   sourceSpecificQueries: 'Source-specific queries',
   sourceSpecificQueriesDesc:
     'Optional. Fill these only when a source needs a different query; blank fields use the generic query or first keyword.',
+  moveUp: 'Move up',
+  moveDown: 'Move down',
   searchQueryHelp: 'Provider search term. If blank, Media Server falls back to the first keyword.',
   keywordsOnePerLine: 'Keywords (one per line)',
   keywordsHelp:
@@ -727,6 +742,9 @@ const en = {
     'Paste a pre-reviewed video set as JSON in the single supported shape {"items":[...]}. Each item needs categoryId, provider, nativeId, title; optional description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score. Imported as pending by default; tick the option below to publish directly (the catalog is read live, so approved items are immediately visible to clients).',
   catalogImportPlaceholder:
     '{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"Title"}]}',
+  catalogImportSelectFile: 'Choose JSON file',
+  catalogImportFileHelp: 'The file is loaded into the text box first; review it before importing.',
+  catalogImportFileLoaded: 'Loaded {name}: {count} item(s).',
   catalogImportApproved: 'Approve on import (approved, immediately visible to clients)',
   catalogImportRun: 'Import',
   catalogImportInvalidJson: 'Import content is not valid JSON.',
