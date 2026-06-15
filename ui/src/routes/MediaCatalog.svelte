@@ -1,14 +1,12 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import {
     getMediaCatalogOverview,
     getMediaCatalogItems,
     reviewMediaCatalogItem,
     deleteMediaCatalogItem,
     exportMediaCatalog,
-    seedMediaCatalog,
     importMediaCatalog,
-    rebuildMediaSnapshots,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -17,8 +15,6 @@
   let loading = $state(true);
   let loadError = $state('');
   let overview = $state(null);
-  let busy = $state(false);
-  let pollTimer = null;
 
   let activeCategory = $state(null);
   let activeTitle = $state('');
@@ -37,33 +33,13 @@
 
   const statusOptions = ['pending', 'approved', 'rejected', ''];
 
-  let op = $derived(overview?.op || null);
-  let opRunning = $derived(!!op?.running);
-
   onMount(load);
-  onDestroy(stopPolling);
-
-  function stopPolling() {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  }
-
-  function syncPolling() {
-    if (opRunning && !pollTimer) {
-      pollTimer = setInterval(refreshOverview, 3000);
-    } else if (!opRunning) {
-      stopPolling();
-    }
-  }
 
   async function load() {
     loading = true;
     loadError = '';
     try {
       overview = await getMediaCatalogOverview();
-      syncPolling();
     } catch (e) {
       loadError = e?.message || String(e);
       overview = null;
@@ -75,9 +51,8 @@
   async function refreshOverview() {
     try {
       overview = await getMediaCatalogOverview();
-      syncPolling();
     } catch {
-      stopPolling();
+      /* ignore refresh errors */
     }
   }
 
@@ -194,41 +169,6 @@
     }
   }
 
-  async function seed(categoryId) {
-    busy = true;
-    try {
-      await seedMediaCatalog(categoryId || '');
-      toast(t('catalogSeedStarted'), 'success');
-      await refreshOverview();
-    } catch (e) {
-      toast(e?.message || String(e), 'error');
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function rebuild(categoryId) {
-    busy = true;
-    try {
-      await rebuildMediaSnapshots(categoryId || '');
-      toast(t('catalogRebuildStarted'), 'success');
-      await refreshOverview();
-    } catch (e) {
-      toast(e?.message || String(e), 'error');
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function seedAll() {
-    if (!(await showConfirm(t('confirmSeedAll')))) return;
-    await seed('');
-  }
-  async function rebuildAll() {
-    if (!(await showConfirm(t('confirmRebuildAll')))) return;
-    await rebuild('');
-  }
-
   function toggleImport() {
     importOpen = !importOpen;
   }
@@ -301,13 +241,6 @@
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
   }
 
-  function fmtTime(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString();
-  }
-
   function statusBadgeClass(status) {
     if (status === 'approved') return 'badge badge-green';
     if (status === 'rejected') return 'badge badge-red';
@@ -327,11 +260,6 @@
     return t('catalogStatusAll');
   }
 
-  function opKindLabel(kind) {
-    if (kind === 'seed') return t('catalogOpSeed');
-    if (kind === 'rebuild') return t('catalogOpRebuild');
-    return kind;
-  }
 </script>
 
 <div class="card">
@@ -354,33 +282,7 @@
       <div class="cat-note">{t('catalogDisabledNotice')}</div>
     {/if}
 
-    {#if op && (op.running || op.message || op.error)}
-      <div class="op-bar" class:op-running={op.running} class:op-error={!op.running && op.error}>
-        {#if op.running}
-          <span class="spinner"></span>
-          <span
-            >{t('catalogOpRunning', {
-              kind: opKindLabel(op.kind),
-              category: op.category || 'all',
-            })}</span
-          >
-        {:else if op.error}
-          <span>{t('catalogOpFailed', { error: op.error })}</span>
-        {:else}
-          <span>{t('catalogOpDone', { message: op.message })}</span>
-        {/if}
-      </div>
-    {/if}
-
     <div class="cat-actions">
-      <button
-        class="btn btn-sm btn-secondary"
-        onclick={seedAll}
-        disabled={busy || opRunning || !overview.catalogEnabled}>{t('catalogSeedAll')}</button
-      >
-      <button class="btn btn-sm btn-secondary" onclick={rebuildAll} disabled={busy || opRunning}
-        >{t('catalogRebuildAll')}</button
-      >
       <button
         class="btn btn-sm btn-secondary"
         onclick={() => runExport('', t('catalogExportAll'))}
@@ -397,7 +299,6 @@
             <th class="num">{t('catalogColPending')}</th>
             <th class="num">{t('catalogColApproved')}</th>
             <th class="num">{t('catalogColRejected')}</th>
-            <th>{t('catalogColSnapshot')}</th>
             <th class="actions-col">{t('catalogColActions')}</th>
           </tr>
         </thead>
@@ -411,34 +312,11 @@
               <td class="num">{cat.pending}</td>
               <td class="num">{cat.approved}</td>
               <td class="num">{cat.rejected}</td>
-              <td>
-                {#if cat.snapshot}
-                  <span class="badge badge-blue"
-                    >{t('catalogSnapshotItems', {
-                      count: cat.snapshot.items,
-                      time: fmtTime(cat.snapshot.updatedAt),
-                    })}</span
-                  >
-                {:else}
-                  <span class="badge badge-gray">{t('catalogSnapshotNone')}</span>
-                {/if}
-              </td>
               <td class="actions-col">
                 <button
                   class="btn btn-xs btn-ghost"
                   onclick={() => loadItems(cat.id, cat.title || cat.id)}
                   disabled={!overview.catalogEnabled}>{t('catalogReview')}</button
-                >
-                <button
-                  class="btn btn-xs btn-ghost"
-                  onclick={() => seed(cat.id)}
-                  disabled={busy || opRunning || !overview.catalogEnabled}
-                  >{t('catalogSeed')}</button
-                >
-                <button
-                  class="btn btn-xs btn-ghost"
-                  onclick={() => rebuild(cat.id)}
-                  disabled={busy || opRunning}>{t('catalogRebuild')}</button
                 >
                 <button
                   class="btn btn-xs btn-ghost"
@@ -590,27 +468,6 @@
     color: var(--c-text-heading);
     border-radius: var(--radius);
     font-size: 0.85rem;
-  }
-
-  .op-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.6rem 0.9rem;
-    margin-bottom: 0.9rem;
-    border-radius: var(--radius);
-    font-size: 0.85rem;
-    background: var(--c-bg-surface);
-    border: 1px solid var(--c-border-strong);
-    color: var(--c-text);
-  }
-  .op-bar.op-running {
-    background: var(--c-accent-bg);
-    border-color: var(--c-accent-border);
-  }
-  .op-bar.op-error {
-    background: var(--c-danger-bg);
-    border-color: var(--c-danger);
   }
 
   .cat-actions {

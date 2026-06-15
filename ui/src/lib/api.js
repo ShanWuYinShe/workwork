@@ -169,15 +169,6 @@ export async function exportMediaCatalog(category = '', status = '') {
   });
 }
 
-export async function seedMediaCatalog(category = '') {
-  const body = category ? JSON.stringify({ category }) : undefined;
-  return req('/media-center/catalog/seed', {
-    method: 'POST',
-    body,
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
 export async function importMediaCatalog(doc, approved = false) {
   const list = (Array.isArray(doc?.items) ? doc.items : []).map((it) =>
     approved ? { ...it, status: 'approved' } : it,
@@ -185,15 +176,6 @@ export async function importMediaCatalog(doc, approved = false) {
   return req('/media-center/catalog/import', {
     method: 'POST',
     body: JSON.stringify({ ...doc, items: list }),
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
-export async function rebuildMediaSnapshots(category = '') {
-  const body = category ? JSON.stringify({ category }) : undefined;
-  return req('/media-center/snapshots/rebuild', {
-    method: 'POST',
-    body,
     timeout: MEDIA_CENTER_SAVE_TIMEOUT,
   });
 }
