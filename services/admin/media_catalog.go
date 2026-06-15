@@ -228,9 +228,17 @@ func apiMediaCatalogImport() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+		if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
+			writeError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
+			return
+		}
 		var req map[string]json.RawMessage
 		if err := json.Unmarshal(bytes.TrimSpace(raw), &req); err != nil {
 			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			return
+		}
+		if req == nil {
+			writeError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
 			return
 		}
 		_, username := getUserFromContext(r)

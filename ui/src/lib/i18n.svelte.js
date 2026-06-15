@@ -274,13 +274,13 @@ const zh = {
   catalogReviewSaved: '审校已保存。',
   catalogImportTitle: '导入视频集',
   catalogImportDesc:
-    '粘贴外部审核好的视频集 JSON（数组或 {items:[...]}）。每条需含 categoryId、provider、nativeId、title，可选 description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score。默认导入为待审；勾选下方选项可直接收录上线（catalog 目录直读，approved 即时对客户端可见）。',
+    '粘贴外部审核好的视频集 JSON，格式固定为 {"items":[...]}。每条需含 categoryId、provider、nativeId、title，可选 description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score。默认导入为待审；勾选下方选项可直接收录上线（catalog 目录直读，approved 即时对客户端可见）。',
   catalogImportPlaceholder:
-    '[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"标题"}]',
+    '{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"标题"}]}',
   catalogImportApproved: '导入即审核通过（approved，立即对客户端可见）',
   catalogImportRun: '导入',
   catalogImportInvalidJson: '导入内容不是合法 JSON。',
-  catalogImportEmpty: '没有可导入的条目（需要非空数组）。',
+  catalogImportEmpty: '没有可导入的条目（需要 {"items":[...]} 且 items 非空）。',
   catalogImportDone: '导入完成：新增 {imported} · 直接收录 {approved} · 跳过 {skipped}。',
   catalogImportResult: '新增 {imported} · 收录 {approved} · 跳过 {skipped}',
   catalogExportAll: '导出全部',
@@ -724,13 +724,13 @@ const en = {
   catalogReviewSaved: 'Review saved.',
   catalogImportTitle: 'Import video set',
   catalogImportDesc:
-    'Paste a pre-reviewed video set as JSON (an array or {items:[...]}). Each item needs categoryId, provider, nativeId, title; optional description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score. Imported as pending by default; tick the option below to publish directly (the catalog is read live, so approved items are immediately visible to clients).',
+    'Paste a pre-reviewed video set as JSON in the single supported shape {"items":[...]}. Each item needs categoryId, provider, nativeId, title; optional description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score. Imported as pending by default; tick the option below to publish directly (the catalog is read live, so approved items are immediately visible to clients).',
   catalogImportPlaceholder:
-    '[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"Title"}]',
+    '{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"Title"}]}',
   catalogImportApproved: 'Approve on import (approved, immediately visible to clients)',
   catalogImportRun: 'Import',
   catalogImportInvalidJson: 'Import content is not valid JSON.',
-  catalogImportEmpty: 'Nothing to import (a non-empty array is required).',
+  catalogImportEmpty: 'Nothing to import ({"items":[...]} with non-empty items is required).',
   catalogImportDone: 'Import done: {imported} added · {approved} approved · {skipped} skipped.',
   catalogImportResult: '{imported} added · {approved} approved · {skipped} skipped',
   catalogExportAll: 'Export all',
