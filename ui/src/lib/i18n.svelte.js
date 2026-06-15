@@ -272,6 +272,17 @@ const zh = {
   catalogSeedStarted: '已开始采集候选，请稍后刷新查看进度。',
   catalogRebuildStarted: '已开始重建快照，请稍后刷新查看进度。',
   catalogReviewSaved: '审校已保存。',
+  catalogImportTitle: '导入视频集',
+  catalogImportDesc:
+    '粘贴外部审核好的视频集 JSON（数组或 {items:[...]}）。每条需含 categoryId、provider、nativeId、title，可选 description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score。默认导入为待审；勾选下方选项可直接收录上线（catalog 目录直读，approved 即时对客户端可见）。',
+  catalogImportPlaceholder:
+    '[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"标题"}]',
+  catalogImportApproved: '导入即审核通过（approved，立即对客户端可见）',
+  catalogImportRun: '导入',
+  catalogImportInvalidJson: '导入内容不是合法 JSON。',
+  catalogImportEmpty: '没有可导入的条目（需要非空数组）。',
+  catalogImportDone: '导入完成：新增 {imported} · 直接收录 {approved} · 跳过 {skipped}。',
+  catalogImportResult: '新增 {imported} · 收录 {approved} · 跳过 {skipped}',
   curationTitle: '本地审校文件（curation.json）',
   curationDesc:
     '可手工编辑、提交进仓库的审校规则：blockIds / blockTitleContains 永久剔除噪声，pinIds 强制置顶。修改后需重建快照才会生效。',
@@ -705,6 +716,17 @@ const en = {
   catalogSeedStarted: 'Seeding started. Refresh shortly to see progress.',
   catalogRebuildStarted: 'Rebuild started. Refresh shortly to see progress.',
   catalogReviewSaved: 'Review saved.',
+  catalogImportTitle: 'Import video set',
+  catalogImportDesc:
+    'Paste a pre-reviewed video set as JSON (an array or {items:[...]}). Each item needs categoryId, provider, nativeId, title; optional description/creators/durationSeconds/year/thumbnailUrl/sourceUrl/score. Imported as pending by default; tick the option below to publish directly (the catalog is read live, so approved items are immediately visible to clients).',
+  catalogImportPlaceholder:
+    '[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1...","title":"Title"}]',
+  catalogImportApproved: 'Approve on import (approved, immediately visible to clients)',
+  catalogImportRun: 'Import',
+  catalogImportInvalidJson: 'Import content is not valid JSON.',
+  catalogImportEmpty: 'Nothing to import (a non-empty array is required).',
+  catalogImportDone: 'Import done: {imported} added · {approved} approved · {skipped} skipped.',
+  catalogImportResult: '{imported} added · {approved} approved · {skipped} skipped',
   curationTitle: 'Local curation file (curation.json)',
   curationDesc:
     'Hand-editable, commit-to-repo rules: blockIds / blockTitleContains permanently drop noise, pinIds force items to the top. Rebuild snapshots for changes to take effect.',
