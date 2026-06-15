@@ -250,14 +250,13 @@
       toast(t('catalogImportInvalidJson'), 'error');
       return;
     }
-    const list = Array.isArray(parsed) ? parsed : parsed?.items;
-    if (!Array.isArray(list) || list.length === 0) {
+    if (!Array.isArray(parsed?.items) || parsed.items.length === 0) {
       toast(t('catalogImportEmpty'), 'error');
       return;
     }
     importBusy = true;
     try {
-      const data = await importMediaCatalog(list, importApproved);
+      const data = await importMediaCatalog(parsed, importApproved);
       importResult = data;
       toast(
         t('catalogImportDone', {
