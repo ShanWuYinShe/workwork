@@ -51,6 +51,14 @@
   let appReleaseUploading = $state(false);
   let appReleaseForm = $state({ versionCode: '', versionName: '', releaseNotes: '' });
   let appReleaseFile = $state(null);
+  let activeTab = $state('runtime');
+
+  const mediaTabs = [
+    { id: 'runtime', labelKey: 'mediaTabRuntime' },
+    { id: 'app', labelKey: 'mediaTabApp' },
+    { id: 'rules', labelKey: 'mediaTabRules' },
+    { id: 'catalog', labelKey: 'mediaTabCatalog' },
+  ];
 
   let appPublicURL = $derived(`${window.location.origin}${publicPathForDisplay()}`);
   let enabledSourceCount = $derived((config.sources || []).filter((s) => s.enabled).length);
@@ -147,6 +155,7 @@
     const errors = validateConfig(config);
     if (errors.length > 0) {
       expandInvalidCategories();
+      activeTab = validationTargetTab(config);
       toast(t('mediaCenterValidationFailed'), 'error');
       return;
     }
@@ -462,6 +471,30 @@
     return errors;
   }
 
+  function validationTargetTab(cfg) {
+    const service = cfg.service || {};
+    const publicPath = `${service.public_path || ''}`.trim();
+    const normalizedPath = publicPath.startsWith('/') ? publicPath : `/${publicPath}`;
+    const trimmedPath = normalizedPath.replace(/\/+$/, '');
+    const upstream = `${service.upstream || ''}`.trim();
+    const upstreamPort = Number(upstream.split(':').pop());
+    if (
+      !publicPath ||
+      trimmedPath === '' ||
+      trimmedPath === '/' ||
+      normalizedPath.includes('//') ||
+      !publicPathPattern.test(normalizedPath) ||
+      isReservedPublicPath(trimmedPath) ||
+      !upstreamPattern.test(upstream) ||
+      !Number.isInteger(upstreamPort) ||
+      upstreamPort < 1 ||
+      upstreamPort > 65535
+    ) {
+      return 'runtime';
+    }
+    return 'rules';
+  }
+
   function isReservedPublicPath(path) {
     if (reservedPublicPaths.has(path)) return true;
     return reservedPublicPathPrefixes.some(
@@ -504,7 +537,7 @@
   }
 </script>
 
-<div class="page">
+<div class="page media-center-page">
   <div class="page-header">
     <div>
       <h1 class="page-title">{t('mediaCenter')}</h1>
@@ -551,419 +584,471 @@
       </div>
     {/if}
 
-    <!-- Public access and internal runtime wiring -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">{t('mediaServiceRuntime')}</div>
-          <div class="card-subtitle">{t('mediaServiceRuntimeDesc')}</div>
-        </div>
-      </div>
-
-      <div class="access-row">
-        <div class="form-group access-prefix">
-          <label for="media-public-path">{t('publicApiPrefix')}</label>
-          <input
-            id="media-public-path"
-            value={config.service.public_path}
-            oninput={(e) => updateService('public_path', e.currentTarget.value)}
-            placeholder="/api/media"
-          />
-        </div>
-        <div class="access-url">
-          <span class="access-url-label">{t('mediaPublicUrl')}</span>
-          <code>{appPublicURL}</code>
-        </div>
-      </div>
-
-      <details class="advanced-panel">
-        <summary>{t('advancedRuntimeSettings')}</summary>
-        <div class="form-grid advanced-panel-body">
-          <div class="form-group">
-            <label for="media-upstream">{t('upstreamTarget')}</label>
-            <input
-              id="media-upstream"
-              value={config.service.upstream}
-              oninput={(e) => updateService('upstream', e.currentTarget.value)}
-              placeholder="media_server:8787"
-            />
-            <div class="helper-text">{t('upstreamTargetHelp')}</div>
-          </div>
-        </div>
-        <div class="config-flow runtime-config-flow">
-          <div class="config-step">
-            <span class="config-step-label">{t('editableConfigFile')}</span>
-            <code>{configFiles.admin_config || t('configPathUnavailable')}</code>
-          </div>
-          <div class="config-flow-arrow">→</div>
-          <div class="config-step">
-            <span class="config-step-label">{t('generatedRuntimeFile')}</span>
-            <code>{configFiles.runtime_config || t('configPathUnavailable')}</code>
-          </div>
-          <div class="config-flow-arrow">→</div>
-          <div class="config-step">
-            <span class="config-step-label">{t('mediaServerMount')}</span>
-            <code>/config/contentCategories.json</code>
-          </div>
-        </div>
-        <div class="helper-text runtime-hint">{t('runtimeApplyHint')}</div>
-        {#if configFiles.defaults}
-          <div class="helper-text runtime-hint">
-            {t('bundledDefaultsFile')}: <code>{configFiles.defaults}</code>
-          </div>
-        {/if}
-      </details>
-    </div>
-
-    <!-- Android TV App release: admin publishes reviewed APK, app consumes /api/media/app/update -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Android TV App 更新发布</div>
-          <div class="card-subtitle">
-            上传审核后的 APK；客户端启动时会自动检查、下载、校验并拉起安装器。
-          </div>
-        </div>
-        <button class="btn btn-sm btn-ghost" onclick={loadAppRelease} disabled={appReleaseLoading}>
-          {appReleaseLoading ? '刷新中…' : t('refresh')}
-        </button>
-      </div>
-
-      <div class="release-status">
-        {#if appRelease?.published}
-          {@const manifest = appRelease.manifest}
-          <div class="release-current">
-            <span class="badge badge-green">已发布</span>
-            <strong>{manifest.versionName}</strong>
-            <span>versionCode {manifest.versionCode}</span>
-            <span>{formatBytes(manifest.sizeBytes)}</span>
-            {#if manifest.publishedAt}<span>{manifest.publishedAt}</span>{/if}
-          </div>
-          <code class="release-sha">{manifest.sha256}</code>
-        {:else}
-          <div class="helper-text">尚未发布 App 更新；客户端会继续使用当前版本。</div>
-        {/if}
-      </div>
-
-      <div class="form-grid app-release-form">
-        <div class="form-group">
-          <label for="app-version-code">versionCode</label>
-          <input
-            id="app-version-code"
-            inputmode="numeric"
-            value={appReleaseForm.versionCode}
-            oninput={(e) =>
-              (appReleaseForm = { ...appReleaseForm, versionCode: e.currentTarget.value })}
-            placeholder="2"
-          />
-        </div>
-        <div class="form-group">
-          <label for="app-version-name">versionName</label>
-          <input
-            id="app-version-name"
-            value={appReleaseForm.versionName}
-            oninput={(e) =>
-              (appReleaseForm = { ...appReleaseForm, versionName: e.currentTarget.value })}
-            placeholder="1.1.0"
-          />
-        </div>
-        <div class="form-group">
-          <label for="app-apk-file">APK 文件</label>
-          <input
-            id="app-apk-file"
-            type="file"
-            accept=".apk,application/vnd.android.package-archive"
-            onchange={(e) => (appReleaseFile = e.currentTarget.files?.[0] || null)}
-          />
-        </div>
-      </div>
-      <div class="form-group app-release-notes">
-        <label for="app-release-notes">更新说明</label>
-        <textarea
-          id="app-release-notes"
-          rows="4"
-          value={appReleaseForm.releaseNotes}
-          oninput={(e) =>
-            (appReleaseForm = { ...appReleaseForm, releaseNotes: e.currentTarget.value })}
-        ></textarea>
-      </div>
-      <div class="card-actions">
+    <nav class="media-tab-bar tab-bar" aria-label={t('mediaCenter')}>
+      {#each mediaTabs as tab}
         <button
-          class="btn btn-sm btn-primary"
-          onclick={publishAppRelease}
-          disabled={appReleaseUploading}
+          class="tab-btn media-tab-btn"
+          class:active={activeTab === tab.id}
+          type="button"
+          aria-current={activeTab === tab.id ? 'page' : undefined}
+          onclick={() => (activeTab = tab.id)}
         >
-          {#if appReleaseUploading}<span class="spinner"></span>{/if}
-          {appReleaseUploading ? '发布中…' : '发布 App 更新'}
+          {t(tab.labelKey)}
         </button>
-      </div>
-    </div>
+      {/each}
+    </nav>
 
-    <!-- Sources — known sources, only the on/off switch is editable -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">
-            {t('mediaSources')}
-            <span class="card-title-count">
-              {t('sourcesEnabledCount', {
-                count: enabledSourceCount,
-                total: (config.sources || []).length,
-              })}
-            </span>
+    {#if activeTab === 'runtime'}
+      <!-- Public access and internal runtime wiring -->
+      <div class="card media-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">{t('mediaServiceRuntime')}</div>
+            <div class="card-subtitle">{t('mediaServiceRuntimeDesc')}</div>
           </div>
-          <div class="card-subtitle">{t('mediaSourcesDesc')}</div>
         </div>
-        <div class="card-actions">
-          <button
-            class="btn btn-sm btn-ghost"
-            onclick={resetSources}
-            disabled={defaultSources.length === 0}
-          >
-            {t('resetDefaultSources')}
-          </button>
-        </div>
-      </div>
 
-      <div class="source-grid">
-        {#each config.sources || [] as source, index}
-          <section class="source-card" class:source-on={source.enabled}>
-            <div class="source-top">
-              <div class="source-id-row">
-                <span class="source-name">{source.title || source.id}</span>
-                <span class={`badge ${source.enabled ? 'badge-green' : 'badge-gray'}`}>
-                  {sourceStatusLabel(source)}
-                </span>
-                <span class={`badge ${sourceRiskBadge(source.riskLevel)}`}>
-                  {sourceRiskLabel(source.riskLevel)}
-                </span>
-              </div>
-              <button
-                type="button"
-                class="switch"
-                class:switch-on={source.enabled}
-                role="switch"
-                aria-checked={source.enabled}
-                aria-label={source.title || source.id}
-                onclick={() => updateSource(index, { enabled: !source.enabled })}
-              >
-                <span class="switch-knob"></span>
-              </button>
-            </div>
-            <div class="source-desc">{source.description}</div>
-            <div class="source-foot">
-              <span class="source-id-tag">{source.id}</span>
-              {#if source.homeUrl}
-                <a class="source-link" href={source.homeUrl} target="_blank" rel="noreferrer">
-                  {t('sourceHomepage')} ↗
-                </a>
-              {/if}
-            </div>
-          </section>
-        {/each}
-      </div>
-    </div>
-
-    <!-- Categories — the main editable content -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">
-            {t('mediaCategories')}
-            <span class="card-title-count">{config.categories.length}</span>
+        <div class="access-row">
+          <div class="form-group access-prefix">
+            <label for="media-public-path">{t('publicApiPrefix')}</label>
+            <input
+              id="media-public-path"
+              value={config.service.public_path}
+              oninput={(e) => updateService('public_path', e.currentTarget.value)}
+              placeholder="/api/media"
+            />
           </div>
-          <div class="card-subtitle">{t('mediaCategoriesDesc')}</div>
+          <div class="access-url">
+            <span class="access-url-label">{t('mediaPublicUrl')}</span>
+            <code>{appPublicURL}</code>
+          </div>
         </div>
-        <div class="card-actions">
-          {#if config.categories.length > 0}
-            <button class="btn btn-sm btn-ghost" onclick={() => setAllExpanded(!allExpanded)}>
-              {allExpanded ? t('collapseAll') : t('expandAll')}
-            </button>
+
+        <details class="advanced-panel">
+          <summary>{t('advancedRuntimeSettings')}</summary>
+          <div class="form-grid advanced-panel-body">
+            <div class="form-group">
+              <label for="media-upstream">{t('upstreamTarget')}</label>
+              <input
+                id="media-upstream"
+                value={config.service.upstream}
+                oninput={(e) => updateService('upstream', e.currentTarget.value)}
+                placeholder="media_server:8787"
+              />
+              <div class="helper-text">{t('upstreamTargetHelp')}</div>
+            </div>
+          </div>
+          <div class="config-flow runtime-config-flow">
+            <div class="config-step">
+              <span class="config-step-label">{t('editableConfigFile')}</span>
+              <code>{configFiles.admin_config || t('configPathUnavailable')}</code>
+            </div>
+            <div class="config-flow-arrow">→</div>
+            <div class="config-step">
+              <span class="config-step-label">{t('generatedRuntimeFile')}</span>
+              <code>{configFiles.runtime_config || t('configPathUnavailable')}</code>
+            </div>
+            <div class="config-flow-arrow">→</div>
+            <div class="config-step">
+              <span class="config-step-label">{t('mediaServerMount')}</span>
+              <code>/config/contentCategories.json</code>
+            </div>
+          </div>
+          <div class="helper-text runtime-hint">{t('runtimeApplyHint')}</div>
+          {#if configFiles.defaults}
+            <div class="helper-text runtime-hint">
+              {t('bundledDefaultsFile')}: <code>{configFiles.defaults}</code>
+            </div>
           {/if}
-          <button
-            class="btn btn-sm btn-ghost"
-            onclick={resetCategories}
-            disabled={defaultCategories.length === 0}
-          >
-            {t('resetDefaults')}
+        </details>
+      </div>
+    {:else if activeTab === 'app'}
+      <!-- Android TV App release: admin publishes reviewed APK, app consumes /api/media/app/update -->
+      <div class="card media-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Android TV App 更新发布</div>
+            <div class="card-subtitle">
+              上传审核后的 APK；客户端启动时会自动检查、下载、校验并拉起安装器。
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick={loadAppRelease} disabled={appReleaseLoading}>
+            {appReleaseLoading ? '刷新中…' : t('refresh')}
           </button>
-          <button class="btn btn-sm btn-success" onclick={addCategory}>{t('addCategory')}</button>
+        </div>
+
+        <div class="release-status">
+          {#if appRelease?.published}
+            {@const manifest = appRelease.manifest}
+            <div class="release-current">
+              <span class="badge badge-green">已发布</span>
+              <strong>{manifest.versionName}</strong>
+              <span>versionCode {manifest.versionCode}</span>
+              <span>{formatBytes(manifest.sizeBytes)}</span>
+              {#if manifest.publishedAt}<span>{manifest.publishedAt}</span>{/if}
+            </div>
+            <code class="release-sha">{manifest.sha256}</code>
+          {:else}
+            <div class="helper-text">尚未发布 App 更新；客户端会继续使用当前版本。</div>
+          {/if}
+        </div>
+
+        <div class="form-grid app-release-form">
+          <div class="form-group">
+            <label for="app-version-code">versionCode</label>
+            <input
+              id="app-version-code"
+              inputmode="numeric"
+              value={appReleaseForm.versionCode}
+              oninput={(e) =>
+                (appReleaseForm = { ...appReleaseForm, versionCode: e.currentTarget.value })}
+              placeholder="2"
+            />
+          </div>
+          <div class="form-group">
+            <label for="app-version-name">versionName</label>
+            <input
+              id="app-version-name"
+              value={appReleaseForm.versionName}
+              oninput={(e) =>
+                (appReleaseForm = { ...appReleaseForm, versionName: e.currentTarget.value })}
+              placeholder="1.1.0"
+            />
+          </div>
+          <div class="form-group">
+            <label for="app-apk-file">APK 文件</label>
+            <input
+              id="app-apk-file"
+              type="file"
+              accept=".apk,application/vnd.android.package-archive"
+              onchange={(e) => (appReleaseFile = e.currentTarget.files?.[0] || null)}
+            />
+          </div>
+        </div>
+        <div class="form-group app-release-notes">
+          <label for="app-release-notes">更新说明</label>
+          <textarea
+            id="app-release-notes"
+            rows="4"
+            value={appReleaseForm.releaseNotes}
+            oninput={(e) =>
+              (appReleaseForm = { ...appReleaseForm, releaseNotes: e.currentTarget.value })}
+          ></textarea>
+        </div>
+        <div class="card-actions">
+          <button
+            class="btn btn-sm btn-primary"
+            onclick={publishAppRelease}
+            disabled={appReleaseUploading}
+          >
+            {#if appReleaseUploading}<span class="spinner"></span>{/if}
+            {appReleaseUploading ? '发布中…' : '发布 App 更新'}
+          </button>
         </div>
       </div>
+    {:else if activeTab === 'rules'}
+      <!-- Sources — known sources, only the on/off switch is editable -->
+      <div class="card media-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              {t('mediaSources')}
+              <span class="card-title-count">
+                {t('sourcesEnabledCount', {
+                  count: enabledSourceCount,
+                  total: (config.sources || []).length,
+                })}
+              </span>
+            </div>
+            <div class="card-subtitle">{t('mediaSourcesDesc')}</div>
+          </div>
+          <div class="card-actions">
+            <button
+              class="btn btn-sm btn-ghost"
+              onclick={resetSources}
+              disabled={defaultSources.length === 0}
+            >
+              {t('resetDefaultSources')}
+            </button>
+          </div>
+        </div>
 
-      <div class="category-list">
-        {#each config.categories as category, index (category._uid)}
-          {@const open = isExpanded(category._uid)}
-          <section class="category-card" class:is-open={open}>
-            <div class="category-summary">
-              <button
-                type="button"
-                class="category-toggle"
-                aria-expanded={open}
-                aria-label={`${open ? t('collapseLabel') : t('expandLabel')} ${category.title || category.id}`}
-                onclick={() => toggleExpanded(category._uid)}
-              >
-                <span class="chevron" class:chevron-open={open} aria-hidden="true">›</span>
-                <span class="category-main">
-                  <span class="category-heading">
-                    <span class="category-title">{category.title || category.id}</span>
-                    <span class="category-id-tag">{category.id}</span>
+        <div class="source-grid">
+          {#each config.sources || [] as source, index}
+            <section class="source-card" class:source-on={source.enabled}>
+              <div class="source-top">
+                <div class="source-id-row">
+                  <span class="source-name">{source.title || source.id}</span>
+                  <span class={`badge ${source.enabled ? 'badge-green' : 'badge-gray'}`}>
+                    {sourceStatusLabel(source)}
                   </span>
-                  {#if category.description}
-                    <span class="category-summary-desc">{category.description}</span>
-                  {/if}
-                </span>
-                <span class="category-meta">
-                  <span class="meta-pill"
-                    >{t('categoryKeywordsCount', { count: categoryKeywordCount(category) })}</span
-                  >
-                  {#if categoryExcludeCount(category) > 0}
-                    <span class="meta-pill"
-                      >{t('categoryExcludesCount', { count: categoryExcludeCount(category) })}</span
-                    >
-                  {/if}
-                  {#if categorySourceTuned(category)}
-                    <span class="meta-pill meta-pill-accent">{t('categorySourceTuned')}</span>
-                  {/if}
-                </span>
-                <span class="category-toggle-label">
-                  {open ? t('collapseLabel') : t('expandLabel')}
-                </span>
-              </button>
-
-              <div class="category-controls">
+                  <span class={`badge ${sourceRiskBadge(source.riskLevel)}`}>
+                    {sourceRiskLabel(source.riskLevel)}
+                  </span>
+                </div>
                 <button
-                  class="btn btn-icon btn-ghost"
-                  title="↑"
-                  onclick={() => moveCategory(index, -1)}
-                  disabled={index === 0}>↑</button
+                  type="button"
+                  class="switch"
+                  class:switch-on={source.enabled}
+                  role="switch"
+                  aria-checked={source.enabled}
+                  aria-label={source.title || source.id}
+                  onclick={() => updateSource(index, { enabled: !source.enabled })}
                 >
-                <button
-                  class="btn btn-icon btn-ghost"
-                  title="↓"
-                  onclick={() => moveCategory(index, 1)}
-                  disabled={index === config.categories.length - 1}>↓</button
-                >
-                <button class="btn btn-sm btn-danger" onclick={() => removeCategory(index)}>
-                  {t('delete')}
+                  <span class="switch-knob"></span>
                 </button>
               </div>
-            </div>
-
-            {#if open}
-              <div class="category-body">
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label for={`category-${category._uid}-id`}>{t('categoryId')}</label>
-                    <input
-                      id={`category-${category._uid}-id`}
-                      value={category.id}
-                      oninput={(e) => updateCategory(index, { id: e.currentTarget.value })}
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label for={`category-${category._uid}-title`}>{t('categoryTitle')}</label>
-                    <input
-                      id={`category-${category._uid}-title`}
-                      value={category.title}
-                      oninput={(e) => updateCategory(index, { title: e.currentTarget.value })}
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label for={`category-${category._uid}-query`}>{t('searchQuery')}</label>
-                    <input
-                      id={`category-${category._uid}-query`}
-                      value={category.searchQuery || ''}
-                      oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
-                      placeholder={category.keywords?.[0] || ''}
-                    />
-                    <div class="helper-text">{t('searchQueryHelp')}</div>
-                  </div>
-                </div>
-
-                <div class="form-group">
-                  <label for={`category-${category._uid}-description`}
-                    >{t('categoryDescription')}</label
-                  >
-                  <input
-                    id={`category-${category._uid}-description`}
-                    value={category.description}
-                    oninput={(e) => updateCategory(index, { description: e.currentTarget.value })}
-                  />
-                </div>
-
-                {#if config.sources?.length}
-                  <details class="field-section advanced-panel">
-                    <summary>{t('sourceSpecificQueries')}</summary>
-                    <div class="helper-text source-query-help">{t('sourceSpecificQueriesDesc')}</div>
-                    <div class="source-query-grid advanced-panel-body">
-                      {#each config.sources as source}
-                        <div class="form-group">
-                          <label for={`category-${category._uid}-source-${source.id}`}>
-                            {t('sourceSearchQuery', { source: source.title || source.id })}
-                            {#if !source.enabled}
-                              <span class="inline-muted">({t('disabledLabel')})</span>
-                            {/if}
-                          </label>
-                          <input
-                            id={`category-${category._uid}-source-${source.id}`}
-                            value={category.sourceQueries?.[source.id] || ''}
-                            oninput={(e) =>
-                              updateCategorySourceQuery(index, source.id, e.currentTarget.value)}
-                            placeholder={category.searchQuery || category.keywords?.[0] || ''}
-                          />
-                        </div>
-                      {/each}
-                    </div>
-                  </details>
+              <div class="source-desc">{source.description}</div>
+              <div class="source-foot">
+                <span class="source-id-tag">{source.id}</span>
+                {#if source.homeUrl}
+                  <a class="source-link" href={source.homeUrl} target="_blank" rel="noreferrer">
+                    {t('sourceHomepage')} ↗
+                  </a>
                 {/if}
+              </div>
+            </section>
+          {/each}
+        </div>
+      </div>
 
-                <div class="textarea-grid">
-                  <div class="form-group">
-                    <label for={`category-${category._uid}-keywords`}
-                      >{t('keywordsOnePerLine')}</label
+      <!-- Categories — the main editable content -->
+      <div class="card media-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              {t('mediaCategories')}
+              <span class="card-title-count">{config.categories.length}</span>
+            </div>
+            <div class="card-subtitle">{t('mediaCategoriesDesc')}</div>
+          </div>
+          <div class="card-actions">
+            {#if config.categories.length > 0}
+              <button class="btn btn-sm btn-ghost" onclick={() => setAllExpanded(!allExpanded)}>
+                {allExpanded ? t('collapseAll') : t('expandAll')}
+              </button>
+            {/if}
+            <button
+              class="btn btn-sm btn-ghost"
+              onclick={resetCategories}
+              disabled={defaultCategories.length === 0}
+            >
+              {t('resetDefaults')}
+            </button>
+            <button class="btn btn-sm btn-success" onclick={addCategory}>{t('addCategory')}</button>
+          </div>
+        </div>
+
+        <div class="category-list">
+          {#each config.categories as category, index (category._uid)}
+            {@const open = isExpanded(category._uid)}
+            <section class="category-card" class:is-open={open}>
+              <div class="category-summary">
+                <button
+                  type="button"
+                  class="category-toggle"
+                  aria-expanded={open}
+                  aria-label={`${open ? t('collapseLabel') : t('expandLabel')} ${category.title || category.id}`}
+                  onclick={() => toggleExpanded(category._uid)}
+                >
+                  <span class="chevron" class:chevron-open={open} aria-hidden="true">›</span>
+                  <span class="category-main">
+                    <span class="category-heading">
+                      <span class="category-title">{category.title || category.id}</span>
+                      <span class="category-id-tag">{category.id}</span>
+                    </span>
+                    {#if category.description}
+                      <span class="category-summary-desc">{category.description}</span>
+                    {/if}
+                  </span>
+                  <span class="category-meta">
+                    <span class="meta-pill"
+                      >{t('categoryKeywordsCount', { count: categoryKeywordCount(category) })}</span
                     >
-                    <textarea
-                      id={`category-${category._uid}-keywords`}
-                      rows="6"
-                      value={(category.keywords || []).join('\n')}
-                      oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
-                    ></textarea>
-                    <div class="helper-text">{t('keywordsHelp')}</div>
+                    {#if categoryExcludeCount(category) > 0}
+                      <span class="meta-pill"
+                        >{t('categoryExcludesCount', { count: categoryExcludeCount(category) })}</span
+                      >
+                    {/if}
+                    {#if categorySourceTuned(category)}
+                      <span class="meta-pill meta-pill-accent">{t('categorySourceTuned')}</span>
+                    {/if}
+                  </span>
+                  <span class="category-toggle-label">
+                    {open ? t('collapseLabel') : t('expandLabel')}
+                  </span>
+                </button>
+
+                <details class="category-menu">
+                  <summary class="btn btn-sm btn-ghost">{t('actions')}</summary>
+                  <div class="category-menu-body">
+                    <button
+                      class="btn btn-sm btn-ghost"
+                      onclick={() => moveCategory(index, -1)}
+                      disabled={index === 0}
+                    >
+                      {t('moveUp')}
+                    </button>
+                    <button
+                      class="btn btn-sm btn-ghost"
+                      onclick={() => moveCategory(index, 1)}
+                      disabled={index === config.categories.length - 1}
+                    >
+                      {t('moveDown')}
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick={() => removeCategory(index)}>
+                      {t('delete')}
+                    </button>
                   </div>
+                </details>
+              </div>
+
+              {#if open}
+                <div class="category-body">
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label for={`category-${category._uid}-id`}>{t('categoryId')}</label>
+                      <input
+                        id={`category-${category._uid}-id`}
+                        value={category.id}
+                        oninput={(e) => updateCategory(index, { id: e.currentTarget.value })}
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label for={`category-${category._uid}-title`}>{t('categoryTitle')}</label>
+                      <input
+                        id={`category-${category._uid}-title`}
+                        value={category.title}
+                        oninput={(e) => updateCategory(index, { title: e.currentTarget.value })}
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label for={`category-${category._uid}-query`}>{t('searchQuery')}</label>
+                      <input
+                        id={`category-${category._uid}-query`}
+                        value={category.searchQuery || ''}
+                        oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
+                        placeholder={category.keywords?.[0] || ''}
+                      />
+                      <div class="helper-text">{t('searchQueryHelp')}</div>
+                    </div>
+                  </div>
+
                   <div class="form-group">
-                    <label for={`category-${category._uid}-excludes`}
-                      >{t('excludesOnePerLine')}</label
+                    <label for={`category-${category._uid}-description`}
+                      >{t('categoryDescription')}</label
                     >
-                    <textarea
-                      id={`category-${category._uid}-excludes`}
-                      rows="6"
-                      value={(category.excludes || []).join('\n')}
-                      oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
-                    ></textarea>
-                    <div class="helper-text">{t('excludesHelp')}</div>
+                    <input
+                      id={`category-${category._uid}-description`}
+                      value={category.description}
+                      oninput={(e) => updateCategory(index, { description: e.currentTarget.value })}
+                    />
+                  </div>
+
+                  {#if config.sources?.length}
+                    <details class="field-section advanced-panel">
+                      <summary>{t('sourceSpecificQueries')}</summary>
+                      <div class="helper-text source-query-help">{t('sourceSpecificQueriesDesc')}</div>
+                      <div class="source-query-grid advanced-panel-body">
+                        {#each config.sources as source}
+                          <div class="form-group">
+                            <label for={`category-${category._uid}-source-${source.id}`}>
+                              {t('sourceSearchQuery', { source: source.title || source.id })}
+                              {#if !source.enabled}
+                                <span class="inline-muted">({t('disabledLabel')})</span>
+                              {/if}
+                            </label>
+                            <input
+                              id={`category-${category._uid}-source-${source.id}`}
+                              value={category.sourceQueries?.[source.id] || ''}
+                              oninput={(e) =>
+                                updateCategorySourceQuery(index, source.id, e.currentTarget.value)}
+                              placeholder={category.searchQuery || category.keywords?.[0] || ''}
+                            />
+                          </div>
+                        {/each}
+                      </div>
+                    </details>
+                  {/if}
+
+                  <div class="textarea-grid">
+                    <div class="form-group">
+                      <label for={`category-${category._uid}-keywords`}
+                        >{t('keywordsOnePerLine')}</label
+                      >
+                      <textarea
+                        id={`category-${category._uid}-keywords`}
+                        rows="6"
+                        value={(category.keywords || []).join('\n')}
+                        oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
+                      ></textarea>
+                      <div class="helper-text">{t('keywordsHelp')}</div>
+                    </div>
+                    <div class="form-group">
+                      <label for={`category-${category._uid}-excludes`}
+                        >{t('excludesOnePerLine')}</label
+                      >
+                      <textarea
+                        id={`category-${category._uid}-excludes`}
+                        rows="6"
+                        value={(category.excludes || []).join('\n')}
+                        oninput={(e) => updateCategoryList(index, 'excludes', e.currentTarget.value)}
+                      ></textarea>
+                      <div class="helper-text">{t('excludesHelp')}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            {/if}
-          </section>
-        {:else}
-          <div class="empty-state">{t('noMediaCategories')}</div>
-        {/each}
+              {/if}
+            </section>
+          {:else}
+            <div class="empty-state">{t('noMediaCategories')}</div>
+          {/each}
+        </div>
       </div>
-    </div>
-
-    <!-- Pre-collected category management: catalog review + snapshots + curation -->
-    <MediaCatalog />
+    {:else if activeTab === 'catalog'}
+      <!-- Pre-collected category management: catalog review + snapshots + curation -->
+      <MediaCatalog />
+    {/if}
   {/if}
 </div>
 
 <style>
+  .media-center-page {
+    --c-text-secondary: #94a3b8;
+    --c-text-muted: #64748b;
+    max-width: 100%;
+  }
+  .media-center-page :global(.card-subtitle),
+  .media-center-page :global(.helper-text),
+  .media-center-page :global(label) {
+    line-height: 1.55;
+  }
+  .media-center-page :global(.card-subtitle),
+  .media-center-page :global(.helper-text) {
+    color: #7f8ea3;
+  }
+  .media-tab-bar {
+    background: rgba(6, 10, 19, 0.86);
+    backdrop-filter: blur(12px);
+    margin-bottom: 1rem;
+    overflow-x: auto;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .media-tab-btn {
+    color: var(--c-text-secondary);
+    flex: 0 0 auto;
+  }
+  .media-card {
+    margin-bottom: 1rem;
+  }
+
   .form-grid,
   .textarea-grid,
   .source-query-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 0.75rem;
   }
 
@@ -1229,7 +1314,7 @@
     background: var(--c-bg-surface);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    overflow: visible;
     transition: border-color var(--transition);
   }
   .category-card.is-open {
@@ -1238,8 +1323,8 @@
   .category-summary {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.55rem 0.65rem;
+    gap: 0.65rem;
+    padding: 0.65rem 0.75rem;
   }
   .category-toggle {
     display: flex;
@@ -1284,6 +1369,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.22rem;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .category-heading {
@@ -1324,7 +1410,7 @@
     flex-wrap: wrap;
     margin-left: auto;
     justify-content: flex-end;
-    flex: 0 1 auto;
+    flex: 0 1 42%;
   }
   .meta-pill {
     font-size: 0.65rem;
@@ -1348,12 +1434,34 @@
     font-weight: 600;
     padding: 0.12rem 0.45rem;
   }
-  .category-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
+  .category-menu {
     flex-shrink: 0;
-    margin-left: 0;
+    position: relative;
+  }
+  .category-menu summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .category-menu summary::-webkit-details-marker {
+    display: none;
+  }
+  .category-menu-body {
+    background: var(--c-bg-elevated);
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 18px 35px rgba(0, 0, 0, 0.28);
+    display: grid;
+    gap: 0.35rem;
+    min-width: 128px;
+    padding: 0.45rem;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.35rem);
+    z-index: 20;
+  }
+  .category-menu-body :global(.btn) {
+    justify-content: flex-start;
+    width: 100%;
   }
   .category-body {
     display: flex;
@@ -1383,8 +1491,12 @@
     .category-meta {
       display: none;
     }
-    .category-controls {
+    .category-menu {
       margin-left: 1.8rem;
+    }
+    .category-menu-body {
+      left: 0;
+      right: auto;
     }
   }
 </style>

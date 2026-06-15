@@ -242,6 +242,33 @@
     importOpen = !importOpen;
   }
 
+  async function loadImportFile(event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed?.items) || parsed.items.length === 0) {
+        toast(t('catalogImportEmpty'), 'error');
+        return;
+      }
+      importText = JSON.stringify(parsed, null, 2);
+      importResult = null;
+      toast(
+        t('catalogImportFileLoaded', {
+          name: file.name,
+          count: parsed.items.length,
+        }),
+        'success',
+      );
+    } catch {
+      toast(t('catalogImportInvalidJson'), 'error');
+    } finally {
+      input.value = '';
+    }
+  }
+
   async function runImport() {
     let parsed;
     try {
@@ -553,6 +580,19 @@
       {#if importOpen}
         <div class="curation-body">
           <div class="helper-text">{t('catalogImportDesc')}</div>
+          <div class="import-file-row">
+            <label class="btn btn-sm btn-secondary" for="catalog-import-file">
+              {t('catalogImportSelectFile')}
+            </label>
+            <input
+              id="catalog-import-file"
+              class="import-file-input"
+              type="file"
+              accept=".json,application/json"
+              onchange={loadImportFile}
+            />
+            <span class="helper-text">{t('catalogImportFileHelp')}</span>
+          </div>
           <textarea
             class="curation-text"
             bind:value={importText}
@@ -850,6 +890,20 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.8rem;
     resize: vertical;
+  }
+  .import-file-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 0.7rem;
+  }
+  .import-file-input {
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    position: absolute;
+    width: 1px;
   }
   .curation-actions {
     margin-top: 0.6rem;
