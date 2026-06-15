@@ -163,19 +163,27 @@ func TestApiMediaCatalogReviewInjectsReviewer(t *testing.T) {
 func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
 	var gotPath string
 	var gotBody string
+	var gotReviewer string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
+		var parsed struct {
+			Reviewer string `json:"reviewer"`
+		}
+		_ = json.Unmarshal(body, &parsed)
+		gotReviewer = parsed.Reviewer
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"imported":1,"skipped":0}`))
+		_, _ = w.Write([]byte(`{"imported":1,"approved":1,"skipped":0}`))
 	}))
 	defer backend.Close()
 	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
 	t.Setenv("MEDIA_CENTER_INTERNAL_URL", backend.URL)
 
-	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(`{"items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1","title":"T"}]}`))
+	reqBody := `{"reviewer":"attacker","items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1","title":"T","status":"approved"}]}`
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(reqBody))
+	r = r.WithContext(context.WithValue(r.Context(), usernameCtxKey, "alice"))
 	rec := httptest.NewRecorder()
 	apiMediaCatalogImport()(rec, r)
 
@@ -187,5 +195,8 @@ func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
 	}
 	if !strings.Contains(gotBody, `"nativeId":"BV1"`) {
 		t.Fatalf("unexpected proxied body: %s", gotBody)
+	}
+	if gotReviewer != "alice" {
+		t.Errorf("reviewer = %q, want injected login user 'alice'", gotReviewer)
 	}
 }

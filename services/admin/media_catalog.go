@@ -182,21 +182,33 @@ func apiMediaCatalogReview() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogImport 代理 POST /internal/catalog/import：导入外部工具/AI 收集好的候选为 pending。
+// apiMediaCatalogImport 代理 POST /internal/catalog/import：导入外部工具/AI 收集好的候选。
+// 默认导入为 pending；item 可带 status=approved 直接收录上线（用于"已审核视频集一步上线"）。
+// admin 强制把 reviewer 覆盖为当前登录用户名（审计），用于 approved 项的审校留痕。
 func apiMediaCatalogImport() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err != nil {
 			writeInternalError(w, err)
 			return
 		}
-		if !json.Valid(bytes.TrimSpace(body)) {
+		var req map[string]json.RawMessage
+		if err := json.Unmarshal(bytes.TrimSpace(raw), &req); err != nil {
 			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			return
+		}
+		_, username := getUserFromContext(r)
+		if reviewer, mErr := json.Marshal(strings.TrimSpace(username)); mErr == nil {
+			req["reviewer"] = reviewer
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			writeInternalError(w, err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, bytes.TrimSpace(body))
+		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body)
 	}
 }
 

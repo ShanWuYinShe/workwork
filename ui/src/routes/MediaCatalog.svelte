@@ -5,6 +5,7 @@
     getMediaCatalogItems,
     reviewMediaCatalogItem,
     seedMediaCatalog,
+    importMediaCatalog,
     rebuildMediaSnapshots,
     getMediaCuration,
     saveMediaCuration,
@@ -32,6 +33,12 @@
   let curationLoading = $state(false);
   let curationSaving = $state(false);
   let curationOpen = $state(false);
+
+  let importText = $state('');
+  let importApproved = $state(false);
+  let importBusy = $state(false);
+  let importOpen = $state(false);
+  let importResult = $state(null);
 
   const statusOptions = ['pending', 'approved', 'rejected', ''];
 
@@ -186,6 +193,43 @@
   async function rebuildAll() {
     if (!(await showConfirm(t('confirmRebuildAll')))) return;
     await rebuild('');
+  }
+
+  function toggleImport() {
+    importOpen = !importOpen;
+  }
+
+  async function runImport() {
+    let parsed;
+    try {
+      parsed = JSON.parse(importText);
+    } catch {
+      toast(t('catalogImportInvalidJson'), 'error');
+      return;
+    }
+    const list = Array.isArray(parsed) ? parsed : parsed?.items;
+    if (!Array.isArray(list) || list.length === 0) {
+      toast(t('catalogImportEmpty'), 'error');
+      return;
+    }
+    importBusy = true;
+    try {
+      const data = await importMediaCatalog(list, importApproved);
+      importResult = data;
+      toast(
+        t('catalogImportDone', {
+          imported: data.imported ?? 0,
+          approved: data.approved ?? 0,
+          skipped: data.skipped ?? 0,
+        }),
+        'success',
+      );
+      await refreshOverview();
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+    } finally {
+      importBusy = false;
+    }
   }
 
   async function loadCuration() {
@@ -446,6 +490,47 @@
     {/if}
 
     <div class="curation-block">
+      <button class="curation-toggle" onclick={toggleImport}>
+        <span>{t('catalogImportTitle')}</span>
+        <span class="curation-sign">{importOpen ? '−' : '+'}</span>
+      </button>
+      {#if importOpen}
+        <div class="curation-body">
+          <div class="helper-text">{t('catalogImportDesc')}</div>
+          <textarea
+            class="curation-text"
+            bind:value={importText}
+            spellcheck="false"
+            placeholder={t('catalogImportPlaceholder')}
+          ></textarea>
+          <label class="import-approve">
+            <input type="checkbox" bind:checked={importApproved} />
+            <span>{t('catalogImportApproved')}</span>
+          </label>
+          <div class="curation-actions">
+            <button
+              class="btn btn-sm btn-primary"
+              onclick={runImport}
+              disabled={importBusy || !overview.catalogEnabled}
+            >
+              {#if importBusy}<span class="spinner"></span>{/if}
+              {t('catalogImportRun')}
+            </button>
+            {#if importResult}
+              <span class="import-result"
+                >{t('catalogImportResult', {
+                  imported: importResult.imported ?? 0,
+                  approved: importResult.approved ?? 0,
+                  skipped: importResult.skipped ?? 0,
+                })}</span
+              >
+            {/if}
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    <div class="curation-block">
       <button class="curation-toggle" onclick={toggleCuration}>
         <span>{t('curationTitle')}</span>
         <span class="curation-sign">{curationOpen ? '−' : '+'}</span>
@@ -703,5 +788,22 @@
   }
   .curation-actions {
     margin-top: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .import-approve {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--c-text);
+    cursor: pointer;
+  }
+  .import-result {
+    font-size: 0.82rem;
+    color: var(--c-text-muted);
   }
 </style>
