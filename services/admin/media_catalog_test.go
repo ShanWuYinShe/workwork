@@ -20,39 +20,6 @@ func decodeAdminEnvelope(t *testing.T, body io.Reader) jsonResp {
 	return resp
 }
 
-func TestNormalizeMediaCuration(t *testing.T) {
-	in := mediaCurationDoc{Categories: map[string]mediaCurationCategory{
-		"  movies ": {
-			BlockIDs:           []string{" bilibili:BV1 ", "bilibili:BV1", "", "bilibili:BV2"},
-			BlockTitleContains: []string{"预告", " 预告 ", "解说"},
-			PinIDs:             []string{" "},
-		},
-		"empty": {BlockIDs: []string{"   "}, PinIDs: []string{""}},
-		"   ":   {BlockIDs: []string{"x"}},
-	}}
-	out := normalizeMediaCuration(in)
-
-	if _, ok := out.Categories["empty"]; ok {
-		t.Errorf("expected fully-empty category to be dropped")
-	}
-	if _, ok := out.Categories[""]; ok {
-		t.Errorf("expected blank category id to be dropped")
-	}
-	movies, ok := out.Categories["movies"]
-	if !ok {
-		t.Fatalf("expected trimmed category id 'movies'")
-	}
-	if len(movies.BlockIDs) != 2 || movies.BlockIDs[0] != "bilibili:BV1" || movies.BlockIDs[1] != "bilibili:BV2" {
-		t.Errorf("blockIds dedup/trim wrong: %#v", movies.BlockIDs)
-	}
-	if len(movies.BlockTitleContains) != 2 {
-		t.Errorf("blockTitleContains dedup wrong: %#v", movies.BlockTitleContains)
-	}
-	if len(movies.PinIDs) != 0 {
-		t.Errorf("pinIds should be empty after trim: %#v", movies.PinIDs)
-	}
-}
-
 func TestMediaCenterInternalErrorMessage(t *testing.T) {
 	msg := mediaCenterInternalErrorMessage([]byte(`{"error":{"code":"BAD_REQUEST","message":"未知分类:foo"}}`), 400)
 	if msg != "未知分类:foo" {

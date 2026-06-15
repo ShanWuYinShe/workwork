@@ -9,8 +9,6 @@
     seedMediaCatalog,
     importMediaCatalog,
     rebuildMediaSnapshots,
-    getMediaCuration,
-    saveMediaCuration,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -28,13 +26,6 @@
   let items = $state([]);
   let itemsLoading = $state(false);
   let rankDraft = $state({});
-
-  let curationText = $state('');
-  let curationFile = $state('');
-  let curationLoaded = $state(false);
-  let curationLoading = $state(false);
-  let curationSaving = $state(false);
-  let curationOpen = $state(false);
 
   let importText = $state('');
   let importApproved = $state(false);
@@ -298,45 +289,6 @@
       toast(e?.message || String(e), 'error');
     } finally {
       importBusy = false;
-    }
-  }
-
-  async function loadCuration() {
-    curationLoading = true;
-    try {
-      const data = await getMediaCuration();
-      curationFile = data.file || '';
-      curationText = JSON.stringify(data.curation || { categories: {} }, null, 2);
-      curationLoaded = true;
-    } catch (e) {
-      toast(e?.message || String(e), 'error');
-    } finally {
-      curationLoading = false;
-    }
-  }
-
-  async function toggleCuration() {
-    curationOpen = !curationOpen;
-    if (curationOpen && !curationLoaded) await loadCuration();
-  }
-
-  async function saveCuration() {
-    let parsed;
-    try {
-      parsed = JSON.parse(curationText);
-    } catch {
-      toast(t('curationInvalidJson'), 'error');
-      return;
-    }
-    curationSaving = true;
-    try {
-      const data = await saveMediaCuration(parsed);
-      curationText = JSON.stringify(data.curation || { categories: {} }, null, 2);
-      toast(t('curationSaved'), 'success');
-    } catch (e) {
-      toast(e?.message || String(e), 'error');
-    } finally {
-      curationSaving = false;
     }
   }
 
@@ -626,33 +578,6 @@
       {/if}
     </div>
 
-    <div class="curation-block">
-      <button class="curation-toggle" onclick={toggleCuration}>
-        <span>{t('curationTitle')}</span>
-        <span class="curation-sign">{curationOpen ? '−' : '+'}</span>
-      </button>
-      {#if curationOpen}
-        <div class="curation-body">
-          <div class="helper-text">{t('curationDesc')}</div>
-          {#if curationFile}<div class="cat-id">{curationFile}</div>{/if}
-          {#if curationLoading}
-            <div class="loading-skeleton" style="height:120px;"></div>
-          {:else}
-            <textarea class="curation-text" bind:value={curationText} spellcheck="false"></textarea>
-            <div class="curation-actions">
-              <button
-                class="btn btn-sm btn-primary"
-                onclick={saveCuration}
-                disabled={curationSaving}
-              >
-                {#if curationSaving}<span class="spinner"></span>{/if}
-                {t('curationSave')}
-              </button>
-            </div>
-          {/if}
-        </div>
-      {/if}
-    </div>
   {/if}
 </div>
 
