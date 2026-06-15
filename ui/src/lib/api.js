@@ -148,6 +148,27 @@ export async function reviewMediaCatalogItem(change) {
   });
 }
 
+export async function deleteMediaCatalogItem(item) {
+  return req('/media-center/catalog/delete', {
+    method: 'POST',
+    body: JSON.stringify({
+      categoryId: item.categoryId,
+      provider: item.provider,
+      nativeId: item.nativeId,
+    }),
+  });
+}
+
+export async function exportMediaCatalog(category = '', status = '') {
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  return req(`/media-center/catalog/export${qs ? `?${qs}` : ''}`, {
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
 export async function seedMediaCatalog(category = '') {
   const body = category ? JSON.stringify({ category }) : undefined;
   return req('/media-center/catalog/seed', {
