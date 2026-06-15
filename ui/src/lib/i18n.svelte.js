@@ -176,7 +176,6 @@ const zh = {
   expandAll: '全部展开',
   collapseAll: '全部收起',
   categoryKeywordsCount: '{count} 关键词',
-  categoryExcludesCount: '{count} 排除',
   categorySourceTuned: '已定制来源搜索词',
   mediaSourcesDesc:
     '按中文匹配度和风控风险选择来源。Bilibili 中文覆盖最好但播放链路风险高；Internet Archive 风控低但中文覆盖弱，只适合作为补充。',
@@ -188,7 +187,7 @@ const zh = {
   riskHigh: '高风控',
   mediaCategories: '媒体分类',
   mediaCategoriesDesc:
-    'searchQuery 是通用搜索词；来源搜索词可为不同站点单独优化；keywords 用于相关性评分；excludes 用于过滤。',
+    'searchQuery 是通用搜索词；来源搜索词可为不同站点单独优化；keywords 用于相关性评分。',
   resetDefaults: '恢复默认分类',
   addCategory: '添加分类',
   newCategory: '新分类',
@@ -209,8 +208,6 @@ const zh = {
   searchQueryHelp: 'Provider 检索用词；留空时 Media Server 会用第一个关键词兜底。',
   keywordsOnePerLine: '关键词（每行一个）',
   keywordsHelp: '用于相关性评分和分类准入，越靠前权重越高。多数内置分类要求至少命中一个关键词。',
-  excludesOnePerLine: '排除词（每行一个）',
-  excludesHelp: '命中标题、简介或作者名时会直接过滤。建议用明确噪声词，避免“游戏”这类宽泛词误伤。',
   noMediaCategories: '暂无媒体分类。',
   saveAndApply: '保存并应用',
   saving: '保存中...',
@@ -230,15 +227,14 @@ const zh = {
   categoryDescRequired: '分类 "{label}" 需要描述。',
   categoryKeywordsRequired: '分类 "{label}" 至少需要一个关键词。',
   categoryTooManyKeywords: '分类 "{label}" 关键词过多，最多 {max} 个。',
-  categoryTooManyExcludes: '分类 "{label}" 排除词过多，最多 {max} 个。',
   categoryTooManySourceQueries: '分类 "{label}" 来源专属搜索词过多，最多 {max} 个。',
   categoryUnknownSourceQuery: '分类 "{label}" 包含未知来源搜索词：{source}。',
   mediaCenterSaved: 'Media Center 配置已保存并应用。',
   mediaCenterSavedWithWarnings: '配置已保存，但有服务未自动重启。',
-  // Media Center — 分类预采集管理（catalog 审校 / 运行时快照 / 本地审校 curation.json）
+  // Media Center — 分类预采集管理（catalog 审校 / 运行时快照）
   catalogManagement: '分类预采集管理',
   catalogManagementDesc:
-    '服务端提前采集并审校每个分类的视频，客户端直接读取审校通过的快照。在这里采集候选、审校（通过/拒绝/置顶/排序）、重建快照，并维护本地审校文件。',
+    '服务端提前采集并审校每个分类的视频，客户端直接读取审校通过的快照。在这里采集候选、审校（通过/拒绝/置顶/排序）并重建快照。',
   catalogDisabledNotice:
     '内部管理接口未启用。请在 .env 配置 MEDIA_SERVER_INTERNAL_TOKEN 后重建 admin 与 media_server 容器。',
   catalogSeedAll: '采集全部候选',
@@ -298,12 +294,6 @@ const zh = {
   catalogDelete: '删除',
   catalogDeleteConfirm: '确定彻底删除「{title}」？此操作不可恢复。',
   catalogDeleteDone: '已删除。',
-  curationTitle: '本地审校文件（curation.json）',
-  curationDesc:
-    '可手工编辑、提交进仓库的审校规则：blockIds / blockTitleContains 永久剔除噪声，pinIds 强制置顶。修改后需重建快照才会生效。',
-  curationSave: '保存审校文件',
-  curationSaved: '审校文件已保存，重建快照后生效。',
-  curationInvalidJson: '审校文件不是合法 JSON。',
   confirmSeedAll: '采集全部分类的候选？将对所有来源发起实时聚合，可能耗时较久。',
   confirmRebuildAll: '重建全部分类的快照？',
   // Security
@@ -630,7 +620,6 @@ const en = {
   expandAll: 'Expand all',
   collapseAll: 'Collapse all',
   categoryKeywordsCount: '{count} keywords',
-  categoryExcludesCount: '{count} excludes',
   categorySourceTuned: 'Source queries tuned',
   mediaSourcesDesc:
     'Choose sources by Chinese-content fit and risk-control risk. Bilibili has the best Chinese coverage but high playback risk; Internet Archive is low-risk but weak for Chinese content and should stay supplemental.',
@@ -642,7 +631,7 @@ const en = {
   riskHigh: 'High risk',
   mediaCategories: 'Media Categories',
   mediaCategoriesDesc:
-    'searchQuery is the generic query; source queries tune each site separately; keywords score relevance; excludes filter matches.',
+    'searchQuery is the generic query; source queries tune each site separately; keywords score relevance.',
   resetDefaults: 'Reset defaults',
   addCategory: 'Add category',
   newCategory: 'New Category',
@@ -664,9 +653,6 @@ const en = {
   keywordsOnePerLine: 'Keywords (one per line)',
   keywordsHelp:
     'Used for relevance scoring and category admission. Earlier keywords are weighted higher; most bundled categories require at least one hit.',
-  excludesOnePerLine: 'Excludes (one per line)',
-  excludesHelp:
-    'Filters when a term appears in title, description, or creator name. Prefer specific noise terms to avoid broad false positives.',
   noMediaCategories: 'No media categories.',
   saveAndApply: 'Save & Apply',
   saving: 'Saving...',
@@ -688,16 +674,15 @@ const en = {
   categoryDescRequired: 'Category "{label}" needs a description.',
   categoryKeywordsRequired: 'Category "{label}" needs at least one keyword.',
   categoryTooManyKeywords: 'Category "{label}" has too many keywords; max {max}.',
-  categoryTooManyExcludes: 'Category "{label}" has too many excludes; max {max}.',
   categoryTooManySourceQueries:
     'Category "{label}" has too many source-specific queries; max {max}.',
   categoryUnknownSourceQuery: 'Category "{label}" has an unknown source query: {source}.',
   mediaCenterSaved: 'Media Center config saved and applied.',
   mediaCenterSavedWithWarnings: 'Config saved, but some services were not restarted automatically.',
-  // Media Center — pre-collected category management (catalog review / snapshots / curation.json)
+  // Media Center — pre-collected category management (catalog review / snapshots)
   catalogManagement: 'Pre-collection management',
   catalogManagementDesc:
-    'The server pre-collects and reviews videos per category; clients read the approved snapshot directly. Seed candidates, review (approve/reject/pin/rank), rebuild snapshots, and maintain the local curation file here.',
+    'The server pre-collects and reviews videos per category; clients read the approved snapshot directly. Seed candidates, review (approve/reject/pin/rank), and rebuild snapshots here.',
   catalogDisabledNotice:
     'Internal management API is disabled. Set MEDIA_SERVER_INTERNAL_TOKEN in .env and rebuild the admin and media_server containers.',
   catalogSeedAll: 'Seed all candidates',
@@ -757,12 +742,6 @@ const en = {
   catalogDelete: 'Delete',
   catalogDeleteConfirm: 'Permanently delete "{title}"? This cannot be undone.',
   catalogDeleteDone: 'Deleted.',
-  curationTitle: 'Local curation file (curation.json)',
-  curationDesc:
-    'Hand-editable, commit-to-repo rules: blockIds / blockTitleContains permanently drop noise, pinIds force items to the top. Rebuild snapshots for changes to take effect.',
-  curationSave: 'Save curation file',
-  curationSaved: 'Curation file saved. Rebuild snapshots to apply.',
-  curationInvalidJson: 'Curation file is not valid JSON.',
   confirmSeedAll: 'Seed candidates for all categories? This runs live aggregation across all sources and may take a while.',
   confirmRebuildAll: 'Rebuild snapshots for all categories?',
   // Security

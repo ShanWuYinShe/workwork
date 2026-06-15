@@ -27,7 +27,6 @@ const (
 	maxMediaCenterCategories = 50
 	maxMediaCenterSources    = 10
 	maxCategoryKeywords      = 100
-	maxCategoryExcludes      = 200
 	maxCategorySourceQueries = 10
 )
 
@@ -74,15 +73,13 @@ type mediaCenterSource struct {
 }
 
 type mediaCenterCategory struct {
-	ID                 string            `json:"id"`
-	Title              string            `json:"title"`
-	Description        string            `json:"description"`
-	SearchQuery        string            `json:"searchQuery,omitempty"`
-	SearchQueries      []string          `json:"searchQueries,omitempty"`
-	SourceQueries      map[string]string `json:"sourceQueries,omitempty"`
-	Keywords           []string          `json:"keywords"`
-	Excludes           []string          `json:"excludes,omitempty"`
-	MinDurationSeconds int               `json:"minDurationSeconds,omitempty"`
+	ID            string            `json:"id"`
+	Title         string            `json:"title"`
+	Description   string            `json:"description"`
+	SearchQuery   string            `json:"searchQuery,omitempty"`
+	SearchQueries []string          `json:"searchQueries,omitempty"`
+	SourceQueries map[string]string `json:"sourceQueries,omitempty"`
+	Keywords      []string          `json:"keywords"`
 }
 
 func apiMediaCenterConfig() http.HandlerFunc {
@@ -112,7 +109,6 @@ func apiMediaCenterConfig() http.HandlerFunc {
 				"max_categories":              maxMediaCenterCategories,
 				"max_sources":                 maxMediaCenterSources,
 				"max_keywords_per_category":   maxCategoryKeywords,
-				"max_excludes_per_category":   maxCategoryExcludes,
 				"max_source_queries_per_rule": maxCategorySourceQueries,
 			},
 			"runtime_file": mediaCenterCategoriesPath,
@@ -542,25 +538,14 @@ func normalizeMediaCenterCategory(input mediaCenterCategory) (mediaCenterCategor
 	if len(keywords) > maxCategoryKeywords {
 		return mediaCenterCategory{}, fmt.Errorf("%s has too many keywords: max %d", id, maxCategoryKeywords)
 	}
-	excludes := normalizeStringList(input.Excludes)
-	if len(excludes) > maxCategoryExcludes {
-		return mediaCenterCategory{}, fmt.Errorf("%s has too many excludes: max %d", id, maxCategoryExcludes)
-	}
-	minDuration := input.MinDurationSeconds
-	if minDuration < 0 {
-		minDuration = 0
-	}
-
 	return mediaCenterCategory{
-		ID:                 id,
-		Title:              title,
-		Description:        description,
-		SearchQuery:        searchQuery,
-		SearchQueries:      searchQueries,
-		SourceQueries:      sourceQueries,
-		Keywords:           keywords,
-		Excludes:           excludes,
-		MinDurationSeconds: minDuration,
+		ID:            id,
+		Title:         title,
+		Description:   description,
+		SearchQuery:   searchQuery,
+		SearchQueries: searchQueries,
+		SourceQueries: sourceQueries,
+		Keywords:      keywords,
 	}, nil
 }
 

@@ -198,18 +198,6 @@ export async function rebuildMediaSnapshots(category = '') {
   });
 }
 
-export async function getMediaCuration() {
-  return req('/media-center/curation');
-}
-
-export async function saveMediaCuration(curation) {
-  return req('/media-center/curation', {
-    method: 'PUT',
-    body: JSON.stringify(curation),
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
 export async function getMediaAppRelease() {
   return req('/media-center/app-release');
 }
