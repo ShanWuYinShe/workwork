@@ -272,3 +272,13 @@ func TestApiMediaCatalogDeleteRejectsBadJSON(t *testing.T) {
 		t.Fatalf("bad json: want 400, got %d", rec.Code)
 	}
 }
+
+func TestApiMediaCatalogImportRejectsTopLevelArray(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(`[]`))
+	rec := httptest.NewRecorder()
+	apiMediaCatalogImport()(rec, r)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}

@@ -178,13 +178,13 @@ export async function seedMediaCatalog(category = '') {
   });
 }
 
-export async function importMediaCatalog(items, approved = false) {
-  const list = (Array.isArray(items) ? items : []).map((it) =>
+export async function importMediaCatalog(doc, approved = false) {
+  const list = (Array.isArray(doc?.items) ? doc.items : []).map((it) =>
     approved ? { ...it, status: 'approved' } : it,
   );
   return req('/media-center/catalog/import', {
     method: 'POST',
-    body: JSON.stringify({ items: list }),
+    body: JSON.stringify({ ...doc, items: list }),
     timeout: MEDIA_CENTER_SAVE_TIMEOUT,
   });
 }
