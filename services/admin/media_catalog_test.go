@@ -200,3 +200,75 @@ func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
 		t.Errorf("reviewer = %q, want injected login user 'alice'", gotReviewer)
 	}
 }
+
+func TestApiMediaCatalogExportProxies(t *testing.T) {
+	var gotPath, gotQuery string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"items":[{"categoryId":"movies","nativeId":"BV1"}],"count":1,"category":"movies"}`))
+	}))
+	defer backend.Close()
+	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
+	t.Setenv("MEDIA_CENTER_INTERNAL_URL", backend.URL)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/admin/media-center/catalog/export?category=movies&status=approved", nil)
+	rec := httptest.NewRecorder()
+	apiMediaCatalogExport()(rec, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/internal/catalog/export" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotQuery, "category=movies") || !strings.Contains(gotQuery, "status=approved") {
+		t.Fatalf("query not forwarded: %q", gotQuery)
+	}
+	resp := decodeAdminEnvelope(t, rec.Body)
+	if !resp.Success {
+		t.Fatalf("envelope not success: %+v", resp)
+	}
+}
+
+func TestApiMediaCatalogDeleteProxies(t *testing.T) {
+	var gotPath, gotBody string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"deleted":1,"videoDeleted":true}`))
+	}))
+	defer backend.Close()
+	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
+	t.Setenv("MEDIA_CENTER_INTERNAL_URL", backend.URL)
+
+	reqBody := `{"categoryId":"movies","provider":"bilibili","nativeId":"BV1"}`
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/delete", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+	apiMediaCatalogDelete()(rec, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/internal/catalog/delete" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotBody, `"nativeId":"BV1"`) {
+		t.Fatalf("body not forwarded: %s", gotBody)
+	}
+}
+
+func TestApiMediaCatalogDeleteRejectsBadJSON(t *testing.T) {
+	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
+	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/delete", strings.NewReader("not json"))
+	rec := httptest.NewRecorder()
+	apiMediaCatalogDelete()(rec, r)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: want 400, got %d", rec.Code)
+	}
+}
