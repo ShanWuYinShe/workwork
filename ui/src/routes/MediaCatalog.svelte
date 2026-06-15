@@ -4,6 +4,8 @@
     getMediaCatalogOverview,
     getMediaCatalogItems,
     reviewMediaCatalogItem,
+    deleteMediaCatalogItem,
+    exportMediaCatalog,
     seedMediaCatalog,
     importMediaCatalog,
     rebuildMediaSnapshots,
@@ -39,6 +41,8 @@
   let importBusy = $state(false);
   let importOpen = $state(false);
   let importResult = $state(null);
+
+  let exportBusy = $state(false);
 
   const statusOptions = ['pending', 'approved', 'rejected', ''];
 
@@ -158,6 +162,45 @@
       return;
     }
     applyReview(it, { rank: n });
+  }
+
+  async function removeItem(it) {
+    if (!(await showConfirm(t('catalogDeleteConfirm', { title: it.title })))) return;
+    try {
+      await deleteMediaCatalogItem({
+        categoryId: activeCategory,
+        provider: it.provider,
+        nativeId: it.nativeId,
+      });
+      toast(t('catalogDeleteDone'), 'success');
+      await loadItems(activeCategory, activeTitle);
+      await refreshOverview();
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+    }
+  }
+
+  async function runExport(category = '', label = '') {
+    exportBusy = true;
+    try {
+      const data = await exportMediaCatalog(category, '');
+      const json = JSON.stringify(data?.items ?? [], null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '');
+      a.href = url;
+      a.download = `catalog-${category || 'all'}-${ts}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast(t('catalogExportDone', { count: data?.count ?? 0, scope: label || category || t('catalogExportAll') }), 'success');
+    } catch (e) {
+      toast(e?.message || String(e), 'error');
+    } finally {
+      exportBusy = false;
+    }
   }
 
   async function seed(categoryId) {
@@ -360,6 +403,12 @@
       <button class="btn btn-sm btn-secondary" onclick={rebuildAll} disabled={busy || opRunning}
         >{t('catalogRebuildAll')}</button
       >
+      <button
+        class="btn btn-sm btn-secondary"
+        onclick={() => runExport('', t('catalogExportAll'))}
+        disabled={exportBusy || !overview.catalogEnabled}
+        >{#if exportBusy}<span class="spinner"></span>{/if}{t('catalogExportAll')}</button
+      >
     </div>
 
     <div class="cat-table-wrap">
@@ -412,6 +461,11 @@
                   class="btn btn-xs btn-ghost"
                   onclick={() => rebuild(cat.id)}
                   disabled={busy || opRunning}>{t('catalogRebuild')}</button
+                >
+                <button
+                  class="btn btn-xs btn-ghost"
+                  onclick={() => runExport(cat.id, cat.title || cat.id)}
+                  disabled={exportBusy || !overview.catalogEnabled}>{t('catalogExport')}</button
                 >
               </td>
             </tr>
@@ -480,6 +534,9 @@
                   />
                   <button class="btn btn-xs btn-ghost" onclick={() => setRank(it)}
                     >{t('catalogSetRank')}</button
+                  >
+                  <button class="btn btn-xs btn-danger-outline" onclick={() => removeItem(it)}
+                    >{t('catalogDelete')}</button
                   >
                 </div>
               </div>
@@ -746,6 +803,15 @@
     background: var(--c-bg);
     color: var(--c-text);
     font-size: 0.78rem;
+  }
+  .item-actions :global(.btn-danger-outline) {
+    background: transparent;
+    color: var(--c-danger);
+    border: 1px solid var(--c-danger);
+  }
+  .item-actions :global(.btn-danger-outline:hover) {
+    background: var(--c-danger);
+    color: #fff;
   }
 
   .curation-block {
