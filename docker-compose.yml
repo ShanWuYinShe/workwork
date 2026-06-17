@@ -117,45 +117,6 @@ services:
       retries: 3
       start_period: 10s
 
-  vod_extractor:
-    build:
-      context: ./services/media_center/vod_extractor
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8790
-      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
-      - VOD_EXTRACTOR_MAX_OUTPUT_BYTES=${VOD_EXTRACTOR_MAX_OUTPUT_BYTES:-20971520}
-      - VOD_EXTRACTOR_MAX_CONCURRENT=${VOD_EXTRACTOR_MAX_CONCURRENT:-2}
-      - VOD_EXTRACTOR_EXTRACTOR_ARGS=${VOD_EXTRACTOR_EXTRACTOR_ARGS:-}
-      - VOD_EXTRACTOR_COOKIES_FILE=${VOD_EXTRACTOR_COOKIES_FILE:-}
-    volumes:
-      - ./.wework/vod_extractor:/config:ro
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=2).read()",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
   media_server:
     build:
       context: ./services/media_center/media_server
@@ -176,27 +137,14 @@ services:
       - HOST=0.0.0.0
       - PORT=8787
       - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
-      - PROVIDER_FETCH_TIMEOUT_MS=${MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS:-15000}
-      - MEDIA_SERVER_SIGNING_KEY=${MEDIA_SERVER_SIGNING_KEY:-}
-      - MEDIA_ASSET_SIGNING_KEY=${MEDIA_ASSET_SIGNING_KEY:-}
-      - MEDIA_SERVER_CATEGORY_MAX_PAGES=${MEDIA_SERVER_CATEGORY_MAX_PAGES:-6}
-      - MEDIA_ASSET_CACHE_DIR=/cache
-      - MEDIA_ASSET_CACHE_MAX_BYTES=${MEDIA_ASSET_CACHE_MAX_BYTES:-53687091200}
-      - VOD_EXTRACTOR_URL=http://vod_extractor:8790/extract
-      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       # 分类维护数据库(catalog)与内部管理接口令牌。
-      # catalog.db 落在持久卷 /app/data；curation.json 由 admin 写入 /config（只读挂载）。
       - MEDIA_SERVER_CATALOG_DB=/app/data/catalog.db
-      - MEDIA_SERVER_CURATION_FILE=/config/curation.json
       - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
     volumes:
       - ./.wework/generated/media_center:/config:ro
-      - media_asset_cache:/cache
       - media_center_data:/app/data
     depends_on:
       admin:
-        condition: service_healthy
-      vod_extractor:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8787/health"]
@@ -268,5 +216,4 @@ networks:
 
 volumes:
   xray_socket:
-  media_asset_cache:
   media_center_data:

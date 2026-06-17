@@ -32,8 +32,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
-| **vod_extractor** | Python + yt-dlp | 8790 | 内部点播解析服务 |
-
+|
 Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
@@ -144,7 +143,6 @@ workwork/
 │   ├── media_center/        # Media Center 子模块
 │   │   ├── media_app/       # Android TV 客户端
 │   │   ├── media_server/    # Go 聚合后端
-│   │   └── vod_extractor/   # 内部 yt-dlp 点播解析服务
 │
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件
@@ -190,13 +188,10 @@ docker compose logs -f admin
 docker compose logs -f nginx
 docker compose logs -f xray
 docker compose logs -f media_server
-docker compose logs -f vod_extractor
-
 # 重启服务
 docker compose restart admin
 docker compose restart xray
 docker compose restart media_server
-docker compose restart vod_extractor
 ```
 
 ## 部署流程
@@ -219,8 +214,6 @@ docker compose build nginx && docker compose up -d --no-deps nginx
 docker compose build xray && docker compose up -d --no-deps xray
 # services/media_center/media_server/**
 docker compose build media_server && docker compose up -d --no-deps media_server
-# services/media_center/vod_extractor/**
-docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
 ```
 
 ## 环境变量
@@ -239,11 +232,5 @@ docker compose build vod_extractor && docker compose up -d --no-deps vod_extract
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
-| `MEDIA_SERVER_SIGNING_KEY` | 媒体不透明视频 ID / 播放选项 ID 签名密钥 | - |
-| `MEDIA_ASSET_SIGNING_KEY` | 旧版媒体签名密钥变量名（作为 `MEDIA_SERVER_SIGNING_KEY` 的 fallback） | - |
 | `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
-| `MEDIA_SERVER_PROVIDER_FETCH_TIMEOUT_MS` | Media Server 上游元数据 / playurl 请求超时 | `15000` |
 | `MEDIA_SERVER_CATEGORY_MAX_PAGES` | Media Server 分类聚合最多抓取页数 | `6` |
-| `MEDIA_ASSET_CACHE_MAX_BYTES` | Media Server `/asset` 代理磁盘缓存上限 | `53687091200` |
-| `YOUTUBE_API_KEY` | YouTube 来源启用时需要的 Data API key | - |
-| `VOD_EXTRACTOR_URL` | YouTube 点播解析服务内部地址（compose 默认注入） | `http://vod_extractor:8790/extract` |
