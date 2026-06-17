@@ -40,8 +40,6 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
-# - services/media_center/vod_extractor/**（git submodule）:
-#     docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
 # - services/admin/** 或 ui/**:
 #     docker compose build admin && docker compose up -d --no-deps admin
 # - services/nginx/**:
@@ -87,17 +85,13 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray Unix socket。fail2ban 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实客户端 IP。
 
-### services/media_center/media_server/ — Media Center 后端（git submodule）
+### services/media_center/media_server/ — Media Center 目录服务（git submodule）
 
-Go 服务端，提供合规公开视频聚合 API；源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。公开视频点播解析通过内部 `vod_extractor:8790` 服务完成，主 API 镜像不内置 yt-dlp。
-
-### services/media_center/vod_extractor/ — 点播解析服务（git submodule）
-
-Python + yt-dlp 内部服务，只在 `internal_docker` 网络暴露 HTTP `/extract`，供 `media_server` 解析公开视频点播元数据。
+纯目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。不做上游 API 调用、不做播放地址解析、不做 asset 代理。播放完全由 App 端按 provider 自行处理（bilibili 用 WBI 签名本地解析）。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
 
 ### docker-compose.yml
 
-5 服务: admin, xray, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
+4 服务: admin, xray, nginx, media_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
 
 ## Security — 多层防御
 
