@@ -38,6 +38,11 @@ go test -C services/media_center/media_server ./...
 ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
 
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
+# - services/media_center/media_app/**（Android APK）:
+#     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+#       ./gradlew -C services/media_center/media_app :app:assembleDebug && \
+#     scp services/media_center/media_app/app/build/outputs/apk/debug/app-debug.apk \
+#       workwork-server:service/.wework/generated/media_center/media-center-app.apk
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
 # - services/admin/** 或 ui/**:
