@@ -444,13 +444,12 @@ func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress 
 		return 0, "", err
 	}
 
-	tmpPath := filepath.Join(claudeDownloadsDir, filename+".download")
-	defer os.Remove(tmpPath)
-
-	f, err := os.Create(tmpPath)
+	f, err := os.CreateTemp(claudeDownloadsDir, filename+".download-*")
 	if err != nil {
 		return 0, "", err
 	}
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

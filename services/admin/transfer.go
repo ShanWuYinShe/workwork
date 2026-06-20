@@ -422,8 +422,10 @@ func apiTransferPublicDownload() http.HandlerFunc {
 			return
 		}
 
-		// Range 请求（分段下载的后续部分）不计入下载计数，避免下载管理器耗尽限额
-		if r.Header.Get("Range") == "" {
+		// 首段请求（无 Range 或 Range 从 0 开始）计入下载计数；
+		// 后续分段（如 bytes=1048576-）不计，避免下载管理器耗尽限额。
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader == "" || strings.HasPrefix(rangeHeader, "bytes=0") {
 			target.Downloads++
 			saveTransferManifestLocked(m)
 		}

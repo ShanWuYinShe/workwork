@@ -109,6 +109,26 @@ func (s *ipBlockStore) remove(ip string) {
 	s.Entries = kept
 }
 
+// cleanupExpired 移除已过期的封禁条目，防止 blocked-ips.json 无限增长。
+func (s *ipBlockStore) cleanupExpired() {
+	s.mu.Lock()
+	var kept []ipBlockEntry
+	for _, e := range s.Entries {
+		if e.ExpiresAt != "" {
+			if t, err := time.Parse(time.RFC3339, e.ExpiresAt); err == nil && time.Now().UTC().After(t) {
+				continue
+			}
+		}
+		kept = append(kept, e)
+	}
+	changed := len(kept) != len(s.Entries)
+	s.Entries = kept
+	s.mu.Unlock()
+	if changed {
+		s.save()
+	}
+}
+
 func (s *ipBlockStore) list() []ipBlockEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
