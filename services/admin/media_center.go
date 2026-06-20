@@ -53,9 +53,10 @@ var (
 )
 
 type mediaCenterConfig struct {
-	Service    mediaCenterServiceConfig `json:"service"`
-	Sources    []mediaCenterSource      `json:"sources"`
-	Categories []mediaCenterCategory    `json:"categories"`
+	Service     mediaCenterServiceConfig `json:"service"`
+	Sources     []mediaCenterSource      `json:"sources"`
+	Categories  []mediaCenterCategory    `json:"categories"`
+	Credentials []providerCredential     `json:"credentials,omitempty"`
 }
 
 type mediaCenterServiceConfig struct {
@@ -80,6 +81,15 @@ type mediaCenterCategory struct {
 	SearchQueries []string          `json:"searchQueries,omitempty"`
 	SourceQueries map[string]string `json:"sourceQueries,omitempty"`
 	Keywords      []string          `json:"keywords"`
+}
+
+// providerCredential 存储 provider 的认证凭证（如 bilibili 的 SESSDATA/bili_jct）。
+// Fields 是任意 key-value 对，不同 provider 可有不同的字段集。
+// 这些凭证通过 providerCredentials.json 注入 media_server，由 App 端拉取后
+// 用于请求高分辨率内容。设计为通用 map 以便未来扩展其他 provider。
+type providerCredential struct {
+	Provider string            `json:"provider"`
+	Fields   map[string]string `json:"fields"`
 }
 
 func apiMediaCenterConfig() http.HandlerFunc {
@@ -145,6 +155,57 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	}
 }
 
+func apiMediaCenterCredentials() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		cfg, err := readMediaCenterConfig()
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"credentials": cfg.Credentials,
+		})
+	}
+}
+
+func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var incoming struct {
+			Credentials []providerCredential `json:"credentials"`
+		}
+		if err := decodeStrictJSON(r.Body, &incoming); err != nil {
+			writeError(w, "Invalid credentials JSON", http.StatusBadRequest)
+			return
+		}
+
+		cfg, err := readMediaCenterConfig()
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		cfg.Credentials = incoming.Credentials
+
+		normalized, err := normalizeMediaCenterConfig(cfg)
+		if err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
+		defer cancel()
+		restarted, warnings, err := applyMediaCenterConfig(restartCtx, cli, normalized)
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+
+		writeJSON(w, map[string]any{
+			"credentials": normalized.Credentials,
+			"restarted":   restarted,
+			"warnings":    warnings,
+		})
+	}
+}
+
 func applyMediaCenterConfig(ctx context.Context, cli *client.Client, cfg mediaCenterConfig) ([]string, []string, error) {
 	mediaCenterApplyMu.Lock()
 	defer mediaCenterApplyMu.Unlock()
@@ -154,6 +215,9 @@ func applyMediaCenterConfig(ctx context.Context, cli *client.Client, cfg mediaCe
 	}
 	if err := writeMediaCenterCategoriesFile(cfg); err != nil {
 		return nil, nil, fmt.Errorf("write media center categories: %w", err)
+	}
+	if err := writeMediaCenterCredentialsFile(cfg); err != nil {
+		return nil, nil, fmt.Errorf("write media center credentials: %w", err)
 	}
 	if err := genNginxConfigForMediaCenter(cfg); err != nil {
 		return nil, nil, fmt.Errorf("regenerate nginx config after media center save: %w", err)
@@ -174,7 +238,10 @@ func ensureMediaCenterConfig() error {
 		if err != nil {
 			return err
 		}
-		return writeMediaCenterCategoriesFile(cfg)
+		if err := writeMediaCenterCategoriesFile(cfg); err != nil {
+			return err
+		}
+		return writeMediaCenterCredentialsFile(cfg)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -191,7 +258,10 @@ func ensureMediaCenterConfig() error {
 	if err := writeMediaCenterConfigFile(normalized); err != nil {
 		return err
 	}
-	return writeMediaCenterCategoriesFile(normalized)
+	if err := writeMediaCenterCategoriesFile(normalized); err != nil {
+		return err
+	}
+	return writeMediaCenterCredentialsFile(normalized)
 }
 
 func genMediaCenterCategories() error {
@@ -199,7 +269,10 @@ func genMediaCenterCategories() error {
 	if err != nil {
 		return err
 	}
-	return writeMediaCenterCategoriesFile(cfg)
+	if err := writeMediaCenterCategoriesFile(cfg); err != nil {
+		return err
+	}
+	return writeMediaCenterCredentialsFile(cfg)
 }
 
 func readMediaCenterConfig() (mediaCenterConfig, error) {
@@ -273,6 +346,23 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 	}
 	data = append(data, '\n')
 	return atomicWriteFile(mediaCenterCategoriesPath, data, 0644)
+}
+
+// writeMediaCenterCredentialsFile 生成注入 media_server 的 providerCredentials.json。
+// 权限 0640 比分类配置更严格（含敏感凭证，仅 owner 读写 + group 读）。
+func writeMediaCenterCredentialsFile(cfg mediaCenterConfig) error {
+	if err := os.MkdirAll(filepath.Dir(mediaCenterCredentialsPath), 0755); err != nil {
+		return err
+	}
+	payload := struct {
+		Credentials []providerCredential `json:"credentials"`
+	}{Credentials: cfg.Credentials}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return atomicWriteFile(mediaCenterCredentialsPath, data, 0640)
 }
 
 type mediaCenterRuntimeSource struct {
@@ -371,12 +461,54 @@ func runtimeMediaCenterSources(sources []mediaCenterSource) []mediaCenterRuntime
 	return out
 }
 
+func normalizeMediaCenterCredentials(input []providerCredential, validSources []mediaCenterSource) ([]providerCredential, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	validIDs := make(map[string]bool, len(validSources))
+	for _, s := range validSources {
+		validIDs[s.ID] = true
+	}
+	seen := make(map[string]bool, len(input))
+	out := make([]providerCredential, 0, len(input))
+	for i, cred := range input {
+		provider := strings.TrimSpace(cred.Provider)
+		if !mediaCenterIDPattern.MatchString(provider) {
+			return nil, fmt.Errorf("credential %d: provider id must be lowercase letters, numbers and dashes", i+1)
+		}
+		if !validIDs[provider] {
+			return nil, fmt.Errorf("credential %d: unknown provider: %s", i+1, provider)
+		}
+		if seen[provider] {
+			return nil, fmt.Errorf("credential %d: duplicate provider: %s", i+1, provider)
+		}
+		seen[provider] = true
+		fields := make(map[string]string, len(cred.Fields))
+		for k, v := range cred.Fields {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k != "" && v != "" {
+				fields[k] = v
+			}
+		}
+		if len(fields) == 0 {
+			return nil, fmt.Errorf("credential %d: at least one non-empty field required", i+1)
+		}
+		out = append(out, providerCredential{Provider: provider, Fields: fields})
+	}
+	return out, nil
+}
+
 func normalizeMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, error) {
 	service, err := normalizeMediaCenterServiceConfig(input.Service)
 	if err != nil {
 		return mediaCenterConfig{}, err
 	}
 	sources, err := normalizeMediaCenterSources(input.Sources)
+	if err != nil {
+		return mediaCenterConfig{}, err
+	}
+	credentials, err := normalizeMediaCenterCredentials(input.Credentials, sources)
 	if err != nil {
 		return mediaCenterConfig{}, err
 	}
@@ -402,9 +534,10 @@ func normalizeMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, err
 	}
 
 	return mediaCenterConfig{
-		Service:    service,
-		Sources:    sources,
-		Categories: categories,
+		Service:     service,
+		Sources:     sources,
+		Categories:  categories,
+		Credentials: credentials,
 	}, nil
 }
 
