@@ -63,6 +63,8 @@ func main() {
 	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
 	mux.HandleFunc("GET /api/admin/media-center/config", requireRole("admin")(apiMediaCenterConfig()))
 	mux.HandleFunc("PUT /api/admin/media-center/config", requireRole("admin")(apiSaveMediaCenterConfig(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/credentials", requireRole("admin")(apiMediaCenterCredentials()))
+	mux.HandleFunc("PUT /api/admin/media-center/credentials", requireRole("admin")(apiSaveMediaCenterCredentials(cli)))
 	// 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）。
 	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", requireRole("admin")(apiMediaCatalogOverview()))
 	mux.HandleFunc("GET /api/admin/media-center/catalog/items", requireRole("admin")(apiMediaCatalogItems()))
