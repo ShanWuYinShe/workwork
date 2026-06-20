@@ -19,7 +19,6 @@
   let rotating = $state(false);
   let syncing = $state(false);
   let syncMsg = $state('');
-  let result = $state({ ok: false, msg: '' });
 
   onMount(refresh);
 
@@ -30,7 +29,7 @@
       const ns = await getNetworkStatus();
       net = { ...net, ...ns };
     } catch (e) {
-      result = { ok: false, msg: e.message };
+      toast(e.message, 'error');
     } finally {
       loading = false;
     }
@@ -53,13 +52,12 @@
   async function doRotate() {
     if (!(await showConfirm(t('rotateConfirm')))) return;
     rotating = true;
-    result = { ok: false, msg: '' };
     try {
       const d = await rotateIPv6();
-      result = { ok: true, msg: t('rotateResult', { xray: d.xray_ip, nginx: d.nginx_ip }) };
+      toast(t('rotateResult', { xray: d.xray_ip, nginx: d.nginx_ip }), 'success');
       await refresh();
     } catch (e) {
-      result = { ok: false, msg: e.message };
+      toast(e.message, 'error');
     } finally {
       rotating = false;
     }
@@ -199,11 +197,6 @@
         {#if rotating}<span class="spinner"></span>{/if}
         {rotating ? t('rotating') : t('rotateAll')}
       </button>
-      {#if result.msg}
-        <Toast type={result.ok ? 'success' : 'error'} visible={!!result.msg} onclose={() => result = { ok: false, msg: '' }}>
-          {result.msg}
-        </Toast>
-      {/if}
     </div>
   </div>
 </div>

@@ -45,6 +45,7 @@ func (rl *rateLimiter) cleanupLoop() {
 		select {
 		case <-ticker.C:
 			rl.cleanup()
+			ipBlocker.cleanupExpired()
 		case <-rl.stopChan:
 			return
 		}

@@ -431,13 +431,12 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 		return 0, "", err
 	}
 
-	tmpPath := filepath.Join(xrayDownloadsDir, filename+".download")
-	defer os.Remove(tmpPath)
-
-	f, err := os.Create(tmpPath)
+	f, err := os.CreateTemp(xrayDownloadsDir, filename+".download-*")
 	if err != nil {
 		return 0, "", err
 	}
+	tmpPath := f.Name()
+	defer os.Remove(tmpPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

@@ -374,7 +374,10 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 	}
 	var services []svcJSON
 	for _, c := range containers {
-		name := strings.TrimPrefix(c.Names[0], "/")
+		var name string
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
 		if svc := c.Labels["com.docker.compose.service"]; svc != "" {
 			name = svc
 		}
@@ -942,14 +945,22 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		existing, _ := ensureUserMeta(body.Username)
-		if existing == nil {
-			writeError(w, "User not found", 404)
+		var notFound bool
+		if err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+			info, exists := doc.Users[body.Username]
+			if !exists {
+				notFound = true
+				return false, nil
+			}
+			info.Role = body.Role
+			doc.Users[body.Username] = info
+			return true, nil
+		}); err != nil {
+			writeInternalError(w, err)
 			return
 		}
-		existing.Role = body.Role
-		if err := updateUserMeta(body.Username, *existing); err != nil {
-			writeInternalError(w, err)
+		if notFound {
+			writeError(w, "User not found", 404)
 			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
@@ -1489,6 +1500,8 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 
 func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ipv6RotateMu.Lock()
+		defer ipv6RotateMu.Unlock()
 		if getEnv("CF_API_TOKEN") == "" {
 			writeError(w, "CF_API_TOKEN not configured", 400)
 			return
