@@ -139,6 +139,14 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		// 如果前端未提交 credentials（保存来源/分类时不涉及），保留现有配置，
+		// 避免无意清空已配置的 provider 凭证。
+		if len(incoming.Credentials) == 0 && len(cfg.Credentials) == 0 {
+			existingCfg, readErr := readMediaCenterConfig()
+			if readErr == nil && len(existingCfg.Credentials) > 0 {
+				cfg.Credentials = existingCfg.Credentials
+			}
+		}
 		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
 		defer cancel()
 		restarted, warnings, err := applyMediaCenterConfig(restartCtx, cli, cfg)
