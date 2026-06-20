@@ -130,6 +130,18 @@ export async function saveMediaCenterConfig(config) {
   });
 }
 
+export async function getMediaCenterCredentials() {
+  return req('/media-center/credentials');
+}
+
+export async function saveMediaCenterCredentials(credentials) {
+  return req('/media-center/credentials', {
+    method: 'PUT',
+    body: JSON.stringify({ credentials }),
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
 export async function getMediaCatalogOverview() {
   return req('/media-center/catalog/overview');
 }

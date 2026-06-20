@@ -4,6 +4,8 @@
     getMediaAppRelease,
     getMediaCenterConfig,
     saveMediaCenterConfig,
+    getMediaCenterCredentials,
+    saveMediaCenterCredentials,
     uploadMediaAppRelease,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
@@ -51,11 +53,15 @@
   let appReleaseForm = $state({ versionCode: '', versionName: '', releaseNotes: '' });
   let appReleaseFile = $state(null);
   let activeTab = $state('runtime');
+  let credentials = $state([]);
+  let credentialsLoading = $state(false);
+  let credentialsSaving = $state(false);
 
   const mediaTabs = [
     { id: 'runtime', labelKey: 'mediaTabRuntime' },
     { id: 'app', labelKey: 'mediaTabApp' },
     { id: 'rules', labelKey: 'mediaTabRules' },
+    { id: 'credentials', labelKey: 'mediaTabCredentials' },
     { id: 'catalog', labelKey: 'mediaTabCatalog' },
   ];
 
@@ -84,6 +90,7 @@
       limits = { ...defaultLimits, ...(data.limits || {}) };
       expandedIds = [];
       await loadAppRelease();
+      await loadCredentials();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -139,6 +146,42 @@
       toast(e.message, 'error');
     } finally {
       appReleaseUploading = false;
+    }
+  }
+
+  async function loadCredentials() {
+    credentialsLoading = true;
+    try {
+      const data = await getMediaCenterCredentials();
+      credentials = (data?.credentials || []).map((c) => ({
+        provider: c.provider,
+        fields: { ...(c.fields || {}) },
+      }));
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      credentialsLoading = false;
+    }
+  }
+
+  async function saveCredentials() {
+    credentialsSaving = true;
+    try {
+      const creds = credentials
+        .map((c) => ({
+          provider: c.provider,
+          fields: Object.fromEntries(
+            Object.entries(c.fields).filter(([, v]) => v !== ''),
+          ),
+        }))
+        .filter((c) => Object.keys(c.fields).length > 0);
+      await saveMediaCenterCredentials(creds);
+      toast('凭证已保存', 'success');
+      await loadCredentials();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      credentialsSaving = false;
     }
   }
 
@@ -973,6 +1016,87 @@
           {/each}
         </div>
       </div>
+    {:else if activeTab === 'credentials'}
+      <div class="card">
+        <div class="card-section">
+          <div class="card-title">{t('mediaCredentials')}</div>
+          <div class="helper-text">{t('mediaCredentialsHelp')}</div>
+        </div>
+        {#if credentialsLoading}
+          <div class="card-section"><div class="skeleton" style="height:80px"></div></div>
+        {:else}
+          <div class="card-section">
+            {#each credentials as cred, ci (cred.provider)}
+              <div class="credential-card">
+                <div class="credential-header">
+                  <span class="tag">{cred.provider}</span>
+                  <button class="btn btn-sm btn-ghost" onclick={() => credentials.splice(ci, 1)}>
+                    {t('remove')}
+                  </button>
+                </div>
+                <div class="credential-fields">
+                  {#each Object.entries(cred.fields) as [key, value], fi}
+                    <div class="field-row">
+                      <input
+                        class="input" style="width:160px;flex-shrink:0"
+                        value={key}
+                        oninput={(e) => {
+                          const oldKey = Object.keys(cred.fields)[fi];
+                          const newKey = e.target.value;
+                          cred.fields[newKey] = cred.fields[oldKey];
+                          if (newKey !== oldKey) delete cred.fields[oldKey];
+                          credentials = [...credentials];
+                        }}
+                        placeholder={t('mediaCredFieldName')}
+                      />
+                      <input
+                        class="input"
+                        type="password"
+                        value={value}
+                        oninput={(e) => {
+                          cred.fields[key] = e.target.value;
+                          credentials = [...credentials];
+                        }}
+                        placeholder={t('mediaCredFieldValue')}
+                      />
+                      <button
+                        class="btn btn-sm btn-ghost"
+                        onclick={() => {
+                          delete cred.fields[key];
+                          credentials = [...credentials];
+                        }}
+                      >{t('remove')}</button>
+                    </div>
+                  {/each}
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    onclick={() => {
+                      cred.fields[''] = '';
+                      credentials = [...credentials];
+                    }}
+                  >{t('mediaCredAddField')}</button>
+                </div>
+              </div>
+            {/each}
+            <button
+              class="btn btn-sm"
+              onclick={() => {
+                const id = prompt(t('mediaCredProviderId'));
+                if (id && /^[a-z0-9][a-z0-9-]{0,79}$/.test(id) && !credentials.find(c => c.provider === id)) {
+                  credentials = [...credentials, { provider: id, fields: { '': '' } }];
+                }
+              }}
+            >{t('mediaCredAddProvider')}</button>
+          </div>
+          {#if credentialsSaving}
+            <div class="card-section"><div class="skeleton" style="height:36px"></div></div>
+          {:else}
+            <div class="card-section page-actions">
+              <button class="btn" onclick={saveCredentials}>{t('save')}</button>
+            </div>
+          {/if}
+        {/if}
+      </div>
     {:else if activeTab === 'catalog'}
       <!-- Pre-collected category management: catalog review + snapshots -->
       <MediaCatalog />
@@ -1466,5 +1590,27 @@
       left: 0;
       right: auto;
     }
+  }
+  .credential-card {
+    border: 1px solid var(--c-border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .credential-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .credential-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .credential-fields .field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 </style>
