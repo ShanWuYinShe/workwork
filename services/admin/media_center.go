@@ -349,7 +349,8 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 }
 
 // writeMediaCenterCredentialsFile 生成注入 media_server 的 providerCredentials.json。
-// 权限 0640 比分类配置更严格（含敏感凭证，仅 owner 读写 + group 读）。
+// 权限与 contentCategories.json 一致(0644)：media_server 容器 cap_drop:ALL
+// 无 DAC_OVERRIDE，0640 会导致读取失败。
 func writeMediaCenterCredentialsFile(cfg mediaCenterConfig) error {
 	if err := os.MkdirAll(filepath.Dir(mediaCenterCredentialsPath), 0755); err != nil {
 		return err
@@ -362,7 +363,7 @@ func writeMediaCenterCredentialsFile(cfg mediaCenterConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterCredentialsPath, data, 0640)
+	return atomicWriteFile(mediaCenterCredentialsPath, data, 0644)
 }
 
 type mediaCenterRuntimeSource struct {
