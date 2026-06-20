@@ -20,6 +20,13 @@ const zh = {
   noXrayAskAdmin: '暂无 Xray 二进制文件。请联系管理员下载。',
   alreadyDownloadedXray: 'Xray {version} ({plat}) 已下载。',
   adminPanel: '管理面板',
+  // Generic UI
+  cancel: '取消',
+  ok: '确认',
+  save: '保存',
+  remove: '移除',
+  retry: '重试',
+  authFailedTitle: '认证失败',
   // Clients
   generateClient: '生成客户端',
   generateDesc: '生成随机UUID并添加为新的xray客户端',
@@ -454,6 +461,13 @@ const en = {
   noXrayAskAdmin: 'No Xray binaries available yet. Ask an admin to download them.',
   alreadyDownloadedXray: 'Xray {version} ({plat}) already downloaded.',
   adminPanel: 'Admin Panel',
+  // Generic UI
+  cancel: 'Cancel',
+  ok: 'OK',
+  save: 'Save',
+  remove: 'Remove',
+  retry: 'Retry',
+  authFailedTitle: 'Authentication failed',
   // Clients
   generateClient: 'Generate Client',
   generateDesc: 'Generates a random UUID and adds it as a new xray client',
