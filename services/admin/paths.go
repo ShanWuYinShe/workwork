@@ -18,6 +18,7 @@ const (
 
 	mediaCenterConfigPath            = "/app/data/media-center/config.json"
 	mediaCenterCategoriesPath        = "/app/data/generated/media_center/contentCategories.json"
+	mediaCenterCredentialsPath       = "/app/data/generated/media_center/providerCredentials.json"
 	mediaCenterAppUpdateManifestPath = "/app/data/generated/media_center/app-update.json"
 	mediaCenterAppUpdateAPKPath      = "/app/data/generated/media_center/media-center-app.apk"
 	mediaCenterDefaultCategoriesPath = "/app/configs/media-center-content-categories.json"

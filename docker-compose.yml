@@ -137,6 +137,8 @@ services:
       - HOST=0.0.0.0
       - PORT=8787
       - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
+      # Provider 凭证（如 bilibili SESSDATA），由 admin 生成注入。
+      - PROVIDER_CREDENTIALS_FILE=/config/providerCredentials.json
       # 分类维护数据库(catalog)与内部管理接口令牌。
       - MEDIA_SERVER_CATALOG_DB=/app/data/catalog.db
       - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
