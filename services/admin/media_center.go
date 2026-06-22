@@ -139,6 +139,10 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
+		defer cancel()
+		// 持 applyMu 跨越 read-modify-apply，避免与并发保存竞态导致 credentials 被覆盖。
+		mediaCenterApplyMu.Lock()
 		// 如果前端未提交 credentials（保存来源/分类时不涉及），保留现有配置，
 		// 避免无意清空已配置的 provider 凭证。
 		if len(incoming.Credentials) == 0 && len(cfg.Credentials) == 0 {
@@ -147,9 +151,8 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 				cfg.Credentials = existingCfg.Credentials
 			}
 		}
-		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
-		defer cancel()
-		restarted, warnings, err := applyMediaCenterConfig(restartCtx, cli, cfg)
+		restarted, warnings, err := applyMediaCenterConfigLocked(restartCtx, cli, cfg)
+		mediaCenterApplyMu.Unlock()
 		if err != nil {
 			writeInternalError(w, err)
 			return
@@ -186,8 +189,11 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
+		// 持 applyMu 跨越 read-modify-apply，避免与并发保存竞态导致 sources/categories 被覆盖。
+		mediaCenterApplyMu.Lock()
 		cfg, err := readMediaCenterConfig()
 		if err != nil {
+			mediaCenterApplyMu.Unlock()
 			writeInternalError(w, err)
 			return
 		}
@@ -195,12 +201,14 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 
 		normalized, err := normalizeMediaCenterConfig(cfg)
 		if err != nil {
+			mediaCenterApplyMu.Unlock()
 			writeError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
 		defer cancel()
-		restarted, warnings, err := applyMediaCenterConfig(restartCtx, cli, normalized)
+		restarted, warnings, err := applyMediaCenterConfigLocked(restartCtx, cli, normalized)
+		mediaCenterApplyMu.Unlock()
 		if err != nil {
 			writeInternalError(w, err)
 			return
@@ -217,7 +225,13 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 func applyMediaCenterConfig(ctx context.Context, cli *client.Client, cfg mediaCenterConfig) ([]string, []string, error) {
 	mediaCenterApplyMu.Lock()
 	defer mediaCenterApplyMu.Unlock()
+	return applyMediaCenterConfigLocked(ctx, cli, cfg)
+}
 
+// applyMediaCenterConfigLocked 执行实际的持久化与重启，调用者必须持有 mediaCenterApplyMu。
+// 拆出无锁版本是为了让需要先读取现有配置再修改的端点（如 credentials 保存）
+// 能在单次持锁内完成 read-modify-write，避免与并发保存竞态。
+func applyMediaCenterConfigLocked(ctx context.Context, cli *client.Client, cfg mediaCenterConfig) ([]string, []string, error) {
 	if err := persistMediaCenterConfig(cfg); err != nil {
 		return nil, nil, fmt.Errorf("persist media center config: %w", err)
 	}

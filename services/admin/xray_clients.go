@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	errForbidden = errors.New("forbidden: not your client")
-	errNotFound  = errors.New("client not found")
+	errForbidden     = errors.New("forbidden: not your client")
+	errNotFound      = errors.New("client not found")
+	errDuplicateUUID = errors.New("client with this UUID already exists")
 )
 
 // Xray clients are stored independently from the generated xray.json.
@@ -68,6 +69,17 @@ func writeXrayClients(clients []xrayClientEntry) error {
 	return writeXrayClientsNoLock(clients)
 }
 
+// clientExistsNoLock reports whether a client with the given UUID already exists.
+// Caller must hold xrayClientsMu.
+func clientExistsNoLock(clients []xrayClientEntry, id string) bool {
+	for _, c := range clients {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // addXrayClient 在单次锁获取内完成 read-modify-write，避免并发 last-writer-wins。
 func addXrayClient(entry xrayClientEntry) error {
 	xrayClientsMu.Lock()
@@ -76,6 +88,9 @@ func addXrayClient(entry xrayClientEntry) error {
 	clients, err := readXrayClientsNoLock()
 	if err != nil {
 		return err
+	}
+	if clientExistsNoLock(clients, entry.ID) {
+		return errDuplicateUUID
 	}
 	clients = append(clients, entry)
 	return writeXrayClientsNoLock(clients)
@@ -95,6 +110,9 @@ func addXrayClientIfOwnerUnique(entry xrayClientEntry) (bool, error) {
 		if c.Owner == entry.Owner {
 			return false, nil
 		}
+	}
+	if clientExistsNoLock(clients, entry.ID) {
+		return false, errDuplicateUUID
 	}
 	clients = append(clients, entry)
 	return true, writeXrayClientsNoLock(clients)

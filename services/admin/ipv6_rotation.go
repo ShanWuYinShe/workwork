@@ -169,21 +169,20 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	}
 	defer ipv6RotateMu.Unlock()
 
+	// 锁内：读取 state 并划分待清理列表，立即落盘（先移除待清理项）。
+	// 这样网络 IO 在锁外执行，不会长时间阻塞其它 state 读写（saveCurrentIPs 等）。
 	rotatingIPStateMu.Lock()
-	defer rotatingIPStateMu.Unlock()
-
 	rotatingPrefix, err := rotatingIPv6Prefix(getEnv("IPV6_SUBNET"))
 	if err != nil {
+		rotatingIPStateMu.Unlock()
 		log.Printf("[ip-cleanup] subnet: %v", err)
 		return
 	}
-
 	state := loadRotatingIPStateLocked()
 	now := time.Now()
-	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 
 	var keep []retiredIPv6Entry
+	var toCleanup []retiredIPv6Entry
 	for _, entry := range state.Retired {
 		entry.Service = strings.TrimSpace(entry.Service)
 		entry.IP = normalizeIPv6(entry.IP)
@@ -197,25 +196,43 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 		if state.Current[entry.Service] == entry.IP || !isRotatingIPv6InPrefix(entry.IP, rotatingPrefix) {
 			continue
 		}
+		toCleanup = append(toCleanup, entry)
+	}
+	// 先把待清理项从持久化 state 中移除，失败时再在锁外回补。
+	state.Retired = keep
+	saveRotatingIPStateLocked(state)
+	rotatingIPStateMu.Unlock()
 
+	// 锁外：执行可能缓慢的网络 IO（findContainer + delContainerIP）。
+	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var failed []retiredIPv6Entry
+	for _, entry := range toCleanup {
 		id, err := findContainer(cleanupCtx, cli, entry.Service)
 		if err != nil {
 			log.Printf("[ip-cleanup] %s container not found for retired IP %s: %v", entry.Service, entry.IP, err)
 			entry.CleanupAfter = now.Add(time.Minute)
-			keep = append(keep, entry)
+			failed = append(failed, entry)
 			continue
 		}
 		if err := delContainerIP(cleanupCtx, cli, id, entry.IP); err != nil {
 			log.Printf("[ip-cleanup] failed to remove retired %s IPv6 %s: %v", entry.Service, entry.IP, err)
 			entry.CleanupAfter = now.Add(time.Minute)
-			keep = append(keep, entry)
+			failed = append(failed, entry)
 			continue
 		}
 		log.Printf("[ip-cleanup] removed retired %s IPv6 %s", entry.Service, entry.IP)
 	}
 
-	state.Retired = keep
-	saveRotatingIPStateLocked(state)
+	// 短锁回写失败的项（延后重试）。
+	if len(failed) > 0 {
+		rotatingIPStateMu.Lock()
+		state = loadRotatingIPStateLocked()
+		state.Retired = append(state.Retired, failed...)
+		saveRotatingIPStateLocked(state)
+		rotatingIPStateMu.Unlock()
+	}
 }
 
 func rotatingIPv6Prefix(subnet string) (netip.Prefix, error) {

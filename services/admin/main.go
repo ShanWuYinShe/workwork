@@ -121,7 +121,7 @@ func main() {
 	mux.HandleFunc("GET /api/transfer/{code}", apiTransferPublicDownload())
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
-	mux.HandleFunc("/admin/", serveSPA)
+	mux.HandleFunc("GET /admin/", serveSPA)
 	mux.HandleFunc("GET /admin", serveSPA)
 
 	// Svelte static assets - serve at absolute paths

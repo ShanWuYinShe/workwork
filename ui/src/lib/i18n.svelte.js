@@ -27,6 +27,8 @@ const zh = {
   remove: '移除',
   retry: '重试',
   authFailedTitle: '认证失败',
+  menu: '菜单',
+  closeMenu: '关闭菜单',
   // Clients
   generateClient: '生成客户端',
   generateDesc: '生成随机UUID并添加为新的xray客户端',
@@ -468,6 +470,8 @@ const en = {
   remove: 'Remove',
   retry: 'Retry',
   authFailedTitle: 'Authentication failed',
+  menu: 'Menu',
+  closeMenu: 'Close menu',
   // Clients
   generateClient: 'Generate Client',
   generateDesc: 'Generates a random UUID and adds it as a new xray client',
@@ -892,24 +896,6 @@ let lang = $state(
   typeof localStorage !== 'undefined' ? localStorage.getItem('lang') || 'zh' : 'zh',
 );
 
-// Escape user-controlled values before interpolating them into translation
-// strings. Without this, a username / IP / filename containing HTML
-// (e.g. "<img src=x onerror=...>") would be rendered verbatim by Svelte
-// when the result is placed inside an {@html} block or any element, and
-// could execute script in the admin's browser.
-/**
- * @param {unknown} v
- */
-function escapeVar(v) {
-  if (v === null || v === undefined) return '';
-  return String(v)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 /**
  * @param {string} key
  * @param {Record<string, unknown>} [vars]
@@ -920,8 +906,10 @@ export function t(key, vars) {
   );
   let s = dictsAny[lang]?.[key] || dictsAny.en[key] || key;
   if (vars) {
+    // 不在此处转义：t() 返回值用于普通文本插值 {t(...)}，Svelte 会自动转义。
+    // 此处再转义会造成双重转义（如 "AT&T" 显示为 "AT&amp;T"）。
     for (const [k, v] of Object.entries(vars)) {
-      s = s.split(`{${k}}`).join(escapeVar(v));
+      s = s.split(`{${k}}`).join(v === null || v === undefined ? '' : String(v));
     }
   }
   return s;
