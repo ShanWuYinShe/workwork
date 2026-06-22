@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eu
 
 # Auto-detect default network interface, fallback to eth0
 DEFAULT_IFACE=$(ip -o -4 route show default | awk '{print $5}' | head -1)
@@ -8,7 +8,7 @@ PARENT_IFACE="${PARENT_IFACE:-${DEFAULT_IFACE:-eth0}}"
 if [ -z "${IPV6_SUBNET:-}" ] && [ -f .env ]; then
   IPV6_SUBNET=$(grep -E '^IPV6_SUBNET=' .env | tail -1 | cut -d= -f2- | tr -d "\"'" || true)
 fi
-IPV6_SUBNET="${IPV6_SUBNET:-2605:a141:2322:2623::/64}"
+IPV6_SUBNET="${IPV6_SUBNET:-2001:db8:2623::/64}"
 IPV6_PREFIX="${IPV6_SUBNET%/64}"
 IPV6_PREFIX="${IPV6_PREFIX%::}"
 IPV6_STATIC_RANGE="${IPV6_PREFIX}:1::/80"

@@ -239,14 +239,14 @@ export async function getClaudePlatforms(version) {
   return req(`/claude-code/platforms/${version}`);
 }
 
-export async function downloadClaudeVersion(version, plat, onProgress) {
+async function streamDownload(path, body, onProgress) {
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
-  const r = await fetch(BASE + '/claude-code/download', {
+  const r = await fetch(BASE + path, {
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
-    body: JSON.stringify({ version, plat }),
+    body: JSON.stringify(body),
     signal: ctrl.signal,
   });
   clearTimeout(timeout);
@@ -298,6 +298,10 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
   return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
 }
 
+export async function downloadClaudeVersion(version, plat, onProgress) {
+  return streamDownload('/claude-code/download', { version, plat }, onProgress);
+}
+
 export async function deleteClaudeDownload(filename) {
   return req('/claude-code/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
 }
@@ -321,57 +325,7 @@ export async function getXrayPlatforms(version) {
 }
 
 export async function downloadXrayVersion(version, plat, onProgress) {
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
-  const r = await fetch(BASE + '/xray/download', {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    method: 'POST',
-    body: JSON.stringify({ version, plat }),
-    signal: ctrl.signal,
-  });
-  clearTimeout(timeout);
-  if (!r.ok) throw new Error(await responseErrorMessage(r));
-
-  const reader = r.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let result = null;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop();
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let data;
-      try {
-        data = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (data.type === 'progress' && onProgress) onProgress(data);
-      if (data.type === 'error') throw new Error(data.error);
-      if (data.type === 'done') result = data;
-      if (data.type === 'start' && onProgress) onProgress({ bytes: 0, total: 0, percent: 0 });
-    }
-  }
-  if (buf.trim()) {
-    let data;
-    try {
-      data = JSON.parse(buf);
-    } catch {
-      /* ignore */
-    }
-    if (data) {
-      if (data.type === 'error') throw new Error(data.error);
-      if (data.type === 'done') result = data;
-    }
-  }
-  if (!result) throw new Error('Download completed but no result received');
-  return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
+  return streamDownload('/xray/download', { version, plat }, onProgress);
 }
 
 export async function deleteXrayDownload(filename) {

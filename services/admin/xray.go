@@ -177,7 +177,11 @@ func apiXrayDownload() http.HandlerFunc {
 			Version string `json:"version"`
 			Plat    string `json:"plat"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Version == "" || body.Plat == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Version == "" || body.Plat == "" {
 			writeError(w, "Version and plat required", 400)
 			return
 		}
@@ -249,7 +253,8 @@ func apiXrayDownload() http.HandlerFunc {
 			}
 		})
 		if err != nil {
-			sendEvent(map[string]any{"type": "error", "error": err.Error()})
+			log.Printf("xray download failed: %v", err)
+			sendEvent(map[string]any{"type": "error", "error": "Download failed"})
 			return
 		}
 
@@ -283,7 +288,11 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 		var body struct {
 			Filename string `json:"filename"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Filename == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Filename == "" {
 			writeError(w, "Filename required", 400)
 			return
 		}
@@ -514,16 +523,26 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 
 	xrayDownloadMu.Lock()
 	m := readXrayManifestLocked()
-	m.Downloads = append(m.Downloads, xrayStoredDownload{
-		Version:      version,
-		Plat:         plat,
-		PlatformName: platName,
-		Filename:     filename,
-		Size:         written,
-		Checksum:     checksum,
-		DownloadedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	saveXrayManifestLocked(m)
+	// 防止并发下载同一 version+plat 导致 manifest 重复条目（文件因 rename 已覆盖一致）。
+	dup := false
+	for _, d := range m.Downloads {
+		if d.Filename == filename {
+			dup = true
+			break
+		}
+	}
+	if !dup {
+		m.Downloads = append(m.Downloads, xrayStoredDownload{
+			Version:      version,
+			Plat:         plat,
+			PlatformName: platName,
+			Filename:     filename,
+			Size:         written,
+			Checksum:     checksum,
+			DownloadedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+		saveXrayManifestLocked(m)
+	}
 	xrayDownloadMu.Unlock()
 
 	return written, checksum, nil

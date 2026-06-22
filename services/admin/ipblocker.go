@@ -196,7 +196,11 @@ func apiBlockIP() http.HandlerFunc {
 			Reason   string `json:"reason"`
 			Duration int    `json:"duration"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.IP == "" {
 			writeError(w, "IP required", 400)
 			return
 		}
@@ -222,7 +226,11 @@ func apiUnblockIP() http.HandlerFunc {
 		var body struct {
 			IP string `json:"ip"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.IP == "" {
 			writeError(w, "IP required", 400)
 			return
 		}

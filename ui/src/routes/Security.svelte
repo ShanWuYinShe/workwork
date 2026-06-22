@@ -28,7 +28,7 @@
   async function doBlock() {
     if (!newIP) return;
     try {
-      await blockIP(newIP, newReason, parseInt(newDuration));
+      await blockIP(newIP, newReason, parseInt(newDuration, 10));
       toast(t('ipBlocked', { ip: newIP }), 'success');
       newIP = '';
       newReason = '';

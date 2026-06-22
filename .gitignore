@@ -10,6 +10,7 @@
 # Legacy generated configs (runtime output now lives under .wework/)
 services/xray/config.json
 services/nginx/.htpasswd
+services/nginx/fail2ban-data/
 
 # Xray binary (build artifact)
 services/xray/xray
