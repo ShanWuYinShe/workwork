@@ -49,7 +49,6 @@
     es.onmessage = (e) => {
       logLines.push(e.data);
       if (logLines.length > 5000) logLines.splice(0, logLines.length - 5000);
-      logLines = logLines;
     };
     es.onerror = () => {
       closeStream();
@@ -128,7 +127,10 @@
   $effect(() => {
     if (following && logContainer && logLines.length) {
       requestAnimationFrame(() => {
-        logContainer.scrollTop = logContainer.scrollHeight;
+        // 仅在用户已在底部附近时自动跟随，避免打断向上查看历史日志。
+        const nearBottom =
+          logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 60;
+        if (nearBottom) logContainer.scrollTop = logContainer.scrollHeight;
       });
     }
   });

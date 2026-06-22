@@ -56,6 +56,8 @@
   let credentials = $state([]);
   let credentialsLoading = $state(false);
   let credentialsSaving = $state(false);
+  // 凭证字段行的稳定 id 生成器；每个字段行用 id 作 each key，避免重命名时焦点/顺序错乱。
+  let fieldSeq = 0;
 
   const mediaTabs = [
     { id: 'runtime', labelKey: 'mediaTabRuntime' },
@@ -155,7 +157,7 @@
       const data = await getMediaCenterCredentials();
       credentials = (data?.credentials || []).map((c) => ({
         provider: c.provider,
-        fields: { ...(c.fields || {}) },
+        fields: Object.entries(c.fields || {}).map(([k, v]) => ({ id: ++fieldSeq, key: k, value: v })),
       }));
     } catch (e) {
       toast(e.message, 'error');
@@ -171,7 +173,7 @@
         .map((c) => ({
           provider: c.provider,
           fields: Object.fromEntries(
-            Object.entries(c.fields).filter(([, v]) => v !== ''),
+            c.fields.filter((f) => f.key !== '' && f.value !== '').map((f) => [f.key, f.value]),
           ),
         }))
         .filter((c) => Object.keys(c.fields).length > 0);
@@ -1035,45 +1037,30 @@
                   </button>
                 </div>
                 <div class="credential-fields">
-                  {#each Object.entries(cred.fields) as [key, value], fi}
+                  {#each cred.fields as f, fi (f.id)}
                     <div class="field-row">
                       <input
                         class="input" style="width:160px;flex-shrink:0"
-                        value={key}
-                        oninput={(e) => {
-                          const oldKey = Object.keys(cred.fields)[fi];
-                          const newKey = e.target.value;
-                          cred.fields[newKey] = cred.fields[oldKey];
-                          if (newKey !== oldKey) delete cred.fields[oldKey];
-                          credentials = [...credentials];
-                        }}
+                        value={f.key}
+                        oninput={(e) => { f.key = e.target.value; }}
                         placeholder={t('mediaCredFieldName')}
                       />
                       <input
                         class="input"
                         type="password"
-                        value={value}
-                        oninput={(e) => {
-                          cred.fields[key] = e.target.value;
-                          credentials = [...credentials];
-                        }}
+                        value={f.value}
+                        oninput={(e) => { f.value = e.target.value; }}
                         placeholder={t('mediaCredFieldValue')}
                       />
                       <button
                         class="btn btn-sm btn-ghost"
-                        onclick={() => {
-                          delete cred.fields[key];
-                          credentials = [...credentials];
-                        }}
+                        onclick={() => { cred.fields.splice(fi, 1); }}
                       >{t('remove')}</button>
                     </div>
                   {/each}
                   <button
                     class="btn btn-sm btn-ghost"
-                    onclick={() => {
-                      cred.fields[''] = '';
-                      credentials = [...credentials];
-                    }}
+                    onclick={() => { cred.fields.push({ id: ++fieldSeq, key: '', value: '' }); }}
                   >{t('mediaCredAddField')}</button>
                 </div>
               </div>
@@ -1083,7 +1070,7 @@
               onclick={() => {
                 const id = prompt(t('mediaCredProviderId'));
                 if (id && /^[a-z0-9][a-z0-9-]{0,79}$/.test(id) && !credentials.find(c => c.provider === id)) {
-                  credentials = [...credentials, { provider: id, fields: { '': '' } }];
+                  credentials = [...credentials, { provider: id, fields: [{ id: ++fieldSeq, key: '', value: '' }] }];
                 }
               }}
             >{t('mediaCredAddProvider')}</button>

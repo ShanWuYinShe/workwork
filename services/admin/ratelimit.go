@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net"
 	"net/http"
 	"sync"
@@ -165,7 +164,11 @@ func apiRateLimitUnblock() http.HandlerFunc {
 		var body struct {
 			IP string `json:"ip"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IP == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.IP == "" {
 			writeError(w, "IP required", 400)
 			return
 		}

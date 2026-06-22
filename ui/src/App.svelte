@@ -58,7 +58,7 @@
   <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} {mobileMenuOpen} />
 
   {#if mobileMenuOpen}
-    <button class="mobile-overlay" type="button" aria-label="Close menu" onclick={() => mobileMenuOpen = false}></button>
+    <button class="mobile-overlay" type="button" aria-label={t('closeMenu')} onclick={() => mobileMenuOpen = false}></button>
   {/if}
 
   <main class="main">
@@ -76,7 +76,7 @@
       </div>
     {/if}
     <div class="mobile-topbar">
-      <button class="hamburger-btn" onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label="Menu">
+      <button class="hamburger-btn" onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label={t('menu')}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
           {#if mobileMenuOpen}
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />

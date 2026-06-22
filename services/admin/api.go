@@ -493,7 +493,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		var body struct {
 			UUID string `json:"uuid"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.UUID == "" {
 			writeError(w, "UUID required", 400)
 			return
 		}
@@ -521,6 +525,10 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		if err != nil {
+			if err == errDuplicateUUID {
+				writeError(w, "Client with this UUID already exists", 409)
+				return
+			}
 			log.Printf("Failed to save client: %v", err)
 			writeInternalError(w, err)
 			return
@@ -547,7 +555,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		var body struct {
 			UUID string `json:"uuid"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.UUID == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.UUID == "" {
 			writeError(w, "UUID required", 400)
 			return
 		}
@@ -562,6 +574,10 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		if err != nil {
 			if err == errForbidden {
 				writeError(w, "Forbidden: not your client", 403)
+				return
+			}
+			if err == errNotFound {
+				writeError(w, "Client not found", 404)
 				return
 			}
 			log.Printf("Failed to delete client: %v", err)
@@ -726,7 +742,11 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			OldPassword string `json:"old_password"`
 			Password    string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
 			return
 		}
@@ -778,7 +798,11 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			Password string `json:"password"`
 			Role     string `json:"role"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Username == "" || body.Password == "" {
 			writeError(w, "Username and password required", 400)
 			return
 		}
@@ -862,7 +886,11 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Username == "" {
 			writeError(w, "Username required", 400)
 			return
 		}
@@ -911,7 +939,11 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			Username string `json:"username"`
 			Role     string `json:"role"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Username == "" {
 			writeError(w, "Username and role required", 400)
 			return
 		}
@@ -1506,14 +1538,17 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			writeError(w, "CF_API_TOKEN not configured", 400)
 			return
 		}
+		// 使用独立 context 避免 HTTP 客户端断开取消 DNS 同步操作。
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
 		// Get actual container IPs — no local state, containers are the source of truth.
-		xrayID, err := findContainer(r.Context(), cli, "xray")
+		xrayID, err := findContainer(ctx, cli, "xray")
 		if err != nil {
 			log.Printf("xray container: %v", err)
 			writeInternalError(w, err)
 			return
 		}
-		nginxID, err := findContainer(r.Context(), cli, "nginx")
+		nginxID, err := findContainer(ctx, cli, "nginx")
 		if err != nil {
 			log.Printf("nginx container: %v", err)
 			writeInternalError(w, err)
@@ -1521,8 +1556,8 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 		}
 
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
-		xrayIP := selectContainerDNSIP(r.Context(), cli, xrayID, getEnv("XRAY_IPV6"), oldXrayIP)
-		nginxIP := selectContainerDNSIP(r.Context(), cli, nginxID, getEnv("NGINX_IPV6"), oldNginxIP)
+		xrayIP := selectContainerDNSIP(ctx, cli, xrayID, getEnv("XRAY_IPV6"), oldXrayIP)
+		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, getEnv("NGINX_IPV6"), oldNginxIP)
 
 		var results []string
 		for _, di := range allDomainInfos() {
@@ -1691,6 +1726,10 @@ func containerExec(ctx context.Context, cli *client.Client, containerID string, 
 func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		if !validServiceName.MatchString(name) {
+			writeError(w, "Invalid service name", 400)
+			return
+		}
 		tail := r.URL.Query().Get("tail")
 		if tail == "" {
 			tail = "100"
@@ -1732,6 +1771,10 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
+		if !validServiceName.MatchString(name) {
+			writeError(w, "Invalid service name", 400)
+			return
+		}
 		tail := r.URL.Query().Get("tail")
 		if tail == "" {
 			tail = "100"

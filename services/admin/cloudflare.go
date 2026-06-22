@@ -38,8 +38,13 @@ type cfError struct {
 	Message string `json:"message"`
 }
 
+type cfZoneCacheEntry struct {
+	ID        string
+	CheckedAt time.Time
+}
+
 var (
-	cfZoneCache   = make(map[string]string)
+	cfZoneCache   = make(map[string]cfZoneCacheEntry)
 	cfZoneCacheMu sync.Mutex
 )
 
@@ -87,8 +92,9 @@ func cfResolveZoneID(domain string) (string, error) {
 	cfZoneCacheMu.Lock()
 	defer cfZoneCacheMu.Unlock()
 	for _, candidate := range cfZoneCandidates(domain) {
-		if zoneID := cfZoneCache[candidate]; zoneID != "" {
-			return zoneID, nil
+		// zone ID 缓存带 TTL，Cloudflare zone 被迁移/重命名后能自愈刷新。
+		if entry, ok := cfZoneCache[candidate]; ok && time.Since(entry.CheckedAt) < time.Hour {
+			return entry.ID, nil
 		}
 		cr, err := cfRequest("GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
 		if err != nil {
@@ -99,7 +105,7 @@ func cfResolveZoneID(domain string) (string, error) {
 			continue
 		}
 		if len(zones) > 0 {
-			cfZoneCache[candidate] = zones[0].ID
+			cfZoneCache[candidate] = cfZoneCacheEntry{ID: zones[0].ID, CheckedAt: time.Now()}
 			return zones[0].ID, nil
 		}
 	}

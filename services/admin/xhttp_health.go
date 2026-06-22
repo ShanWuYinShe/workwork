@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"io"
 	"log"
 	"regexp"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 var xhttpPostRE = regexp.MustCompile(`"POST /proxy/query/\S+ HTTP/\S+" (\d{3})`)
@@ -72,7 +75,15 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	}
 	defer logs.Close()
 
-	scanner := bufio.NewScanner(logs)
+	// Docker 容器在 tty=false 时返回 multiplexed 流（8 字节帧头），必须用
+	// stdcopy.StdCopy 解码。直接 bufio.NewScanner 会读到二进制帧头，正则无法匹配。
+	var stdout bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, io.Discard, logs); err != nil {
+		return 0, 0
+	}
+
+	scanner := bufio.NewScanner(&stdout)
+	scanner.Buffer(make([]byte, 64*1024), 256*1024) // 放大行长上限，避免超长 URL/UA 截断
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.Contains(line, "POST /proxy/query/") {

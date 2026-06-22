@@ -136,7 +136,7 @@
   }
 
   function shareUrl(code) {
-    return window.location.origin + '/api/transfer/' + code;
+    return window.location.origin + '/api/transfer/' + encodeURIComponent(code);
   }
 
   async function copyLink(code) {

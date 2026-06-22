@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -333,7 +332,11 @@ func apiTransferDelete() http.HandlerFunc {
 		var body struct {
 			Code string `json:"code"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Code == "" {
+		if err := decodeStrictJSON(r.Body, &body); err != nil {
+			writeError(w, "Invalid JSON", 400)
+			return
+		}
+		if body.Code == "" {
 			writeError(w, "分享码必填", 400)
 			return
 		}

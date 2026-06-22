@@ -183,7 +183,7 @@
                 tabindex="0"
                 role="button"
                 onclick={() => loadConfig(c.id)}
-                onkeydown={(e) => e.key === 'Enter' && loadConfig(c.id)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadConfig(c.id); } }}
               >
                 <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
                 {#if isAdmin}
