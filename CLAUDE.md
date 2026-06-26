@@ -61,19 +61,7 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 
 ### services/admin/ — Go 管理面板（端口 8318，内部）
 
-| 文件 | 职责 |
-|------|------|
-| main.go | 路由注册、中间件链、SPA 托管 |
-| api.go | Dashboard、Services、Users、Network、IPv6 轮换、DNS 同步 |
-| middleware.go | `requireRole` 认证、`isInternalRequest`、UserInfo |
-| ratelimit.go | Per-IP 限流（20 req/10s → 自动封禁 30min） |
-| ipblocker.go | 持久 IP 黑名单中间件 |
-| xray_clients.go | Xray 客户端存储（xray-clients.json）、CRUD |
-| handlers/users.go | 客户端配置生成（Reality + XHTTP） |
-| xray.go | Xray 二进制下载 + SHA256 校验 |
-| claude.go | Claude Code 二进制下载 + SHA256 校验 |
-| cloudflare.go | Cloudflare DNS API（AAAA 记录 upsert/find） |
-| deploy.go | 启动时生成：xray.json、nginx.conf、htpasswd、internal token |
+HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（node → golang → alpine），通过 `docker.sock` 操作其他容器。
 
 ### ui/ — Svelte 5 SPA
 
@@ -83,7 +71,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 - 单容器双网络：IPv4 via 专用 `xray_egress` bridge NAT（`ports: "0.0.0.0:443:443"`），IPv6 via ipvlan L3；不要让 xray 加入 `internal_docker`，不要添加 `xray-forward`/socat 转发容器
 - Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
-- **XHTTP 模式必须是 `packet-up`**——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改回 `stream-up`
+- **XHTTP 模式必须是 `packet-up`**——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
 - Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
 
 ### services/nginx/ — Nginx + fail2ban
