@@ -8,6 +8,19 @@ Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / G
 
 ## 构建 & 部署
 
+### JDK / Gradle 约定（media_app 必读）
+
+本机没有独立 JDK，Android Studio 自带 JetBrains Runtime (JDK 21)。**任何 `gradlew` 命令都必须先设 `JAVA_HOME`**，否则报 "Unable to locate a Java Runtime" 后**不要去安装 JDK**：
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+# 之后所有 ./gradlew 命令即可正常运行，例如：
+./gradlew -C services/media_center/media_app :app:compileDebugKotlin   # 编译检查（最快）
+./gradlew -C services/media_center/media_app :app:assembleDebug        # 出 APK
+```
+
+下面的部署命令里凡是涉及 `media_app` 的都已带这个 `JAVA_HOME`；本机 Go 验证不涉及 JDK。
+
 ```bash
 # Go 编译检查
 go build -C services/admin -o /dev/null .
