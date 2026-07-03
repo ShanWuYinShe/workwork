@@ -254,6 +254,8 @@ func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) error {
 	}
 	out := string(tmpl)
 	out = renderNginxConfigWithMediaCenter(out, mediaCfg)
+	// Web Search MCP 反代路径(无独立配置 UI,仅 env 控制,默认 /api/web-search)。
+	out = strings.ReplaceAll(out, "__WEB_SEARCH_PUBLIC_PATH__", envOrDefault("WEB_SEARCH_PUBLIC_PATH", "/api/web-search"))
 	// XHTTP proxy auth: always use per-user proxy htpasswd
 	proxyAuth := "auth_basic \"XHTTP Proxy\";\n        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd-proxy;"
 	out = strings.ReplaceAll(out, "__XHTTP_PROXY_AUTH__", proxyAuth)

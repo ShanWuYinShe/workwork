@@ -162,7 +162,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           handler,
+		Handler:           requestLogMiddleware(handler),
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
