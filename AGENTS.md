@@ -1,6 +1,8 @@
-# CLAUDE.md
+# workwork
 
 Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
+
+> 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/.claude/AGENTS.md` 为准，本文件只做项目特有补充，不得放宽或违背全局约束。
 
 ## 硬约束
 
@@ -8,18 +10,15 @@ Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / G
 
 ## 构建 & 部署
 
-### JDK / Gradle 约定（media_app 必读）
+### JDK 约定（media_app 涉及）
 
-本机没有独立 JDK，Android Studio 自带 JetBrains Runtime (JDK 21)。**任何 `gradlew` 命令都必须先设 `JAVA_HOME`**，否则报 "Unable to locate a Java Runtime" 后**不要去安装 JDK**：
+本机没有独立 JDK，Android Studio 自带 JetBrains Runtime (JDK 21)。**任何 `gradlew` 命令都必须先设 `JAVA_HOME`**（详见全局 `~/.claude/AGENTS.md` 的环境说明）：
 
 ```bash
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-# 之后所有 ./gradlew 命令即可正常运行，例如：
 ./gradlew -C services/media_center/media_app :app:compileDebugKotlin   # 编译检查（最快）
 ./gradlew -C services/media_center/media_app :app:assembleDebug        # 出 APK
 ```
-
-下面的部署命令里凡是涉及 `media_app` 的都已带这个 `JAVA_HOME`；本机 Go 验证不涉及 JDK。
 
 ```bash
 # Go 编译检查
@@ -35,11 +34,11 @@ bun install --cwd ui                   # 安装依赖（生成/校验 ui/bun.loc
 bun run --cwd ui build                 # 构建
 
 # Media Server 验证（源码在 services/media_center 子模块；首次需 git submodule update --init --recursive）
-go build -C services/media_center/media_server -o /dev/null .   # 编译检查
+go build -C services/media_center/media_server -o /dev/null .
 go vet -C services/media_center/media_server ./...
 go test -C services/media_center/media_server ./...
 
-# 部署（git push 后在服务器执行；用户明确要求时，Copilot/Claude 可执行 SSH 部署）
+# 部署（git push 后在服务器执行；用户明确要求时，agent 可执行 SSH 部署）
 # 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
 # 禁止无脑 --no-cache 全量 build 或 docker compose up -d 全量重建。
 #
