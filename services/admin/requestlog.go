@@ -74,3 +74,12 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	r.bytes += n
 	return n, err
 }
+
+// Flush 透传到底层 ResponseWriter,让本中间件包裹的 handler 仍能通过
+// w.(http.Flusher) 类型断言拿到 Flusher(SSE 流式响应等场景必需)。
+// 不透传会导致依赖 Flusher 的 handler 退化报错。
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
