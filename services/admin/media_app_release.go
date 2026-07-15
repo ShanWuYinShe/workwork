@@ -28,13 +28,14 @@ type mediaAppReleaseManifest struct {
 }
 
 func apiMediaAppReleaseGet() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		manifest, exists, err := readMediaAppReleaseManifest()
+	return func(w http.ResponseWriter, r *http.Request) {
+		variant := strings.TrimSpace(r.URL.Query().Get("variant"))
+		manifest, exists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
 			writeInternalError(w, err)
 			return
 		}
-		apkPath := mediaAppReleaseAPKPath(manifest)
+		apkPath := mediaAppReleaseAPKPath(manifest, variant)
 		info, statErr := os.Stat(apkPath)
 		apkExists := statErr == nil
 		if statErr != nil && !os.IsNotExist(statErr) {
@@ -45,7 +46,7 @@ func apiMediaAppReleaseGet() http.HandlerFunc {
 			"published": exists && apkExists,
 			"manifest":  manifest,
 			"files": map[string]string{
-				"manifest": mediaCenterAppUpdateManifestPath,
+				"manifest": mediaCenterAppUpdateManifestPath(variant),
 				"apk":      apkPath,
 			},
 			"apkSizeBytes": func() int64 {
@@ -65,6 +66,9 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			writeError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
 			return
 		}
+
+		variant := strings.TrimSpace(r.FormValue("variant"))
+		apkPath := mediaCenterAppUpdateAPKPath(variant)
 
 		versionCode, err := strconv.Atoi(strings.TrimSpace(r.FormValue("versionCode")))
 		if err != nil || versionCode <= 0 {
@@ -93,11 +97,11 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			return
 		}
 
-		if err := os.MkdirAll(filepath.Dir(mediaCenterAppUpdateAPKPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(apkPath), 0755); err != nil {
 			writeInternalError(w, err)
 			return
 		}
-		tmp, err := os.CreateTemp(filepath.Dir(mediaCenterAppUpdateAPKPath), ".media-center-app.apk.tmp-*")
+		tmp, err := os.CreateTemp(filepath.Dir(apkPath), ".media-center-app.apk.tmp-*")
 		if err != nil {
 			writeInternalError(w, err)
 			return
@@ -128,8 +132,8 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			return
 		}
 		apkFilename := mediaAppReleaseFilename(versionCode, checksum)
-		apkPath := filepath.Join(filepath.Dir(mediaCenterAppUpdateAPKPath), apkFilename)
-		if err := os.Rename(tmpPath, apkPath); err != nil {
+		finalAPKPath := filepath.Join(filepath.Dir(apkPath), apkFilename)
+		if err := os.Rename(tmpPath, finalAPKPath); err != nil {
 			writeInternalError(w, err)
 			return
 		}
@@ -144,7 +148,7 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			ReleaseNotes: releaseNotes,
 			PublishedAt:  time.Now().UTC().Format(time.RFC3339),
 		}
-		if err := writeMediaAppReleaseManifest(manifest); err != nil {
+		if err := writeMediaAppReleaseManifest(manifest, variant); err != nil {
 			writeInternalError(w, err)
 			return
 		}
@@ -154,8 +158,8 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 	}
 }
 
-func readMediaAppReleaseManifest() (mediaAppReleaseManifest, bool, error) {
-	data, err := os.ReadFile(mediaCenterAppUpdateManifestPath)
+func readMediaAppReleaseManifest(variant string) (mediaAppReleaseManifest, bool, error) {
+	data, err := os.ReadFile(mediaCenterAppUpdateManifestPath(variant))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return mediaAppReleaseManifest{}, false, nil
@@ -169,13 +173,13 @@ func readMediaAppReleaseManifest() (mediaAppReleaseManifest, bool, error) {
 	return manifest, true, nil
 }
 
-func writeMediaAppReleaseManifest(manifest mediaAppReleaseManifest) error {
+func writeMediaAppReleaseManifest(manifest mediaAppReleaseManifest, variant string) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterAppUpdateManifestPath, data, 0644)
+	return atomicWriteFile(mediaCenterAppUpdateManifestPath(variant), data, 0644)
 }
 
 func mediaAppReleaseFilename(versionCode int, checksum string) string {
@@ -186,10 +190,10 @@ func mediaAppReleaseFilename(versionCode int, checksum string) string {
 	return fmt.Sprintf("media-center-app-v%d-%s.apk", versionCode, short)
 }
 
-func mediaAppReleaseAPKPath(manifest mediaAppReleaseManifest) string {
+func mediaAppReleaseAPKPath(manifest mediaAppReleaseManifest, variant string) string {
 	name := filepath.Base(strings.TrimSpace(manifest.APKFilename))
 	if name == "." || name == string(filepath.Separator) || name == "" {
-		return mediaCenterAppUpdateAPKPath
+		return mediaCenterAppUpdateAPKPath(variant)
 	}
-	return filepath.Join(filepath.Dir(mediaCenterAppUpdateAPKPath), name)
+	return filepath.Join(filepath.Dir(mediaCenterAppUpdateAPKPath(variant)), name)
 }
