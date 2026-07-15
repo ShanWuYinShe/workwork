@@ -152,6 +152,8 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+		// 尽力清理不再被任何变体 manifest 引用的历史 APK,避免确定性文件名无限堆积。
+		pruneOrphanAppAPKs()
 		writeJSON(w, map[string]any{
 			"manifest": manifest,
 		})
@@ -188,6 +190,46 @@ func mediaAppReleaseFilename(versionCode int, checksum string) string {
 		short = short[:12]
 	}
 	return fmt.Sprintf("media-center-app-v%d-%s.apk", versionCode, short)
+}
+
+// pruneOrphanAppAPKs 删除 generated/media_center 目录下不再被任何变体 manifest
+// 引用的确定性 APK 文件(media-center-app-v<N>-<hash>.apk),防止旧版本无限堆积。
+// 仅删除符合该命名模式且未出现在任何 app-update*.json 的 APKFilename 中的文件;
+// 尽力而为,错误忽略(不影响本次发布)。
+func pruneOrphanAppAPKs() {
+	dir := filepath.Dir(mediaCenterAppUpdateAPKPath(""))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	keep := make(map[string]struct{})
+	manifests, _ := filepath.Glob(filepath.Join(dir, "app-update*.json"))
+	for _, m := range manifests {
+		data, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		var man mediaAppReleaseManifest
+		if err := json.Unmarshal(data, &man); err != nil {
+			continue
+		}
+		if name := strings.TrimSpace(man.APKFilename); name != "" {
+			keep[filepath.Base(name)] = struct{}{}
+		}
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "media-center-app-v") || !strings.HasSuffix(name, ".apk") {
+			continue
+		}
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+	}
 }
 
 func mediaAppReleaseAPKPath(manifest mediaAppReleaseManifest, variant string) string {
