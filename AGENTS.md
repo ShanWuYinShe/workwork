@@ -50,11 +50,17 @@ go test -C services/media_center/media_server ./...
 ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
 
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
-# - services/media_center/media_app/**（Android APK）:
+# - 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md
+#   “版本号规范”）。构建期自动派生 versionName/versionCode；AI 改完代码、发版前在子模块打
+#   tag 即“自动更新版本”：git tag vX.Y.Z && git push origin vX.Y.Z（tag 打在子模块仓库，
+#   非外层 workwork），无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
+# - services/media_center/media_app/**（Android APK，默认 normal 变体）:
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
 #       ./gradlew -C services/media_center/media_app :app:assembleDebug && \
 #     scp services/media_center/media_app/app/build/outputs/apk/debug/app-debug.apk \
 #       workwork-server:service/.wework/generated/media_center/media-center-app.apk
+#   也可在管理面板“Android TV App 更新发布”页面选变体后上传（admin 自动写 manifest + APK，
+#   支持 variant）；legacy 变体同理，路径为 media-center-app-legacy.apk / app-update-legacy.json。
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
 # - services/admin/** 或 ui/**:
