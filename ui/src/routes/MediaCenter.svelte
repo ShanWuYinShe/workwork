@@ -52,6 +52,9 @@
   let appReleaseUploading = $state(false);
   let appReleaseForm = $state({ versionCode: '', versionName: '', releaseNotes: '' });
   let appReleaseFile = $state(null);
+  // 变体:空字符串 = 默认 (normal, Compose 版);"legacy" = API19 View 版。与服务端
+  // sanitizeVariant 约定一致(^[a-zA-Z0-9_-]+$,空/"normal" 均映射默认发布)。
+  let appReleaseVariant = $state('');
   let activeTab = $state('runtime');
   let credentials = $state([]);
   let credentialsLoading = $state(false);
@@ -103,7 +106,7 @@
   async function loadAppRelease() {
     appReleaseLoading = true;
     try {
-      appRelease = await getMediaAppRelease();
+      appRelease = await getMediaAppRelease(appReleaseVariant);
       const manifest = appRelease?.manifest || null;
       if (manifest?.versionCode) {
         appReleaseForm = {
@@ -117,6 +120,11 @@
     } finally {
       appReleaseLoading = false;
     }
+  }
+
+  function onVariantChange(e) {
+    appReleaseVariant = e.currentTarget.value.trim();
+    loadAppRelease();
   }
 
   async function publishAppRelease() {
@@ -140,7 +148,7 @@
     form.set('apk', appReleaseFile);
     appReleaseUploading = true;
     try {
-      appRelease = await uploadMediaAppRelease(form);
+      appRelease = await uploadMediaAppRelease(form, appReleaseVariant);
       appReleaseFile = null;
       toast('App 更新已发布', 'success');
       await loadAppRelease();
@@ -711,6 +719,9 @@
           {#if appRelease?.published}
             {@const manifest = appRelease.manifest}
             <div class="release-current">
+              {#if appReleaseVariant}
+                <span class="badge badge-blue">{appReleaseVariant}</span>
+              {/if}
               <span class="badge badge-green">已发布</span>
               <strong>{manifest.versionName}</strong>
               <span>versionCode {manifest.versionCode}</span>
@@ -724,6 +735,22 @@
         </div>
 
         <div class="form-grid app-release-form">
+          <div class="form-group">
+            <label for="app-variant">变体 (variant)</label>
+            <input
+              id="app-variant"
+              list="app-variant-options"
+              value={appReleaseVariant}
+              oninput={(e) => (appReleaseVariant = e.currentTarget.value.trim())}
+              onchange={onVariantChange}
+              placeholder="normal（默认）"
+            />
+            <datalist id="app-variant-options">
+              <option value="normal"></option>
+              <option value="legacy"></option>
+            </datalist>
+            <span class="helper-text">normal = 默认 Compose 版；legacy = API19 View 版</span>
+          </div>
           <div class="form-group">
             <label for="app-version-code">versionCode</label>
             <input

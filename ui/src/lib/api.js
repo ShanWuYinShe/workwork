@@ -192,13 +192,15 @@ export async function importMediaCatalog(doc, approved = false) {
   });
 }
 
-export async function getMediaAppRelease() {
-  return req('/media-center/app-release');
+export async function getMediaAppRelease(variant) {
+  const q = variant ? `?variant=${encodeURIComponent(variant)}` : '';
+  return req('/media-center/app-release' + q);
 }
 
-export async function uploadMediaAppRelease(formData) {
+export async function uploadMediaAppRelease(formData, variant) {
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), MEDIA_CENTER_SAVE_TIMEOUT);
+  if (variant) formData.append('variant', variant);
   const r = await fetch(BASE + '/media-center/app-release', {
     credentials: 'same-origin',
     method: 'POST',
