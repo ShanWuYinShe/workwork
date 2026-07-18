@@ -40,6 +40,7 @@ build/
 
 # Go build
 services/admin/admin
+services/web-search-mcp/web-search-mcp
 
 # SPA build output
 ui/dist/
