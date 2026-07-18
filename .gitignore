@@ -46,4 +46,5 @@ services/web-search-mcp/web-search-mcp
 ui/dist/
 
 # Claude Code
-.claude/
+.claude/worktrees/
+.claude/settings.local.json
