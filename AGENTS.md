@@ -2,7 +2,7 @@
 
 Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
 
-> 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/.claude/AGENTS.md` 为准，本文件只做项目特有补充，不得放宽或违背全局约束。
+> 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/AGENTS.md` 为准，本文件只做项目特有补充，不得放宽或违背全局约束。
 
 ## 硬约束
 
@@ -12,7 +12,7 @@ Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / G
 
 ### JDK 约定（media_app 涉及）
 
-本机没有独立 JDK，Android Studio 自带 JetBrains Runtime (JDK 21)。**任何 `gradlew` 命令都必须先设 `JAVA_HOME`**（详见全局 `~/.claude/AGENTS.md` 的环境说明）：
+JDK 说明见全局。构建命令：
 
 ```bash
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
