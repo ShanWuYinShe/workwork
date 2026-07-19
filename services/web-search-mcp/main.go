@@ -57,8 +57,8 @@ type jsonRPCError struct {
 }
 
 type initializeResult struct {
-	ProtocolVersion string          `json:"protocolVersion"`
-	Capabilities    map[string]any  `json:"capabilities"`
+	ProtocolVersion string            `json:"protocolVersion"`
+	Capabilities    map[string]any    `json:"capabilities"`
 	ServerInfo      map[string]string `json:"serverInfo"`
 }
 
@@ -269,10 +269,10 @@ var (
 	sessions   = make(map[string]*mcpSession)
 	sessionsMu sync.Mutex
 	handlers   = map[string]mcpHandler{
-		"initialize":           handleInitialize,
+		"initialize":                handleInitialize,
 		"notifications/initialized": handleInitialized,
-		"tools/list":           handleListTools,
-		"tools/call":           handleCallTool,
+		"tools/list":                handleListTools,
+		"tools/call":                handleCallTool,
 	}
 )
 
