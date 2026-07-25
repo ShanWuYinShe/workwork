@@ -5,6 +5,7 @@
 
 # Local data
 .wework/
+.workwork/
 .local/
 
 # Legacy generated configs (runtime output now lives under .wework/)
