@@ -192,6 +192,16 @@ export async function importMediaCatalog(doc, approved = false) {
   });
 }
 
+// analyzeMediaCatalog 在导入前用 AI 分析候选是否符合收录要求。
+// 返回 { results: [{index, verdict, reason, score}] }。
+export async function analyzeMediaCatalog(doc) {
+  return req('/media-center/catalog/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ items: doc?.items || [] }),
+    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
+  });
+}
+
 export async function getMediaAppRelease(variant) {
   const q = variant ? `?variant=${encodeURIComponent(variant)}` : '';
   return req('/media-center/app-release' + q);
