@@ -7,7 +7,6 @@
     deleteMediaCatalogItem,
     exportMediaCatalog,
     importMediaCatalog,
-    analyzeMediaCatalog,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -29,12 +28,6 @@
   let importBusy = $state(false);
   let importOpen = $state(false);
   let importResult = $state(null);
-
-  // AI 分析状态：analyzeRows 是 [{item, verdict, reason, score, removed}]，
-  // null 表示尚未分析（按钮未点）。
-  let analyzeBusy = $state(false);
-  let analyzeRows = $state(null);
-  let analyzeError = $state('');
 
   let exportBusy = $state(false);
 
@@ -178,7 +171,6 @@
 
   function toggleImport() {
     importOpen = !importOpen;
-    if (!importOpen) resetAnalyze();
   }
 
   async function loadImportFile(event) {
@@ -194,7 +186,6 @@
       }
       importText = JSON.stringify(parsed, null, 2);
       importResult = null;
-      resetAnalyze();
       toast(
         t('catalogImportFileLoaded', {
           name: file.name,
@@ -223,15 +214,7 @@
     }
     importBusy = true;
     try {
-      // 若已做 AI 分析，按分析结果裁剪：剔除被移除的行，保留行带上 reason。
-      let doc = parsed;
-      if (analyzeRows) {
-        const kept = analyzeRows
-          .filter((r) => !r.removed)
-          .map((r) => ({ ...r.item, reason: r.reason || undefined }));
-        doc = { ...parsed, items: kept };
-      }
-      const data = await importMediaCatalog(doc, importApproved);
+      const data = await importMediaCatalog(parsed, importApproved);
       importResult = data;
       toast(
         t('catalogImportDone', {
@@ -247,55 +230,6 @@
     } finally {
       importBusy = false;
     }
-  }
-
-  // runAnalyze 把当前 importText 的候选送 AI 分析，结果填进 analyzeRows。
-  async function runAnalyze() {
-    let parsed;
-    try {
-      parsed = JSON.parse(importText);
-    } catch {
-      toast(t('catalogImportInvalidJson'), 'error');
-      return;
-    }
-    if (!Array.isArray(parsed?.items) || parsed.items.length === 0) {
-      toast(t('catalogImportEmpty'), 'error');
-      return;
-    }
-    analyzeBusy = true;
-    analyzeError = '';
-    try {
-      const data = await analyzeMediaCatalog(parsed);
-      const results = Array.isArray(data?.results) ? data.results : [];
-      const byIndex = new Map(results.map((r) => [r.index, r]));
-      analyzeRows = parsed.items.map((item, i) => {
-        const v = byIndex.get(i) || { verdict: 'fail', reason: t('catalogAnalyzeMissing'), score: 0 };
-        return { item, verdict: v.verdict, reason: v.reason || '', score: v.score ?? 0, removed: false };
-      });
-      const fails = analyzeRows.filter((r) => r.verdict === 'fail').length;
-      toast(t('catalogAnalyzeDone', { total: analyzeRows.length, fails }), 'success');
-    } catch (e) {
-      analyzeError = e?.message || String(e);
-      toast(analyzeError, 'error');
-    } finally {
-      analyzeBusy = false;
-    }
-  }
-
-  // removeFailedRows 一键剔除所有 verdict=fail 的行（仍可选恢复，因仅标记 removed）。
-  function removeFailedRows() {
-    if (!analyzeRows) return;
-    analyzeRows = analyzeRows.map((r) => (r.verdict === 'fail' ? { ...r, removed: true } : r));
-  }
-
-  function toggleRowRemoved(idx) {
-    if (!analyzeRows || !analyzeRows[idx]) return;
-    analyzeRows = analyzeRows.map((r, i) => (i === idx ? { ...r, removed: !r.removed } : r));
-  }
-
-  function resetAnalyze() {
-    analyzeRows = null;
-    analyzeError = '';
   }
 
   function fmtDuration(sec) {
@@ -498,73 +432,6 @@
             spellcheck="false"
             placeholder={t('catalogImportPlaceholder')}
           ></textarea>
-          <div class="analyze-actions">
-            <button
-              class="btn btn-sm btn-secondary"
-              onclick={runAnalyze}
-              disabled={analyzeBusy || !overview.catalogEnabled}
-              title={t('catalogAnalyzeHelp')}
-            >
-              {#if analyzeBusy}<span class="spinner"></span>{/if}
-              {t('catalogAnalyze')}
-            </button>
-            {#if analyzeRows}
-              <button class="btn btn-sm btn-ghost" onclick={removeFailedRows}>
-                {t('catalogAnalyzeRemoveFailed')}
-              </button>
-              <button class="btn btn-sm btn-ghost" onclick={resetAnalyze}>{t('catalogAnalyzeReset')}</button>
-              <span class="helper-text">
-                {t('catalogAnalyzeSummary', {
-                  total: analyzeRows.length,
-                  pass: analyzeRows.filter((r) => r.verdict === 'pass').length,
-                  fail: analyzeRows.filter((r) => r.verdict === 'fail').length,
-                })}
-              </span>
-            {/if}
-          </div>
-          {#if analyzeError}
-            <div class="analyze-error">{analyzeError}</div>
-          {/if}
-          {#if analyzeRows}
-            <div class="analyze-table-wrap">
-              <table class="analyze-table">
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>{t('catalogAnalyzeVerdict')}</th>
-                    <th>{t('catalogColCategory')}</th>
-                    <th>{t('catalogAnalyzeTitle')}</th>
-                    <th>{t('catalogScore', { score: '' }).replace(/\s*$/, '')}</th>
-                    <th>{t('catalogAnalyzeReason')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each analyzeRows as row, idx}
-                    <tr class:row-removed={row.removed}>
-                      <td class="cell-toggle">
-                        <button
-                          class="btn btn-xs btn-ghost"
-                          onclick={() => toggleRowRemoved(idx)}
-                          title={row.removed ? t('catalogAnalyzeRestore') : t('catalogAnalyzeRemove')}
-                        >
-                          {row.removed ? '↩' : '✕'}
-                        </button>
-                      </td>
-                      <td>
-                        <span class={row.verdict === 'pass' ? 'badge badge-green' : 'badge badge-red'}>
-                          {row.verdict === 'pass' ? t('catalogAnalyzePass') : t('catalogAnalyzeFail')}
-                        </span>
-                      </td>
-                      <td class="cell-muted">{row.item.categoryId}</td>
-                      <td class="cell-strong">{row.item.title}</td>
-                      <td>{row.score}</td>
-                      <td class="cell-reason">{row.reason}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
           <label class="import-approve">
             <input type="checkbox" bind:checked={importApproved} />
             <span>{t('catalogImportApproved')}</span>
@@ -841,60 +708,6 @@
   }
   .import-result {
     font-size: 0.82rem;
-    color: var(--c-text-muted);
-  }
-  .analyze-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    align-items: center;
-    margin: 0.5rem 0;
-  }
-  .analyze-error {
-    padding: 0.5rem 0.7rem;
-    margin-bottom: 0.5rem;
-    border: 1px solid var(--c-danger);
-    background: var(--c-danger-bg, rgba(220, 38, 38, 0.08));
-    color: var(--c-danger);
-    border-radius: var(--radius);
-    font-size: 0.85rem;
-  }
-  .analyze-table-wrap {
-    overflow-x: auto;
-    max-height: 360px;
-    overflow-y: auto;
-    border: 1px solid var(--c-border);
-    border-radius: var(--radius);
-    margin-bottom: 0.7rem;
-  }
-  .analyze-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.84rem;
-  }
-  .analyze-table th,
-  .analyze-table td {
-    padding: 0.4rem 0.55rem;
-    text-align: left;
-    border-bottom: 1px solid var(--c-border);
-    vertical-align: top;
-  }
-  .analyze-table th {
-    position: sticky;
-    top: 0;
-    background: var(--c-bg-elevated);
-    font-weight: 600;
-  }
-  .analyze-table tr.row-removed {
-    opacity: 0.45;
-    text-decoration: line-through;
-  }
-  .cell-toggle {
-    width: 2.2rem;
-    text-align: center;
-  }
-  .cell-reason {
-    max-width: 22rem;
     color: var(--c-text-muted);
   }
 </style>
