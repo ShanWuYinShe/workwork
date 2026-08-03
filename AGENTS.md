@@ -55,8 +55,9 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
 # - 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md
 #   “版本号规范”）。构建期自动派生 versionName/versionCode；AI 改完代码、发版前在子模块打
-#   tag 即“自动更新版本”：git tag vX.Y.Z && git push origin vX.Y.Z（tag 打在子模块仓库，
-#   非外层 workwork）。发版操作（commit / tag / push）一律在对应 Worktree 内执行，禁止在主工作树直接操作，见全局 Git 准则。无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
+#   tag 即“自动更新版本”：git tag vX.Y.Z（tag 打在子模块仓库，非外层 workwork）。
+#   发版流程：commit / tag 在对应 Worktree 内完成；合并进主分支后，push（含 tag）一律在主工作树执行，
+#   见全局 Git 准则。无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
 # - services/media_center/media_app/**（Android APK，默认 normal 变体）:
 #     # JAVA_HOME 见全局「本机环境」（以 ls 验证，变动时用 mdfind 定位）
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
