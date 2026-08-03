@@ -87,8 +87,8 @@ func readDownloadsManifestLocked() claudeDownloadsManifest {
 	return m
 }
 
-func saveDownloadsManifestLocked(m claudeDownloadsManifest) {
-	saveJSONFile(claudeManifestPath, m)
+func saveDownloadsManifestLocked(m claudeDownloadsManifest) error {
+	return saveJSONFile(claudeManifestPath, m)
 }
 
 // GET /api/admin/claude-code/releases — admin sees full version list from GitHub
@@ -246,24 +246,39 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			return
 		}
 
-		sendEvent := func(data map[string]any) {
+		sendEvent := func(data map[string]any) bool {
+			// 客户端断开后 ResponseWriter 写入返回错误。继续读 CDN 是 CPU/带宽浪费，
+			// 检测到 ctx 已取消或写入失败就停止往死管道写。
+			if ctxErr := r.Context().Err(); ctxErr != nil {
+				return false
+			}
 			b, _ := json.Marshal(data)
-			w.Write(b)
-			w.Write([]byte("\n"))
+			if _, err := w.Write(b); err != nil {
+				return false
+			}
+			if _, err := w.Write([]byte("\n")); err != nil {
+				return false
+			}
 			flusher.Flush()
+			return true
 		}
 
-		sendEvent(map[string]any{"type": "start", "filename": filename})
+		if !sendEvent(map[string]any{"type": "start", "filename": filename}) {
+			return
+		}
 
 		var lastPct int64 = -1
-		size, checksum, err := downloadClaudeArchive(filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
-			if total <= 0 {
+		clientGone := false
+		size, checksum, err := downloadClaudeArchive(r.Context(), filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
+			if clientGone || total <= 0 {
 				return
 			}
 			pct := bytes * 100 / total
 			if pct >= lastPct+5 || bytes >= total {
 				lastPct = pct
-				sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct})
+				if !sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct}) {
+					clientGone = true
+				}
 			}
 		})
 		if err != nil {
@@ -273,7 +288,9 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 		}
 
 		cleanupOldDownloads(10)
-		sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": checksum})
+		if !sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": checksum}) {
+			return
+		}
 	}
 }
 
@@ -328,7 +345,12 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			}
 		}
 		m.Downloads = kept
-		saveDownloadsManifestLocked(m)
+		if err := saveDownloadsManifestLocked(m); err != nil {
+			claudeDownloadMu.Unlock()
+			log.Printf("ERROR: save claude manifest (delete): %v", err)
+			writeInternalError(w, fmt.Errorf("persist claude manifest: %w", err))
+			return
+		}
 		claudeDownloadMu.Unlock()
 		writeJSON(w, map[string]any{"status": "ok"})
 	}
@@ -448,7 +470,7 @@ func parseStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
+func downloadClaudeArchive(parentCtx context.Context, filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
 	if err := os.MkdirAll(claudeDownloadsDir, 0755); err != nil {
 		return 0, "", err
 	}
@@ -460,7 +482,8 @@ func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress 
 	tmpPath := f.Name()
 	defer os.Remove(tmpPath)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// 客户端断开(来自请求 ctx)或 5 分钟硬超时，任一触发即取消下载请求。
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", assetURL, nil)
 	if err != nil {
@@ -554,7 +577,10 @@ func downloadClaudeArchive(filename, version, plat, assetURL string, onProgress 
 			Checksum:     checksum,
 			DownloadedAt: time.Now().UTC().Format(time.RFC3339),
 		})
-		saveDownloadsManifestLocked(m)
+		if err := saveDownloadsManifestLocked(m); err != nil {
+			claudeDownloadMu.Unlock()
+			return 0, "", fmt.Errorf("persist claude manifest: %w", err)
+		}
 	}
 	claudeDownloadMu.Unlock()
 
@@ -572,7 +598,9 @@ func cleanupOldDownloads(maxKeep int) {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
 	}
 	m.Downloads = m.Downloads[:maxKeep]
-	saveDownloadsManifestLocked(m)
+	if err := saveDownloadsManifestLocked(m); err != nil {
+		log.Printf("ERROR: save claude manifest (cleanup): %v", err)
+	}
 }
 
 func compareVersions(a, b string) int {

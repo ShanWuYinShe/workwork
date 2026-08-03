@@ -79,8 +79,8 @@ func readXrayManifestLocked() xrayDownloadsManifest {
 	return m
 }
 
-func saveXrayManifestLocked(m xrayDownloadsManifest) {
-	saveJSONFile(xrayManifestPath, m)
+func saveXrayManifestLocked(m xrayDownloadsManifest) error {
+	return saveJSONFile(xrayManifestPath, m)
 }
 
 // GET /api/admin/xray/releases
@@ -232,24 +232,39 @@ func apiXrayDownload() http.HandlerFunc {
 			return
 		}
 
-		sendEvent := func(data map[string]any) {
+		sendEvent := func(data map[string]any) bool {
+			// 客户端断开后 ResponseWriter 写入返回错误。继续读 CDN 是 CPU/带宽浪费，
+			// 检测到 ctx 已取消或写入失败就停止往死管道写。
+			if ctxErr := r.Context().Err(); ctxErr != nil {
+				return false
+			}
 			b, _ := json.Marshal(data)
-			w.Write(b)
-			w.Write([]byte("\n"))
+			if _, err := w.Write(b); err != nil {
+				return false
+			}
+			if _, err := w.Write([]byte("\n")); err != nil {
+				return false
+			}
 			flusher.Flush()
+			return true
 		}
 
-		sendEvent(map[string]any{"type": "start", "filename": filename})
+		if !sendEvent(map[string]any{"type": "start", "filename": filename}) {
+			return
+		}
 
 		var lastPct int64 = -1
-		size, checksum, err := downloadXrayArchive(filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
-			if total <= 0 {
+		clientGone := false
+		size, checksum, err := downloadXrayArchive(r.Context(), filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
+			if clientGone || total <= 0 {
 				return
 			}
 			pct := bytes * 100 / total
 			if pct >= lastPct+5 || bytes >= total {
 				lastPct = pct
-				sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct})
+				if !sendEvent(map[string]any{"type": "progress", "bytes": bytes, "total": total, "percent": pct}) {
+					clientGone = true
+				}
 			}
 		})
 		if err != nil {
@@ -259,7 +274,9 @@ func apiXrayDownload() http.HandlerFunc {
 		}
 
 		cleanupOldXrayDownloads(5)
-		sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": checksum})
+		if !sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": checksum}) {
+			return
+		}
 	}
 }
 
@@ -314,7 +331,12 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 			}
 		}
 		m.Downloads = kept
-		saveXrayManifestLocked(m)
+		if err := saveXrayManifestLocked(m); err != nil {
+			xrayDownloadMu.Unlock()
+			log.Printf("ERROR: save xray manifest (delete): %v", err)
+			writeInternalError(w, fmt.Errorf("persist xray manifest: %w", err))
+			return
+		}
 		xrayDownloadMu.Unlock()
 		writeJSON(w, map[string]any{"status": "ok"})
 	}
@@ -435,7 +457,7 @@ func parseXrayStoredFilename(name string) (version, plat, platName string) {
 	return
 }
 
-func downloadXrayArchive(filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
+func downloadXrayArchive(parentCtx context.Context, filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
 	if err := os.MkdirAll(xrayDownloadsDir, 0755); err != nil {
 		return 0, "", err
 	}
@@ -447,7 +469,8 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 	tmpPath := f.Name()
 	defer os.Remove(tmpPath)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// 客户端断开(来自请求 ctx)或 5 分钟硬超时，任一触发即取消下载请求。
+	ctx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", assetURL, nil)
 	if err != nil {
@@ -541,7 +564,10 @@ func downloadXrayArchive(filename, version, plat, assetURL string, onProgress fu
 			Checksum:     checksum,
 			DownloadedAt: time.Now().UTC().Format(time.RFC3339),
 		})
-		saveXrayManifestLocked(m)
+		if err := saveXrayManifestLocked(m); err != nil {
+			xrayDownloadMu.Unlock()
+			return 0, "", fmt.Errorf("persist xray manifest: %w", err)
+		}
 	}
 	xrayDownloadMu.Unlock()
 
@@ -559,5 +585,7 @@ func cleanupOldXrayDownloads(maxKeep int) {
 		os.Remove(filepath.Join(xrayDownloadsDir, d.Filename))
 	}
 	m.Downloads = m.Downloads[:maxKeep]
-	saveXrayManifestLocked(m)
+	if err := saveXrayManifestLocked(m); err != nil {
+		log.Printf("ERROR: save xray manifest (cleanup): %v", err)
+	}
 }

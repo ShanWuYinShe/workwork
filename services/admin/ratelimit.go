@@ -19,6 +19,7 @@ type rateLimiter struct {
 	window   time.Duration // sliding window
 	banTime  time.Duration // how long to ban
 	stopChan chan struct{}
+	stopOnce sync.Once
 }
 
 var authRateLimiter = &rateLimiter{
@@ -33,8 +34,10 @@ func (rl *rateLimiter) start() {
 	go rl.cleanupLoop()
 }
 
+// stop 幂等地关闭 cleanupLoop goroutine。sync.Once 保证多次调用（如 shutdown
+// 与正常退出）不会触发 close of closed channel panic。
 func (rl *rateLimiter) stop() {
-	close(rl.stopChan)
+	rl.stopOnce.Do(func() { close(rl.stopChan) })
 }
 
 func (rl *rateLimiter) cleanupLoop() {

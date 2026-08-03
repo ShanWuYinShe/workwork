@@ -126,19 +126,20 @@ func loadJSONFile(path string, dest any) {
 }
 
 // saveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
-func saveJSONFile(path string, v any) {
+// 返回错误而非静默吞掉——manifest/磁盘一致性依赖调用方检查返回值并在失败时
+// 中止（writeInternalError），避免向用户上报成功但实际落盘失败导致状态漂移。
+func saveJSONFile(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		log.Printf("ERROR: saveJSONFile mkdir %s: %v", filepath.Dir(path), err)
-		return
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		log.Printf("ERROR: saveJSONFile marshal %s: %v", path, err)
-		return
+		return fmt.Errorf("marshal %s: %w", path, err)
 	}
 	if err := atomicWriteFile(path, data, 0600); err != nil {
-		log.Printf("ERROR: saveJSONFile %s: %v", path, err)
+		return fmt.Errorf("write %s: %w", path, err)
 	}
+	return nil
 }
 
 // bcryptHtpasswdLine 返回与 `htpasswd -nbB user pass` 相同格式的行：`<user>:<bcrypt-hash>`。
@@ -176,6 +177,20 @@ func proxyAuthForUser(username string) (string, error) {
 		return "", nil
 	}
 	return username + ":" + pass, nil
+}
+
+// proxyAuthForUserRead 与 proxyAuthForUser 相同，但只读取已存在的密码，
+// 不创建。用于 GET /api/admin/users：读端点不应有写副作用（生成密码 + 重写
+// htpasswd）。用户没有 proxy 密码时返回空串，生成的 config 中 XHTTPProxyAuth
+// 为空——客户端首次添加 Xray 客户端时会懒创建并重写。
+func proxyAuthForUserRead(username string) string {
+	if username == "" || username == "internal" {
+		return ""
+	}
+	if pass := proxyPasswordIfExists(username); pass != "" {
+		return username + ":" + pass
+	}
+	return ""
 }
 
 func apiDashboard(cli *client.Client) http.HandlerFunc {
@@ -428,18 +443,17 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		// Proxy auth: use first client's owner, not the viewing user
+		// Proxy auth: use first client's owner, not the viewing user。
+		// 只读：GET 端点不创建 proxy 密码（避免写副作用）。用户尚无密码时
+		// proxyAuth 为空，生成的 config 里 XHTTPProxyAuth 留空——首次添加
+		// Xray 客户端时由 apiAddXray 懒创建。
 		proxyUser := username
 		if len(filtered) > 0 && filtered[0]["owner"] != "" {
 			proxyUser = filtered[0]["owner"]
 		}
 		proxyAuth := ""
 		if len(filtered) > 0 {
-			proxyAuth, err = proxyAuthForUser(proxyUser)
-			if err != nil {
-				writeInternalError(w, err)
-				return
-			}
+			proxyAuth = proxyAuthForUserRead(proxyUser)
 		}
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),

@@ -45,10 +45,6 @@ func apiMediaAppReleaseGet() http.HandlerFunc {
 		writeJSON(w, map[string]any{
 			"published": exists && apkExists,
 			"manifest":  manifest,
-			"files": map[string]string{
-				"manifest": mediaCenterAppUpdateManifestPath(variant),
-				"apk":      apkPath,
-			},
 			"apkSizeBytes": func() int64 {
 				if info == nil {
 					return 0

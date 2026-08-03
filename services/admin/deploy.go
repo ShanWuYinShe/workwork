@@ -124,14 +124,21 @@ func genXrayConfig() error {
 	enc := json.NewEncoder(&xhttpClients)
 	enc.SetEscapeHTML(false)
 	for _, c := range clientsCopy {
-		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner})
+		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner}); err != nil {
+			return fmt.Errorf("encode xhttp client %s: %w", c.ID, err)
+		}
+		// enc.Encode 追加换行；去掉尾换行再加逗号，拼成 JSON 数组元素。
+		// 编码失败时 buffer 不会增长，Truncate(Len()-1) 在空 buffer 上会 panic，
+		// 因此只在 Encode 成功后才 Truncate。
 		xhttpClients.Truncate(xhttpClients.Len() - 1)
 		xhttpClients.WriteByte(',')
 	}
 	enc = json.NewEncoder(&realityClients)
 	enc.SetEscapeHTML(false)
 	for _, c := range clientsCopy {
-		enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner})
+		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner}); err != nil {
+			return fmt.Errorf("encode reality client %s: %w", c.ID, err)
+		}
 		realityClients.Truncate(realityClients.Len() - 1)
 		realityClients.WriteByte(',')
 	}
