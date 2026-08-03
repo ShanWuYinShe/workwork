@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -248,5 +250,72 @@ func apiMediaCatalogImport() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body)
+	}
+}
+
+// apiMediaCatalogAnalyze 在导入前用 AI 离线分析候选视频源是否符合收录要求。
+// 不写库——只返回 verdict/reason/score，由前端展示供人工预览/剔除后，再走 import。
+// 这是 media_server 纯目录架构下的"带外 AI 判定"：LLM 调用在 admin（本就发出站 HTTP），
+// media_server 保持纯数据层。
+func apiMediaCatalogAnalyze() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := loadAIAnalyzeConfig()
+		if !cfg.enabled() {
+			writeError(w, "AI 分析未配置：请在 .env 设置 AI_BASE_URL 与 AI_API_KEY", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			Items []aiAnalyzeCandidate `json:"items"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, aiAnalyzeRequestLimit)).Decode(&req); err != nil {
+			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			return
+		}
+		if len(req.Items) == 0 {
+			writeError(w, "items 不能为空", http.StatusBadRequest)
+			return
+		}
+		if len(req.Items) > aiAnalyzeMaxItems {
+			writeError(w, fmt.Sprintf("单次最多分析 %d 条", aiAnalyzeMaxItems), http.StatusBadRequest)
+			return
+		}
+		// 校验基础字段 + 收集分类上下文。
+		catCfg, err := readMediaCenterConfig()
+		if err != nil {
+			writeInternalError(w, fmt.Errorf("read media center config: %w", err))
+			return
+		}
+		briefs := make(map[string]aiCategoryBrief, len(catCfg.Categories))
+		for _, c := range catCfg.Categories {
+			briefs[c.ID] = aiCategoryBrief{ID: c.ID, Title: c.Title, Description: c.Description, Keywords: c.Keywords}
+		}
+		for i, it := range req.Items {
+			if strings.TrimSpace(it.CategoryID) == "" || strings.TrimSpace(it.Provider) == "" ||
+				strings.TrimSpace(it.Title) == "" {
+				writeError(w, fmt.Sprintf("items[%d] categoryId/provider/title 不能为空", i), http.StatusBadRequest)
+				return
+			}
+			if _, ok := briefs[strings.TrimSpace(it.CategoryID)]; !ok {
+				writeError(w, fmt.Sprintf("items[%d].categoryId 未知：%s", i, it.CategoryID), http.StatusBadRequest)
+				return
+			}
+		}
+		// 重新编号 index 以对齐（客户端可能传了乱序/重复 index）。
+		for i := range req.Items {
+			req.Items[i].Index = i
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Minute)
+		defer cancel()
+		verdicts, err := analyzeSources(ctx, cfg, briefs, req.Items)
+		if err != nil {
+			if errors.Is(err, errAIAnalyzeDisabled) {
+				writeError(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+			log.Printf("ai analyze failed: %v", err)
+			writeInternalError(w, fmt.Errorf("AI 分析失败: %w", err))
+			return
+		}
+		writeJSON(w, map[string]any{"results": verdicts})
 	}
 }
