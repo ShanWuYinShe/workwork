@@ -72,6 +72,7 @@ func main() {
 	mux.HandleFunc("POST /api/admin/media-center/catalog/review", requireRole("admin")(apiMediaCatalogReview()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", requireRole("admin")(apiMediaCatalogDelete()))
 	mux.HandleFunc("POST /api/admin/media-center/catalog/import", requireRole("admin")(apiMediaCatalogImport()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/analyze", requireRole("admin")(apiMediaCatalogAnalyze()))
 	mux.HandleFunc("GET /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseGet()))
 	mux.HandleFunc("POST /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseUpload()))
 	// IP block management (Go-level, works behind Cloudflare)
@@ -143,7 +144,8 @@ func main() {
 		// on similar paths.
 		if r.URL.Path != "/api/admin/transfer/upload" &&
 			r.URL.Path != "/api/admin/media-center/app-release" &&
-			r.URL.Path != "/api/admin/media-center/catalog/import" {
+			r.URL.Path != "/api/admin/media-center/catalog/import" &&
+			r.URL.Path != "/api/admin/media-center/catalog/analyze" {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 		}
 		// Static assets: cache forever (fingerprinted filenames), skip rate limit
@@ -175,6 +177,9 @@ func main() {
 	// 这样 transferCleanupLoop 能响应 SIGTERM 信号优雅退出。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
+	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
+	defer authRateLimiter.stop()
 
 	go transferCleanupLoop(ctx)
 

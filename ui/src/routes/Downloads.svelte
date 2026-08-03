@@ -101,8 +101,11 @@
       const fn = tab === 'claude' ? getClaudePlatforms : getXrayPlatforms;
       const d = await fn(version);
       versionPlatforms = { ...versionPlatforms, [version]: d.platforms || [] };
-    } catch {
-      versionPlatforms = { ...versionPlatforms, [version]: [] };
+    } catch (e) {
+      // 加载失败时不要缓存为空数组——否则会被渲染成红色"无平台"徽章，
+      // 让一次性的网络错误看起来像该版本真的没有产物。
+      // 保持 undefined（灰色"—"）让用户可重试，并明确报错。
+      toast(e?.message || t('loadFailed'), 'error');
     }
   }
 

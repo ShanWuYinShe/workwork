@@ -219,6 +219,23 @@ func proxyHtpasswdContainsUser(username string) bool {
 	return false
 }
 
+// proxyPasswordIfExists 返回已存在的 proxy 密码（只读，不创建）。
+// 用于 GET /api/admin/users 这类读端点——避免在查询时产生副作用（生成密码 +
+// 重写 htpasswd）。密码在用户首次添加 Xray 客户端时由 getOrCreateProxyPassword 懒创建。
+func proxyPasswordIfExists(username string) string {
+	if username == "" {
+		return ""
+	}
+	doc, err := readUsersMeta()
+	if err != nil {
+		return ""
+	}
+	if info, ok := doc.Users[username]; ok {
+		return info.ProxyPassword
+	}
+	return ""
+}
+
 // trustedProxyCIDRs returns the set of networks allowed to forge X-Forwarded-User.
 // Configurable via TRUSTED_PROXY_CIDRS env (comma-separated CIDRs).
 // Default: loopback only. The nginx container is trusted by hostname below.
