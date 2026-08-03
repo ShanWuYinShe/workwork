@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"os"
@@ -60,8 +61,8 @@ func loadTransferManifestLocked() transferManifest {
 	return m
 }
 
-func saveTransferManifestLocked(m transferManifest) {
-	saveJSONFile(transferManifestPath, m)
+func saveTransferManifestLocked(m transferManifest) error {
+	return saveJSONFile(transferManifestPath, m)
 }
 
 func generateTransferCode() (string, error) {
@@ -134,7 +135,9 @@ func cleanupExpiredTransferFiles() {
 		if m.TotalSize < 0 {
 			m.TotalSize = 0
 		}
-		saveTransferManifestLocked(m)
+		if err := saveTransferManifestLocked(m); err != nil {
+			log.Printf("ERROR: save transfer manifest (cleanup): %v", err)
+		}
 	}
 }
 
@@ -280,8 +283,16 @@ func apiTransferUpload() http.HandlerFunc {
 		}
 		m.Files = append(m.Files, entry)
 		m.TotalSize += written
-		saveTransferManifestLocked(m)
+		saveErr := saveTransferManifestLocked(m)
 		transferMu.Unlock()
+
+		if saveErr != nil {
+			log.Printf("ERROR: save transfer manifest (upload): %v", saveErr)
+			// 磁盘文件已就位，但 manifest 未持久化 → 文件对管理面板不可见。
+			// 不回滚已写入的磁盘文件（避免二次失败），如实上报。
+			writeInternalError(w, fmt.Errorf("persist transfer manifest: %w", saveErr))
+			return
+		}
 
 		writeJSON(w, map[string]any{
 			"status": "ok",
@@ -371,7 +382,11 @@ func apiTransferDelete() http.HandlerFunc {
 		if m.TotalSize < 0 {
 			m.TotalSize = 0
 		}
-		saveTransferManifestLocked(m)
+		if err := saveTransferManifestLocked(m); err != nil {
+			log.Printf("ERROR: save transfer manifest (delete): %v", err)
+			writeInternalError(w, fmt.Errorf("persist transfer manifest: %w", err))
+			return
+		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -430,7 +445,11 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		rangeHeader := r.Header.Get("Range")
 		if rangeHeader == "" || strings.HasPrefix(rangeHeader, "bytes=0") {
 			target.Downloads++
-			saveTransferManifestLocked(m)
+			if err := saveTransferManifestLocked(m); err != nil {
+				// 下载计数持久化失败：不阻断下载本身（文件可读），仅记录。
+				// 后续清理/列表会基于陈旧计数，可接受优于中断公开下载。
+				log.Printf("ERROR: save transfer manifest (download count): %v", err)
+			}
 		}
 		filePath := transferFilePath(code, target.Filename)
 		filename := sanitizeHeaderValue(target.Filename)
