@@ -46,6 +46,6 @@ services/web-search-mcp/web-search-mcp
 # SPA build output
 ui/dist/
 
-# Claude Code
-.claude/worktrees/
+# AI worktrees
+.worktrees/
 .claude/settings.local.json
