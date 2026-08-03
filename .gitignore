@@ -48,4 +48,4 @@ ui/dist/
 
 # AI worktrees
 .worktrees/
-.claude/settings.local.json
+.claude/
