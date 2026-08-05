@@ -61,6 +61,9 @@
   let credentialsSaving = $state(false);
   // 凭证字段行的稳定 id 生成器；每个字段行用 id 作 each key，避免重命名时焦点/顺序错乱。
   let fieldSeq = 0;
+  // 添加视频源的内联表单状态(替代浏览器原生 prompt,与全站表单风格一致)。
+  let addingProvider = $state(false);
+  let newProviderId = $state('');
 
   const mediaTabs = [
     { id: 'runtime', labelKey: 'mediaTabRuntime' },
@@ -129,16 +132,16 @@
 
   async function publishAppRelease() {
     if (!appReleaseFile) {
-      toast('请选择 APK 文件', 'error');
+      toast(t('appReleaseSelectApk'), 'error');
       return;
     }
     const versionCode = Number(appReleaseForm.versionCode);
     if (!Number.isInteger(versionCode) || versionCode <= 0) {
-      toast('versionCode 必须是正整数', 'error');
+      toast(t('appReleaseVersionCodeInvalid'), 'error');
       return;
     }
     if (!appReleaseForm.versionName.trim()) {
-      toast('versionName 不能为空', 'error');
+      toast(t('appReleaseVersionNameRequired'), 'error');
       return;
     }
     const form = new FormData();
@@ -150,7 +153,7 @@
     try {
       appRelease = await uploadMediaAppRelease(form, appReleaseVariant);
       appReleaseFile = null;
-      toast('App 更新已发布', 'success');
+      toast(t('appReleasePublishedToast'), 'success');
       await loadAppRelease();
     } catch (e) {
       toast(e.message, 'error');
@@ -186,13 +189,29 @@
         }))
         .filter((c) => Object.keys(c.fields).length > 0);
       await saveMediaCenterCredentials(creds);
-      toast('凭证已保存', 'success');
+      toast(t('credentialsSaved'), 'success');
       await loadCredentials();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
       credentialsSaving = false;
     }
+  }
+
+  function addProvider() {
+    const id = newProviderId.trim();
+    if (!id) return;
+    if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(id)) {
+      toast(t('mediaCredProviderInvalid'), 'error');
+      return;
+    }
+    if (credentials.find((c) => c.provider === id)) {
+      toast(t('mediaCredProviderExists'), 'error');
+      return;
+    }
+    credentials = [...credentials, { provider: id, fields: [{ id: ++fieldSeq, key: '', value: '' }] }];
+    newProviderId = '';
+    addingProvider = false;
   }
 
   function formatBytes(bytes) {
@@ -705,13 +724,13 @@
       <div class="card media-card">
         <div class="card-header">
           <div>
-            <div class="card-title">Android TV App 更新发布</div>
+            <div class="card-title">{t('appReleaseTitle')}</div>
             <div class="card-subtitle">
-              上传审核后的 APK；客户端启动时会自动检查、下载、校验并拉起安装器。
+              {t('appReleaseDesc')}
             </div>
           </div>
           <button class="btn btn-sm btn-ghost" onclick={loadAppRelease} disabled={appReleaseLoading}>
-            {appReleaseLoading ? '刷新中…' : t('refresh')}
+            {appReleaseLoading ? t('appReleaseRefreshing') : t('refresh')}
           </button>
         </div>
 
@@ -722,7 +741,7 @@
               {#if appReleaseVariant}
                 <span class="badge badge-blue">{appReleaseVariant}</span>
               {/if}
-              <span class="badge badge-green">已发布</span>
+              <span class="badge badge-green">{t('appReleasePublished')}</span>
               <strong>{manifest.versionName}</strong>
               <span>versionCode {manifest.versionCode}</span>
               <span>{formatBytes(manifest.sizeBytes)}</span>
@@ -730,29 +749,29 @@
             </div>
             <code class="release-sha">{manifest.sha256}</code>
           {:else}
-            <div class="helper-text">尚未发布 App 更新；客户端会继续使用当前版本。</div>
+            <div class="helper-text">{t('appReleaseNotPublished')}</div>
           {/if}
         </div>
 
         <div class="form-grid app-release-form">
           <div class="form-group">
-            <label for="app-variant">变体 (variant)</label>
+            <label for="app-variant">{t('appReleaseVariant')}</label>
             <input
               id="app-variant"
               list="app-variant-options"
               value={appReleaseVariant}
               oninput={(e) => (appReleaseVariant = e.currentTarget.value.trim())}
               onchange={onVariantChange}
-              placeholder="normal（默认）"
+              placeholder={t('appReleaseVariantPlaceholder')}
             />
             <datalist id="app-variant-options">
               <option value="normal"></option>
               <option value="legacy"></option>
             </datalist>
-            <span class="helper-text">normal = 默认 Compose 版；legacy = API19 View 版</span>
+            <span class="helper-text">{t('appReleaseVariantHelp')}</span>
           </div>
           <div class="form-group">
-            <label for="app-version-code">versionCode</label>
+            <label for="app-version-code">{t('appReleaseVersionCode')}</label>
             <input
               id="app-version-code"
               inputmode="numeric"
@@ -763,7 +782,7 @@
             />
           </div>
           <div class="form-group">
-            <label for="app-version-name">versionName</label>
+            <label for="app-version-name">{t('appReleaseVersionName')}</label>
             <input
               id="app-version-name"
               value={appReleaseForm.versionName}
@@ -773,7 +792,7 @@
             />
           </div>
           <div class="form-group">
-            <label for="app-apk-file">APK 文件</label>
+            <label for="app-apk-file">{t('appReleaseApkFile')}</label>
             <input
               id="app-apk-file"
               type="file"
@@ -783,7 +802,7 @@
           </div>
         </div>
         <div class="form-group app-release-notes">
-          <label for="app-release-notes">更新说明</label>
+          <label for="app-release-notes">{t('appReleaseNotes')}</label>
           <textarea
             id="app-release-notes"
             rows="4"
@@ -799,7 +818,7 @@
             disabled={appReleaseUploading}
           >
             {#if appReleaseUploading}<span class="spinner"></span>{/if}
-            {appReleaseUploading ? '发布中…' : '发布 App 更新'}
+            {appReleaseUploading ? t('appReleasePublishing') : t('appReleasePublish')}
           </button>
         </div>
       </div>
@@ -1092,15 +1111,31 @@
                 </div>
               </div>
             {/each}
-            <button
-              class="btn btn-sm"
-              onclick={() => {
-                const id = prompt(t('mediaCredProviderId'));
-                if (id && /^[a-z0-9][a-z0-9-]{0,79}$/.test(id) && !credentials.find(c => c.provider === id)) {
-                  credentials = [...credentials, { provider: id, fields: [{ id: ++fieldSeq, key: '', value: '' }] }];
-                }
-              }}
-            >{t('mediaCredAddProvider')}</button>
+            {#if addingProvider}
+              <div class="add-provider-form">
+                <input
+                  type="text"
+                  value={newProviderId}
+                  oninput={(e) => (newProviderId = e.currentTarget.value)}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); addProvider(); }
+                    if (e.key === 'Escape') { addingProvider = false; newProviderId = ''; }
+                  }}
+                  placeholder={t('mediaCredProviderId')}
+                  autofocus
+                />
+                <button class="btn btn-sm btn-success" onclick={addProvider}>{t('add')}</button>
+                <button
+                  class="btn btn-sm btn-ghost"
+                  onclick={() => { addingProvider = false; newProviderId = ''; }}
+                >{t('cancel')}</button>
+              </div>
+            {:else}
+              <button
+                class="btn btn-sm"
+                onclick={() => { addingProvider = true; newProviderId = ''; }}
+              >{t('mediaCredAddProvider')}</button>
+            {/if}
           </div>
           {#if credentialsSaving}
             <div class="card-section"><div class="loading-skeleton" style="height:36px"></div></div>
@@ -1626,5 +1661,14 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+  .add-provider-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+  .add-provider-form input {
+    max-width: 260px;
   }
 </style>

@@ -47,7 +47,15 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 				time.Sleep(backoff)
 				backoff = min(backoff*2, maxBackoff)
 				goto reconnect
-			case msg := <-msgCh:
+			case msg, ok := <-msgCh:
+				// 流关闭但 errCh 未报错时(msgCh 已关闭),继续读零值消息会
+				// 空转 100% CPU 且不再重连;按错误路径退避重连。
+				if !ok {
+					log.Printf("[ip-watcher] event stream closed; reconnecting in %v", backoff)
+					time.Sleep(backoff)
+					backoff = min(backoff*2, maxBackoff)
+					goto reconnect
+				}
 				service := msg.Actor.Attributes["com.docker.compose.service"]
 				if msg.Actor.Attributes["com.docker.compose.project"] != composeProjectName() {
 					continue
