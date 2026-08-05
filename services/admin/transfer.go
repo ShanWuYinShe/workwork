@@ -215,12 +215,14 @@ func apiTransferUpload() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
-		tmpPath := filepath.Join(transferDir, fmt.Sprintf(".upload-%d.tmp", time.Now().UnixNano()))
-		dst, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		// os.CreateTemp 用随机后缀,极端并发下不会像 UnixNano 那样 O_EXCL 碰撞。
+		tmpFile, err := os.CreateTemp(transferDir, ".upload-*.tmp")
 		if err != nil {
 			writeInternalError(w, err)
 			return
 		}
+		tmpPath := tmpFile.Name()
+		dst := tmpFile
 
 		written, err := io.Copy(dst, io.LimitReader(file, transferMaxFile))
 		dst.Close()

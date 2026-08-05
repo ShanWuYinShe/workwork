@@ -106,14 +106,16 @@ func apiMediaCenterConfig() http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+		// files 只返回文件名(不泄露服务端绝对路径);路径仅用于 UI 展示配置流,
+		// 绝对路径对管理员排查无增益反而泄露容器内部布局。
 		writeJSON(w, map[string]any{
 			"config":             cfg,
 			"default_sources":    defaultCfg.Sources,
 			"default_categories": defaultCfg.Categories,
 			"files": map[string]string{
-				"admin_config":   mediaCenterConfigPath,
-				"runtime_config": mediaCenterCategoriesPath,
-				"defaults":       mediaCenterDefaultCategoriesPath,
+				"admin_config":   filepath.Base(mediaCenterConfigPath),
+				"runtime_config": filepath.Base(mediaCenterCategoriesPath),
+				"defaults":       filepath.Base(mediaCenterDefaultCategoriesPath),
 			},
 			"limits": map[string]int{
 				"max_categories":              maxMediaCenterCategories,
@@ -121,7 +123,7 @@ func apiMediaCenterConfig() http.HandlerFunc {
 				"max_keywords_per_category":   maxCategoryKeywords,
 				"max_source_queries_per_rule": maxCategorySourceQueries,
 			},
-			"runtime_file": mediaCenterCategoriesPath,
+			"runtime_file": filepath.Base(mediaCenterCategoriesPath),
 		})
 	}
 }

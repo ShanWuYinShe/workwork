@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -150,9 +151,15 @@ func main() {
 			r.URL.Path != "/api/admin/media-center/catalog/import" {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 		}
-		// Static assets: cache forever (fingerprinted filenames), skip rate limit
+		// Static assets: /assets/ 是指纹文件名(内容哈希),可永久缓存;
+		// favicon.svg / icons.svg 非指纹,更新后需尽快生效,只给短缓存。
+		// 两者都跳过 rate limit(高频低价值)。
 		if isStaticAsset(r.URL.Path) {
-			w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=3600")
+			}
 			ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 				mux.ServeHTTP(w2, r2)
 			})(w, r)

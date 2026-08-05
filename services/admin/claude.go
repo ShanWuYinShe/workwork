@@ -380,6 +380,10 @@ func fetchClaudeCodeVersions() ([]claudeRelease, error) {
 		return nil, fmt.Errorf("github api: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// 403 限流/5xx 时不盲解 JSON:明确的错误信息,避免 decode 报错误导排查。
+		return nil, fmt.Errorf("github api: unexpected status %d", resp.StatusCode)
+	}
 
 	var ghReleases []struct {
 		TagName     string `json:"tag_name"`
