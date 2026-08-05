@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -35,6 +36,15 @@ var (
 	usersMetaPath = "/app/data/users.json"
 	usersMetaMu   sync.Mutex
 )
+
+// errLastAdmin 表示"不能移除最后一个管理员"的业务错误。它由 usersMeta 持锁回调
+// 返回(在 updateUsersMeta 的单次锁获取内完成 read-check-write),handler 层用
+// errors.Is 识别并映射为 400——把 last-admin 守卫从"先读后写"的两段式改成原子
+// 操作,消除并发降级/删除绕过守卫把管理员清零的 TOCTOU 窗口。
+var errLastAdmin = errors.New("cannot remove the last admin user")
+
+// errProtectedAdmin 表示"不能降级受保护的管理员账号"(AUTH_USER)。
+var errProtectedAdmin = errors.New("cannot demote the default admin account")
 
 // internalToken/fail2banToken 由 deploy.go 生成并加载。
 // 避免使用 os.Setenv 注入进程环境（并发不安全）以及 getEnv 的双重来源行为。

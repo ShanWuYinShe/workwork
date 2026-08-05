@@ -1052,7 +1052,7 @@
           <div class="helper-text">{t('mediaCredentialsHelp')}</div>
         </div>
         {#if credentialsLoading}
-          <div class="card-section"><div class="skeleton" style="height:80px"></div></div>
+          <div class="card-section"><div class="loading-skeleton" style="height:80px"></div></div>
         {:else}
           <div class="card-section">
             {#each credentials as cred, ci (cred.provider)}
@@ -1103,7 +1103,7 @@
             >{t('mediaCredAddProvider')}</button>
           </div>
           {#if credentialsSaving}
-            <div class="card-section"><div class="skeleton" style="height:36px"></div></div>
+            <div class="card-section"><div class="loading-skeleton" style="height:36px"></div></div>
           {:else}
             <div class="card-section page-actions">
               <button class="btn" onclick={saveCredentials}>{t('save')}</button>

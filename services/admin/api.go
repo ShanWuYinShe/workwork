@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -837,46 +838,57 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Forbidden", 403)
 			return
 		}
-		docBefore, err := readUsersMeta()
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		previousInfo, hadPrevious := docBefore.Users[body.Username]
 
 		// This handler doubles as the edit path for an existing username, so it
 		// must enforce the same lockout guards as apiSetRole when demoting an
 		// admin, and must preserve durable fields instead of wiping them.
-		if hadPrevious && previousInfo.Role == "admin" && body.Role != "admin" {
-			if isProtectedAdmin(body.Username) {
-				writeError(w, "Cannot demote the default admin account", 403)
-				return
+		// last-admin 检查与写入在 updateUsersMeta 的单次持锁回调内完成(原子
+		// read-check-write),消除两段式守卫的 TOCTOU。
+		var previousInfo UserInfo
+		var hadPrevious bool
+		if err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+			prev, ok := doc.Users[body.Username]
+			hadPrevious = ok
+			if ok {
+				previousInfo = prev
 			}
-			adminCount := 0
-			for _, info := range docBefore.Users {
-				if info.Role == "admin" {
-					adminCount++
+			if ok && prev.Role == "admin" && body.Role != "admin" {
+				if isProtectedAdmin(body.Username) {
+					return false, errProtectedAdmin
+				}
+				adminCount := 0
+				for _, info := range doc.Users {
+					if info.Role == "admin" {
+						adminCount++
+					}
+				}
+				if adminCount <= 1 {
+					return false, errLastAdmin
 				}
 			}
-			if adminCount <= 1 {
+			newInfo := UserInfo{
+				Role:      body.Role,
+				CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			if ok {
+				// Keep the existing XHTTP proxy password and creation time so we
+				// don't break client configs or reset account metadata on edit.
+				newInfo.ProxyPassword = prev.ProxyPassword
+				if prev.CreatedAt != "" {
+					newInfo.CreatedAt = prev.CreatedAt
+				}
+			}
+			doc.Users[body.Username] = newInfo
+			return true, nil
+		}); err != nil {
+			if errors.Is(err, errLastAdmin) {
 				writeError(w, "Cannot demote the last admin user", 400)
 				return
 			}
-		}
-
-		newInfo := UserInfo{
-			Role:      body.Role,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		}
-		if hadPrevious {
-			// Keep the existing XHTTP proxy password and creation time so we
-			// don't break client configs or reset account metadata on edit.
-			newInfo.ProxyPassword = previousInfo.ProxyPassword
-			if previousInfo.CreatedAt != "" {
-				newInfo.CreatedAt = previousInfo.CreatedAt
+			if errors.Is(err, errProtectedAdmin) {
+				writeError(w, "Cannot demote the default admin account", 403)
+				return
 			}
-		}
-		if err := updateUserMeta(body.Username, newInfo); err != nil {
 			writeInternalError(w, err)
 			return
 		}
@@ -918,27 +930,42 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Prevent deleting the last admin
-		doc, err := readUsersMeta()
-		if err != nil {
+		// last-admin 检查与删除在 updateUsersMeta 的单次持锁回调内完成(原子
+		// read-check-write),消除两段式守卫的 TOCTOU——并发删除两个管理员时
+		// 只有一个能通过计数检查。
+		var deleted bool
+		if err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+			targetInfo, ok := doc.Users[body.Username]
+			if !ok {
+				return false, nil
+			}
+			deleted = true
+			if targetInfo.Role == "admin" {
+				adminCount := 0
+				for _, info := range doc.Users {
+					if info.Role == "admin" {
+						adminCount++
+					}
+				}
+				if adminCount <= 1 {
+					return false, errLastAdmin
+				}
+			}
+			delete(doc.Users, body.Username)
+			return true, nil
+		}); err != nil {
+			if errors.Is(err, errLastAdmin) {
+				writeError(w, "Cannot delete the last admin user", 400)
+				return
+			}
 			writeInternalError(w, err)
 			return
 		}
-		adminCount := 0
-		for _, info := range doc.Users {
-			if info.Role == "admin" {
-				adminCount++
-			}
-		}
-		if targetInfo, ok := doc.Users[body.Username]; ok && targetInfo.Role == "admin" && adminCount <= 1 {
-			writeError(w, "Cannot delete the last admin user", 400)
+		if !deleted {
+			writeError(w, "User not found", 404)
 			return
 		}
 
-		if err := deleteUserMeta(body.Username); err != nil {
-			writeInternalError(w, err)
-			return
-		}
 		if err := htpasswdRemoveUser(body.Username); err != nil {
 			writeInternalError(w, err)
 			return
@@ -972,25 +999,9 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Prevent demoting the last admin
-		if body.Role != "admin" {
-			doc, err := readUsersMeta()
-			if err != nil {
-				writeInternalError(w, err)
-				return
-			}
-			adminCount := 0
-			for username, info := range doc.Users {
-				if info.Role == "admin" && username != body.Username {
-					adminCount++
-				}
-			}
-			if adminCount == 0 {
-				writeError(w, "Cannot demote the last admin user", 400)
-				return
-			}
-		}
-
+		// last-admin 检查在 updateUsersMeta 的持锁回调内完成(单次锁获取内
+		// read-check-write):并发降级两个管理员时,只有一个能通过计数检查,
+		// 杜绝"先读后写"两段式守卫的 TOCTOU。
 		var notFound bool
 		if err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
 			info, exists := doc.Users[body.Username]
@@ -998,10 +1009,25 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 				notFound = true
 				return false, nil
 			}
+			if body.Role != "admin" && info.Role == "admin" {
+				adminCount := 0
+				for username, other := range doc.Users {
+					if other.Role == "admin" && username != body.Username {
+						adminCount++
+					}
+				}
+				if adminCount == 0 {
+					return false, errLastAdmin
+				}
+			}
 			info.Role = body.Role
 			doc.Users[body.Username] = info
 			return true, nil
 		}); err != nil {
+			if errors.Is(err, errLastAdmin) {
+				writeError(w, "Cannot demote the last admin user", 400)
+				return
+			}
 			writeInternalError(w, err)
 			return
 		}
@@ -1274,13 +1300,12 @@ func startupRotateIPv6(cli *client.Client) {
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-
-	// 持有轮换锁，防止与手动轮换 API 并发。
-	ipv6RotateMu.Lock()
-	defer ipv6RotateMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
+	// 先等容器就绪——这段等待最长可达 3 分钟,绝不能持锁:轮换锁是全局互斥的,
+	// 启动窗口内任何用户请求(xray 客户端增删、服务重启)都会在
+	// restoreServiceRotatingIP 的 RLock 上挂起同样长的时间。
 	var xrayID, nginxID string
 	for {
 		var xrayErr, nginxErr error
@@ -1295,6 +1320,14 @@ func startupRotateIPv6(cli *client.Client) {
 		}
 		time.Sleep(2 * time.Second)
 	}
+
+	// 仅在真正分配 IP + 写 DNS 的临界区持锁;若手动轮换 API 正在执行,
+	// 放弃本轮(ipConsistencyChecker 会兜底恢复),避免与其并发。
+	if !ipv6RotateMu.TryLock() {
+		log.Printf("startup rotate: rotation lock busy, skipping startup restore")
+		return
+	}
+	defer ipv6RotateMu.Unlock()
 
 	subnet := getEnv("IPV6_SUBNET")
 	prefix, err := parseSubnetPrefix(subnet)
@@ -1690,7 +1723,11 @@ func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, container
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	ipv6RotateMu.RLock()
+	// 非阻塞获取读锁:启动轮换/手动轮换持写锁期间跳过本轮恢复(与
+	// checkIPConsistency 的 TryRLock 一致),避免请求挂起在锁上。
+	if !ipv6RotateMu.TryRLock() {
+		return
+	}
 	defer ipv6RotateMu.RUnlock()
 	xrayIP, nginxIP := loadCurrentIPs()
 	ip := xrayIP
