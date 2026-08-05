@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,7 +40,7 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 		}
 		slog.Default().LogAttrs(r.Context(), level, "request",
 			slog.String("method", r.Method),
-			slog.String("path", r.URL.RequestURI()),
+			slog.String("path", redactRequestPath(r)),
 			slog.Int("status", rec.status),
 			slog.Int64("duration_ms", duration),
 			slog.String("client_ip", clientIP(r)),
@@ -47,6 +48,19 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 			slog.String("user_agent", r.UserAgent()),
 		)
 	})
+}
+
+// redactRequestPath 脱敏敏感路径:/api/transfer/{code} 的分享码相当于临时下载
+// 凭据,写进日志文件即泄露(日志可能被转发/留存);保留 query 便于排查。
+func redactRequestPath(r *http.Request) string {
+	path := r.URL.RequestURI()
+	if strings.HasPrefix(path, "/api/transfer/") {
+		if idx := strings.Index(path, "?"); idx > 0 {
+			return "/api/transfer/[redacted]" + path[idx:]
+		}
+		return "/api/transfer/[redacted]"
+	}
+	return path
 }
 
 // statusRecorder 包裹 http.ResponseWriter 以捕获状态码与已写字节数。
