@@ -78,16 +78,9 @@ server {
     }
 
     location = __MEDIA_CENTER_PUBLIC_PATH__ {
-        return 308 __MEDIA_CENTER_PUBLIC_PATH__/categories;
-    }
-
-    location = __MEDIA_CENTER_PUBLIC_PATH__/asset {
-        set $proxy_forwarded_prefix __MEDIA_CENTER_PUBLIC_PATH__;
-        rewrite ^__MEDIA_CENTER_PUBLIC_PATH_REGEX__(/.*)$ /api$1 break;
-        proxy_pass http://$media_upstream;
-        proxy_buffering off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
+        # media_server 是纯目录服务,路由只有 /api/providers、/api/providers/{p}/categories
+        # 等——没有 /api/categories,原重定向落地即 404。指向真实存在的入口。
+        return 308 __MEDIA_CENTER_PUBLIC_PATH__/providers;
     }
 
     location __MEDIA_CENTER_PUBLIC_PATH__/ {

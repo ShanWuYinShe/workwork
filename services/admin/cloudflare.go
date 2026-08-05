@@ -89,13 +89,19 @@ func cfListAAAARecords() ([]cfDNSRecord, error) {
 }
 
 func cfResolveZoneID(domain string) (string, error) {
+	// 先查缓存(锁内只做读):未命中时释放锁再发网络请求,避免 CF API 往返
+	// (最长 30s 超时)期间所有 CF 操作串行化;结果回写缓存时允许少量重复查询。
 	cfZoneCacheMu.Lock()
-	defer cfZoneCacheMu.Unlock()
 	for _, candidate := range cfZoneCandidates(domain) {
-		// zone ID 缓存带 TTL，Cloudflare zone 被迁移/重命名后能自愈刷新。
 		if entry, ok := cfZoneCache[candidate]; ok && time.Since(entry.CheckedAt) < time.Hour {
+			cfZoneCacheMu.Unlock()
 			return entry.ID, nil
 		}
+	}
+	cfZoneCacheMu.Unlock()
+
+	// 锁外执行 CF API 查询
+	for _, candidate := range cfZoneCandidates(domain) {
 		cr, err := cfRequest("GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
 		if err != nil {
 			continue
@@ -105,7 +111,10 @@ func cfResolveZoneID(domain string) (string, error) {
 			continue
 		}
 		if len(zones) > 0 {
+			cfZoneCacheMu.Lock()
+			// 缓存带 TTL，Cloudflare zone 被迁移/重命名后能自愈刷新
 			cfZoneCache[candidate] = cfZoneCacheEntry{ID: zones[0].ID, CheckedAt: time.Now()}
+			cfZoneCacheMu.Unlock()
 			return zones[0].ID, nil
 		}
 	}

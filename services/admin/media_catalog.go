@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -103,6 +104,13 @@ func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method
 		return
 	}
 	if status < 200 || status >= 300 {
+		// 上游 5xx 一律按内部错误处理:错误消息可能含表名/SQL/内部路径等实现细节,
+		// 透传给前端会泄露内部状态;仅 4xx 业务错误(如 not_found)保留上游消息。
+		if status >= 500 {
+			log.Printf("media center internal %s %s: status=%d body=%s", method, path, status, string(payload))
+			writeInternalError(w, errors.New("media center internal API error"))
+			return
+		}
 		writeError(w, mediaCenterInternalErrorMessage(payload, status), status)
 		return
 	}

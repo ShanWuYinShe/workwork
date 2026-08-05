@@ -212,6 +212,12 @@ func apiClaudeCodeDownload() http.HandlerFunc {
 			writeError(w, "Version not found in releases", 404)
 			return
 		}
+		// tag 会拼进下载文件名直达文件系统路径:拒绝含路径分隔符等字符的 tag
+		// (防御被攻陷的 GitHub 仓库 tag 造成路径穿越)。
+		if !safeVersionTag.MatchString(body.Version) {
+			writeError(w, "Invalid version tag", 400)
+			return
+		}
 		assetURL := ""
 		filename := ""
 		for _, a := range release.Assets {

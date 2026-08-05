@@ -276,7 +276,12 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Invalid service name", 400)
 			return
 		}
-		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+		// 容器操作不随客户端断开而取消:restart 请求发出后若客户端断连,
+		// 请求 context 取消可能只完成 stop 未完成 start,服务停在 down 状态。
+		// 与 IPv6 轮转/DNS 同步一致,用不受取消影响的 context + 超时。
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		defer cancel()
+		containers, err := cli.ContainerList(opCtx, container.ListOptions{
 			All: true,
 			Filters: composeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
@@ -292,19 +297,19 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		}
 		switch action {
 		case "start":
-			err = cli.ContainerStart(r.Context(), containers[0].ID, container.StartOptions{})
+			err = cli.ContainerStart(opCtx, containers[0].ID, container.StartOptions{})
 			if err == nil && (name == "xray" || name == "nginx") {
-				restoreServiceRotatingIP(r.Context(), cli, containers[0].ID, name)
+				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		case "stop":
 			t := 10
-			err = cli.ContainerStop(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
+			err = cli.ContainerStop(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 		case "restart":
 			t := 10
-			err = cli.ContainerRestart(r.Context(), containers[0].ID, container.StopOptions{Timeout: &t})
+			err = cli.ContainerRestart(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
 			if name == "xray" || name == "nginx" {
-				restoreServiceRotatingIP(r.Context(), cli, containers[0].ID, name)
+				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		default:
 			writeError(w, "Unknown action", 400)
@@ -520,6 +525,10 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
 			return
 		}
+		// UUID 规范化:大写/小写视为同一客户端(Xray 的 UUID 不区分大小写),
+		// 避免 "550e8400-…" 与 "550E8400-…" 作为两个条目写入配置导致 Xray
+		// 加载重复 user 失败。
+		body.UUID = strings.ToLower(body.UUID)
 		if _, err := getOrCreateProxyPassword(username); err != nil {
 			log.Printf("Failed to create proxy password for %s: %v", username, err)
 			writeInternalError(w, err)
@@ -578,6 +587,8 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "UUID required", 400)
 			return
 		}
+		// 与 apiAddXray 的规范化一致:UUID 不区分大小写。
+		body.UUID = strings.ToLower(body.UUID)
 
 		// deleteXrayClientIfOwner 原子地检查所有权并删除，避免 TOCTOU 竞态
 		isAdmin := userInfo == nil || userInfo.Role == "admin"
@@ -622,7 +633,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 func apiXrayClientConfig() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := getUserFromContext(r)
-		uuid := r.PathValue("uuid")
+		uuid := strings.ToLower(r.PathValue("uuid"))
 		if uuid == "" {
 			writeError(w, "UUID required", 400)
 			return
@@ -652,11 +663,10 @@ func apiXrayClientConfig() http.HandlerFunc {
 			return
 		}
 
-		proxyAuth, err := proxyAuthForUser(client["owner"])
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
+		// 只读端点:用 proxyAuthForUserRead 拿已有密码,绝不在这里懒创建
+		// (生成密码 + 重写 htpasswd 是写副作用,并发 GET 会写放大,且写失败
+		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 apiUsers 一致。
+		proxyAuth := proxyAuthForUserRead(client["owner"])
 		genJSON := handlers.GenerateClientConfig([]map[string]string{client}, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
@@ -678,6 +688,11 @@ var ipv6RotateMu sync.RWMutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 var validUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// safeVersionTag 校验 GitHub release tag 只能包含安全字符。tag 会拼进下载
+// 文件名直达文件系统路径;恶意/被攻陷仓库的 tag 含 "/" 等字符时,阻止其
+// 变成路径穿越/子目录写入。
+var safeVersionTag = regexp.MustCompile(`^[0-9A-Za-z.+_-]+$`)
 var validServiceName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 func isValidUsername(username string) bool {
@@ -772,6 +787,13 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 		// Non-admin can only change their own password
 		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
 			writeError(w, "Forbidden: can only change your own password", 403)
+			return
+		}
+		// Protected admin account (AUTH_USER) can only change its own password:
+		// 防止任意 admin 重置超级管理员密码并接管该账号(纵深防御,与
+		// apiSetRole/apiDeleteAdmin 的 isProtectedAdmin 守卫对齐)。
+		if body.Username == getEnv("AUTH_USER") && (userInfo == nil || username != body.Username) {
+			writeError(w, "Cannot change the default admin account password", 403)
 			return
 		}
 		// Verify old password for non-admin users
@@ -1144,7 +1166,10 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 				info := dnsInfo{Domain: di.Domain, Container: di.Container, ExpectedIP: expectedIP}
 				rec, err := cfFindAAAARecord(di.Domain)
 				if err != nil {
-					info.Error = err.Error()
+					// CF 错误消息可能含 zone/记录内部细节,只向客户端返回通用文案,
+					// 完整错误进日志(符合 writeInternalError 约定)。
+					log.Printf("network status: cfFindAAAARecord %s: %v", di.Domain, err)
+					info.Error = "DNS 查询失败"
 				} else {
 					info.Record = rec
 					if rec != nil {
@@ -1613,7 +1638,9 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 				ip = xrayIP
 			}
 			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-				results = append(results, fmt.Sprintf("%s: %s", di.Domain, err.Error()))
+				// CF 错误详情只进日志,客户端只看到通用文案。
+				log.Printf("sync-dns: upsert %s: %v", di.Domain, err)
+				results = append(results, fmt.Sprintf("%s: DNS 更新失败", di.Domain))
 			} else {
 				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, ip))
 			}
@@ -1807,15 +1834,32 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		defer logs.Close()
-		var buf bytes.Buffer
+		// 环形缓冲:只保留最近 128KB,边读边截断。此前先全量读入再截断,
+		// 一条超长日志行(巨型 stack)会让内存先翻倍再收缩。
+		var buf limitWriter
+		buf.max = 128 * 1024
 		stdcopy.StdCopy(&buf, &buf, logs)
-		s := buf.String()
-		// Keep last 128KB max
-		if len(s) > 128*1024 {
-			s = s[len(s)-128*1024:]
-		}
+		s := string(buf.buf)
 		writeJSON(w, map[string]any{"logs": s})
 	}
+}
+
+// limitWriter 只保留最近 max 字节的写入(环形覆盖),用于日志等只需要尾部的场景。
+type limitWriter struct {
+	buf []byte
+	max int
+}
+
+func (w *limitWriter) Write(p []byte) (int, error) {
+	if len(p) >= w.max {
+		w.buf = append(w.buf[:0], p[len(p)-w.max:]...)
+		return len(p), nil
+	}
+	w.buf = append(w.buf, p...)
+	if len(w.buf) > w.max {
+		w.buf = w.buf[len(w.buf)-w.max:]
+	}
+	return len(p), nil
 }
 
 // GET /api/admin/services/{name}/logs/stream?tail=100
@@ -1875,14 +1919,22 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		defer cancel() // 客户端断开时通知 readFrame 退出
 
 		readFrame := func() {
+			// 所有发送都带 ctx.Done 检查:主循环退出后(ctx 取消)发送方不会
+			// 在 ch 上永久阻塞,避免每个断开连接泄漏 1-2 个 goroutine。
+			send := func(f frame) {
+				select {
+				case <-ctx.Done():
+				case ch <- f:
+				}
+			}
 			hdr := make([]byte, 8)
 			if _, err := io.ReadFull(logs, hdr); err != nil {
-				ch <- frame{nil, err}
+				send(frame{nil, err})
 				return
 			}
 			size := int(binary.BigEndian.Uint32(hdr[4:8]))
 			if size > maxFrameSize {
-				ch <- frame{nil, fmt.Errorf("frame too large: %d bytes", size)}
+				send(frame{nil, fmt.Errorf("frame too large: %d bytes", size)})
 				return
 			}
 			if size > cap(buf) {
@@ -1891,18 +1943,14 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 				buf = buf[:size]
 			}
 			if size == 0 {
-				ch <- frame{nil, nil}
+				send(frame{nil, nil})
 				return
 			}
 			if _, err := io.ReadFull(logs, buf[:size]); err != nil {
-				ch <- frame{nil, err}
+				send(frame{nil, err})
 				return
 			}
-			select {
-			case <-ctx.Done():
-				// 客户端已断开，丢弃数据并退出
-			case ch <- frame{buf[:size], nil}:
-			}
+			send(frame{buf[:size], nil})
 		}
 
 		go readFrame()
