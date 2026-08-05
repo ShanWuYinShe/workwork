@@ -52,19 +52,16 @@ func (s *ipBlockStore) save() {
 	if err := atomicWriteFile(s.path, b, 0600); err != nil {
 		log.Printf("ERROR: failed to write blocked IPs: %v", err)
 	}
+	// 同步到 nginx 层(去抖 + 异步):让 /proxy/query、媒体 API 等非 admin 面
+	// 也执行同一封禁。只调度不阻塞——save 可能在限流热路径持锁调用。
+	scheduleBlocklistSync()
 }
 
 func (s *ipBlockStore) isBlocked(ip string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, e := range s.Entries {
-		if e.IP == ip {
-			if e.ExpiresAt != "" {
-				t, err := time.Parse(time.RFC3339, e.ExpiresAt)
-				if err == nil && time.Now().UTC().After(t) {
-					continue
-				}
-			}
+		if e.IP == ip && !blockEntryExpired(e) {
 			return true
 		}
 	}

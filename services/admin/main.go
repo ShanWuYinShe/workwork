@@ -27,6 +27,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
+	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
+	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
+	blocklistSyncCli = cli
+	scheduleBlocklistSync()
 
 	// 启动 IPv6 恢复完成后关闭此 channel，ipConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})

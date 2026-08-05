@@ -45,6 +45,13 @@ server {
     ssl_client_certificate /etc/nginx/cloudflare-origin-pull.pem;
     ssl_verify_client on;
 
+    # 封禁:blocked-ips.conf 由 admin ipBlocker 生成(map 定义 $workwork_blocked_cf /
+    # $workwork_blocked_direct)。变量未定义(无封禁配置)时为空串,if 不成立,
+    # 不影响正常请求。放在 server 块使封禁覆盖全部 location(含 /proxy/query
+    # XHTTP 与媒体 API),而不再只作用于 admin 应用层。
+    if ($workwork_blocked_cf) { return 403; }
+    if ($workwork_blocked_direct) { return 403; }
+
     set $admin_upstream admin:__ADMIN_PORT__;
     set $media_upstream __MEDIA_CENTER_UPSTREAM__;
     set $web_search_upstream web-search-mcp:8320;
@@ -184,6 +191,8 @@ server {
     location ~ ^/(?:assets/|favicon\.svg$|icons\.svg$) {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
+        # fail2ban 的 nginx-auth filter 只 tail admin-access.log;此处必须写同一
+        # 日志文件,401 才能被计数(否则 filter 里的 assets/favicon 分支永不匹配)。
         access_log /var/log/nginx/admin-access.log auth_log;
         access_log /dev/stdout auth_log;
         proxy_pass http://$admin_upstream;
