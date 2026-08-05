@@ -101,6 +101,13 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return err
 	}
+	// fsync 数据落盘后再 rename:崩溃时要么旧文件完整、要么新文件完整,
+	// 不会出现 rename 后数据丢失的窗口(users.json/manifest 等状态文件)。
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
 		return err
@@ -566,7 +573,12 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := restartXray(r.Context(), cli); err != nil {
-			log.Printf("WARNING: failed to restart xray after add: %v", err)
+			// 配置已落盘但 xray 未加载:必须明确报错,否则用户看到"成功"而代理
+			// 实际不可用;配置保留在磁盘,用户重试会撞 409 无法自愈,因此文案
+			// 明确说明"已保存但未生效"。
+			log.Printf("ERROR: failed to restart xray after add: %v", err)
+			writeError(w, "客户端已保存，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
+			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
@@ -623,7 +635,9 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := restartXray(r.Context(), cli); err != nil {
-			log.Printf("WARNING: failed to restart xray after delete: %v", err)
+			log.Printf("ERROR: failed to restart xray after delete: %v", err)
+			writeError(w, "客户端已删除，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
+			return
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
