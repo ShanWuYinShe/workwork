@@ -213,7 +213,7 @@
   <!-- Usage bar -->
   <div class="card card-compact">
     <div class="metric-row">
-      <span>{t('storageUsed')}: {formatSize(totalSize)} / 20 GB</span>
+      <span>{t('storageUsed')}: {formatSize(totalSize)} / {formatSize(maxTotal)}</span>
       <span>{usagePercent.toFixed(1)}%</span>
     </div>
     <div class="progress-bar">
