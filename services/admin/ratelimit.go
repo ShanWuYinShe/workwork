@@ -80,8 +80,12 @@ func (rl *rateLimiter) cleanup() {
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
+	// 持久化封禁在锁外执行:ipBlocker.save() 是全量序列化 + 落盘,若放在
+	// rl.mu 内,攻击者持续超限会不断触发磁盘 IO,期间所有 IP 的限流判断
+	// 全部排队,放大成全局请求延迟。
+	var blockAfterUnlock string
+
 	rl.mu.Lock()
-	defer rl.mu.Unlock()
 	now := time.Now()
 
 	e, exists := rl.entries[ip]
@@ -93,6 +97,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 	// Check if currently blocked
 	if !e.blockedAt.IsZero() {
 		if now.Sub(e.blockedAt) < rl.banTime {
+			rl.mu.Unlock()
 			return false
 		}
 		// Ban expired, reset
@@ -113,14 +118,17 @@ func (rl *rateLimiter) allow(ip string) bool {
 	// Check threshold
 	if len(e.timestamps) >= rl.maxReqs {
 		e.blockedAt = now
-		// Also add to persistent IP blocker
-		ipBlocker.add(ip, "rate limit exceeded", rl.banTime)
+		blockAfterUnlock = ip
+		rl.mu.Unlock()
+		// Also add to persistent IP blocker (outside the lock)
+		ipBlocker.add(blockAfterUnlock, "rate limit exceeded", rl.banTime)
 		ipBlocker.save()
 		return false
 	}
 
 	// Record this request
 	e.timestamps = append(e.timestamps, now)
+	rl.mu.Unlock()
 	return true
 }
 
