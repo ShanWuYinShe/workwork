@@ -542,7 +542,8 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		isAdmin := userInfo == nil || userInfo.Role == "admin"
+		// requireRole 保证 userInfo 非 nil(死分支不复存在)
+		isAdmin := userInfo.Role == "admin"
 		entry := xrayClientEntry{ID: body.UUID, Owner: username, Email: username}
 		var err error
 		if isAdmin {
@@ -603,7 +604,8 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		body.UUID = strings.ToLower(body.UUID)
 
 		// deleteXrayClientIfOwner 原子地检查所有权并删除，避免 TOCTOU 竞态
-		isAdmin := userInfo == nil || userInfo.Role == "admin"
+		// requireRole 保证 userInfo 非 nil(死分支不复存在)
+		isAdmin := userInfo.Role == "admin"
 		ownerFilter := ""
 		if !isAdmin {
 			ownerFilter = username
