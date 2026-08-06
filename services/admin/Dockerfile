@@ -24,14 +24,18 @@ RUN CGO_ENABLED=0 go build -o admin .
 
 FROM alpine:${ALPINE_VERSION}
 
+# RUN_UID 与服务器工作用户 uid 对齐(默认 1001,同 .wework/ 属主):
+# 镜像内建非 root 用户后,脱离 docker-compose 直接跑也不会以 root 持有
+# docker.sock;compose 的 user: "1001:1001" 作为显式覆盖保持行为一致。
+ARG RUN_UID=1001
 RUN apk add --no-cache ca-certificates bash \
-    && mkdir -p /app/configs /app/data
+    && adduser -D -u ${RUN_UID} appuser \
+    && mkdir -p /app/configs /app/data \
+    && chown -R appuser:appuser /app
 
 COPY --from=go-builder /build/admin /app/admin
 COPY --from=ui-builder /ui/dist /app/ui
 
 WORKDIR /app
-# 不使用 USER appuser：服务器用户 uid=1001，Dockerfile 中 appuser uid=1000，
-# .wework/ 下的文件由 root 或 uid=1001 创建，appuser(1000) 无法读写。
-# 安全保护由 docker-compose 中 cap_drop:ALL + no-new-privileges 实现。
+USER appuser
 ENTRYPOINT ["/app/admin"]
