@@ -24,10 +24,27 @@ const (
 	transferMaxFile      = 2 << 30  // 2GB per file
 	transferCodeLen      = 8
 	transferDefaultExp   = 7 * 24 * time.Hour
+	// transferDefaultPerUserQuota 是每用户默认上传配额;防止单个 viewer 用
+	// 2GB×N 次上传填满全局 20GB。可用 env TRANSFER_USER_QUOTA 覆盖(0 = 不限)。
+	transferDefaultPerUserQuota = 5 << 30 // 5GB
 	// transferUploadMemory 是 multipart 解析的内存缓冲阈值；超出部分自动落盘为
 	// 临时文件。单文件大小上限由 io.LimitReader + 截断检测强制执行，不能用这个值。
 	transferUploadMemory = 32 << 20 // 32MB
 )
+
+// transferMaxPerUserBytes 返回每用户上传配额(0 = 不限),从 TRANSFER_USER_QUOTA
+// 读取,默认 [transferDefaultPerUserQuota]。
+func transferMaxPerUserBytes() int64 {
+	raw := strings.TrimSpace(getEnv("TRANSFER_USER_QUOTA"))
+	if raw == "" {
+		return transferDefaultPerUserQuota
+	}
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n >= 0 {
+		return n
+	}
+	log.Printf("WARNING: invalid TRANSFER_USER_QUOTA %q, using default", raw)
+	return transferDefaultPerUserQuota
+}
 
 var transferCodeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -253,6 +270,22 @@ func apiTransferUpload() http.HandlerFunc {
 			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
 			return
 		}
+		// per-user 配额:防止单个 viewer 用 2GB×N 次上传填满全局配额。
+		// 在锁内统计(manifest 一致视图)。
+		if quota := transferMaxPerUserBytes(); quota > 0 {
+			var used int64
+			for _, f := range m.Files {
+				if f.Uploader == username {
+					used += f.Size
+				}
+			}
+			if used+written > quota {
+				transferMu.Unlock()
+				os.Remove(tmpPath)
+				writeError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
+				return
+			}
+		}
 
 		code, err := generateUniqueTransferCode(m)
 		if err != nil {
@@ -455,17 +488,38 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		}
 		filePath := transferFilePath(code, target.Filename)
 		filename := sanitizeHeaderValue(target.Filename)
-		transferMu.Unlock()
 
-		// 注意：unlock 与 ServeFile 之间存在微小 TOCTOU 窗口——
-		// 并发删除可能在 ServeFile 前移除磁盘文件，导致 404。
-		// 下载计数已递增但不影响限额准确性（删除操作会覆盖 manifest）。
+		// 在锁内打开文件获得 FD:ServeContent 基于已打开的 FD 提供内容,
+		// 并发删除只移除目录项,FD 仍可完整读取——消除 unlock→ServeFile
+		// 之间文件被删导致 404 的 TOCTOU 窗口。
+		f, err := os.Open(filePath)
+		if err != nil {
+			transferMu.Unlock()
+			if os.IsNotExist(err) {
+				writeError(w, "文件不存在或已过期", 404)
+				return
+			}
+			log.Printf("transfer download: open %s: %v", code, err)
+			writeInternalError(w, err)
+			return
+		}
+		info, err := f.Stat()
+		if err != nil {
+			f.Close()
+			transferMu.Unlock()
+			log.Printf("transfer download: stat %s: %v", code, err)
+			writeInternalError(w, err)
+			return
+		}
+		transferMu.Unlock()
+		defer f.Close()
+
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Accept-Ranges", "bytes")
-		http.ServeFile(w, r, filePath)
+		http.ServeContent(w, r, filename, info.ModTime(), f)
 	}
 }
 
