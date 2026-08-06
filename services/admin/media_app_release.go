@@ -149,7 +149,9 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			return
 		}
 		// 尽力清理不再被任何变体 manifest 引用的历史 APK,避免确定性文件名无限堆积。
-		pruneOrphanAppAPKs()
+		// 当前刚发布的文件显式保留(rename 与 manifest 写盘之间存在窗口,并发
+		// 上传的 prune 可能读到"未引用"状态误删新 APK)。
+		pruneOrphanAppAPKs(filepath.Base(finalAPKPath))
 		writeJSON(w, map[string]any{
 			"manifest": manifest,
 		})
@@ -192,13 +194,22 @@ func mediaAppReleaseFilename(versionCode int, checksum string) string {
 // 引用的确定性 APK 文件(media-center-app-v<N>-<hash>.apk),防止旧版本无限堆积。
 // 仅删除符合该命名模式且未出现在任何 app-update*.json 的 APKFilename 中的文件;
 // 尽力而为,错误忽略(不影响本次发布)。
-func pruneOrphanAppAPKs() {
+//
+// freshlyPublished 是本次调用刚写入的 APK 文件名(并发上传时 manifest 可能
+// 尚未写盘,必须显式保留,否则会被其他请求的 prune 误删);此外最近 30 秒内
+// 修改的文件一律跳过,作为 rename→manifest 写盘窗口的兜底。
+func pruneOrphanAppAPKs(freshlyPublished ...string) {
 	dir := filepath.Dir(mediaCenterAppUpdateAPKPath(""))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	keep := make(map[string]struct{})
+	for _, name := range freshlyPublished {
+		if name != "" {
+			keep[filepath.Base(name)] = struct{}{}
+		}
+	}
 	manifests, _ := filepath.Glob(filepath.Join(dir, "app-update*.json"))
 	for _, m := range manifests {
 		data, err := os.ReadFile(m)
@@ -222,6 +233,11 @@ func pruneOrphanAppAPKs() {
 			continue
 		}
 		if _, ok := keep[name]; ok {
+			continue
+		}
+		// 新鲜文件保护:并发上传可能在 rename 后、manifest 写盘前,
+		// 此时删除会破坏刚发布的 APK。
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) < 30*time.Second {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, name))
