@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -210,7 +209,6 @@ func main() {
 		}()
 		time.Sleep(10 * time.Second)
 		startupRotateIPv6(cli)
-		checkIPv6OnlyDNS()
 	}()
 
 	<-ctx.Done()
@@ -221,39 +219,6 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 	log.Println("Server stopped")
-}
-
-// checkIPv6OnlyDNS 启动时检查公网域名解析:nginx 只监听 IPv6 443,若域名配置了
-// A 记录,Cloudflare 走 IPv4 会撞上 xray reality 握手,admin SPA 在 IPv4 路径
-// 不可用。只警告不阻断(AAAA 解析正常时服务照常)。
-func checkIPv6OnlyDNS() {
-	domains := []string{getEnv("XRAY_REALITY_DOMAIN"), getEnv("XHTTP_DOMAIN")}
-	seen := make(map[string]bool)
-	for _, domain := range domains {
-		domain = strings.TrimSpace(domain)
-		if domain == "" || seen[domain] {
-			continue
-		}
-		seen[domain] = true
-		ips, err := net.LookupIP(domain)
-		if err != nil {
-			log.Printf("[dns-check] lookup %s: %v", domain, err)
-			continue
-		}
-		var v4, v6 []string
-		for _, ip := range ips {
-			if ip.To4() != nil {
-				v4 = append(v4, ip.String())
-			} else {
-				v6 = append(v6, ip.String())
-			}
-		}
-		if len(v4) > 0 {
-			log.Printf("WARNING: %s 解析到 IPv4 %v — nginx 仅监听 IPv6 443,IPv4 流量会撞 xray reality;请保持 AAAA-only", domain, v4)
-		} else {
-			log.Printf("[dns-check] %s → AAAA-only %v ✓", domain, v6)
-		}
-	}
 }
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {
