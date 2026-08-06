@@ -745,6 +745,10 @@ func htpasswdAddUser(username, password string) error {
 	if !replaced {
 		lines = append(lines, newLine)
 	}
+	// 目录缺失时自愈(正常情况下由 deploy 生成;误删后不中断写流程)。
+	if err := os.MkdirAll(filepath.Dir(htpasswdFile), 0755); err != nil {
+		return err
+	}
 	// Atomic write via temp file + rename
 	content := strings.Join(lines, "\n") + "\n"
 	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
@@ -758,7 +762,12 @@ func htpasswdRemoveUser(username string) error {
 	defer htpasswdMu.Unlock()
 
 	data, readErr := os.ReadFile(htpasswdFile)
-	if readErr != nil && !os.IsNotExist(readErr) {
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			// htpasswd 不存在说明该用户本就不在其中,删除无需写盘
+			// (也避免在只读/未初始化环境产生无意义的空文件)。
+			return nil
+		}
 		return readErr
 	}
 	var lines []string
@@ -774,6 +783,10 @@ func htpasswdRemoveUser(username string) error {
 	content := strings.Join(lines, "\n")
 	if content != "" {
 		content += "\n"
+	}
+	// 目录缺失时自愈(与 htpasswdAddUser 一致)。
+	if err := os.MkdirAll(filepath.Dir(htpasswdFile), 0755); err != nil {
+		return err
 	}
 	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
 }
