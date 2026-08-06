@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -132,7 +133,7 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 		return err
 	}
 
-	if err := os.MkdirAll("/app/data", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(usersMetaPath), 0755); err != nil {
 		return err
 	}
 	data, err = json.MarshalIndent(doc, "", "  ")
