@@ -73,7 +73,7 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # - services/nginx/**:
 #     docker compose build nginx && docker compose up -d --no-deps nginx
 # - services/xray/**:
-#     docker compose build xray && docker compose up -d --no-deps xray
+#     docker compose build xray xray-forward && docker compose up -d --no-deps xray xray-forward
 # - docker-compose.yml / 共享网络 / 共享 env 变更:
 #     docker compose up -d <受影响服务...>
 # admin 的 deploy.go / 模板改动可能影响运行时生成的 nginx/xray/media 配置；
@@ -92,7 +92,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- 单容器双网络：IPv4 via 专用 `xray_egress` bridge NAT（`ports: "0.0.0.0:443:443"`），IPv6 via ipvlan L3；不要让 xray 加入 `internal_docker`，不要添加 `xray-forward`/socat 转发容器
+- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。**IPv4 入站 443 由 `xray-forward` 转发容器发布**（纯 bridge + socat，`0.0.0.0:443:443` → `xray:443`），xray 本身不声明 ports。原因：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）。不要让 xray 加入 `internal_docker`
 - Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
 - Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
@@ -107,7 +107,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### docker-compose.yml
 
-4 服务: admin, xray, nginx, media_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 直接发布宿主机 IPv4 443，同时持有公网 IPv6；不要为 IPv4 再加独立转发服务。
+5 服务: admin, xray, xray-forward, nginx, media_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
 
 ## Security — 多层防御
 

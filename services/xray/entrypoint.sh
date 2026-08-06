@@ -3,13 +3,20 @@ set -e
 # IPv4: route through Docker bridge (auto NAT). The bridge subnet can change
 # when the network is recreated, so detect it dynamically instead of hardcoding.
 #
-# 接口选择:compose 里 xray_egress(bridge)排在 ipvlan 之前,容器内 eth0 即
-# egress bridge;优先用 eth0 而非"第一个 172.x"(ipvlan 子网若恰好也是 172.x
-# 会选错接口,网关硬拼 .1 也随之算错)。也支持 XRAY_EGRESS_IFACE /
-# XRAY_EGRESS_GATEWAY 显式覆盖。
+# 接口选择:ipvlan 接口持有公网 IPv6(global scope),egress bridge 只有
+# IPv4(link-local IPv6 或无)。遍历接口跳过有 global IPv6 的接口(ipvlan),
+# 选有 IPv4 地址的接口——不能假设 eth0:Docker 多网络连接顺序随机,接口
+# 编号(eth0/eth1)不固定。也支持 XRAY_EGRESS_IFACE / XRAY_EGRESS_GATEWAY
+# 显式覆盖。
 BRIDGE_IF="${XRAY_EGRESS_IFACE:-}"
 if [ -z "$BRIDGE_IF" ]; then
-	BRIDGE_IF=$(ip -o -4 addr show dev eth0 2>/dev/null | awk '{print $2; exit}')
+	for iface in $(ls /sys/class/net | grep -v '^lo$'); do
+		ip -6 addr show dev "$iface" scope global 2>/dev/null | grep -q 'inet6' && continue
+		if ip -4 addr show dev "$iface" 2>/dev/null | grep -q 'inet '; then
+			BRIDGE_IF="$iface"
+			break
+		fi
+	done
 fi
 if [ -n "$BRIDGE_IF" ]; then
 	SUBNET=$(ip -o -4 addr show dev "$BRIDGE_IF" | awk '{print $4}')
