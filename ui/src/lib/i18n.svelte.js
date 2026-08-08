@@ -161,7 +161,8 @@ const zh = {
   mediaTabCredentials: 'Provider 凭证',
   mediaTabCatalog: '预采集管理',
   mediaCredentials: 'Provider 凭证',
-  mediaCredentialsHelp: '配置各视频来源的认证凭证（如 bilibili 的 SESSDATA），用于 App 获取高分辨率视频。保存后自动重启 media_server。',
+  mediaCredentialsHelp:
+    '配置各视频来源的认证凭证（如 bilibili 的 SESSDATA），用于 App 获取高分辨率视频。保存后自动重启 media_server。',
   mediaCredProviderId: 'Provider ID（如 bilibili）',
   mediaCredFieldName: '字段名',
   mediaCredFieldValue: '字段值',
@@ -183,7 +184,8 @@ const zh = {
   mediaPublicUrl: 'App 连接地址',
   advancedRuntimeSettings: '高级运行时设置',
   upstreamTarget: '内部 upstream',
-  upstreamTargetHelp: 'Docker 内部 host:port；通常保持 media_server:8787，只有服务名或端口变化时才需要改。',
+  upstreamTargetHelp:
+    'Docker 内部 host:port；通常保持 media_server:8787，只有服务名或端口变化时才需要改。',
   mediaSources: '视频来源',
   enabledLabel: '已启用',
   disabledLabel: '已禁用',
@@ -631,7 +633,8 @@ const en = {
   mediaTabCredentials: 'Provider Credentials',
   mediaTabCatalog: 'Pre-collection',
   mediaCredentials: 'Provider Credentials',
-  mediaCredentialsHelp: 'Configure authentication credentials for video sources (e.g., bilibili SESSDATA) to enable high-resolution playback in the App. Saves and restarts media_server.',
+  mediaCredentialsHelp:
+    'Configure authentication credentials for video sources (e.g., bilibili SESSDATA) to enable high-resolution playback in the App. Saves and restarts media_server.',
   mediaCredProviderId: 'Provider ID (e.g., bilibili)',
   mediaCredFieldName: 'Field Name',
   mediaCredFieldValue: 'Field Value',
@@ -920,7 +923,8 @@ const en = {
   '30d': '30 days',
   // MediaCenter — App release publishing / credential management
   appReleaseTitle: 'Android TV App Release',
-  appReleaseDesc: 'Upload a reviewed APK; clients check, download, verify and install it on startup.',
+  appReleaseDesc:
+    'Upload a reviewed APK; clients check, download, verify and install it on startup.',
   appReleaseRefreshing: 'Refreshing…',
   appReleasePublished: 'Published',
   appReleaseNotPublished: 'No App update published yet; clients keep the current version.',
@@ -938,7 +942,8 @@ const en = {
   appReleaseVersionNameRequired: 'versionName is required',
   appReleasePublishedToast: 'App update published',
   credentialsSaved: 'Credentials saved',
-  mediaCredProviderInvalid: 'Provider ID must start with a lowercase letter; digits and hyphens allowed',
+  mediaCredProviderInvalid:
+    'Provider ID must start with a lowercase letter; digits and hyphens allowed',
   mediaCredProviderExists: 'This provider already exists',
 };
 

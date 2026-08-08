@@ -1,6 +1,11 @@
 <script>
   import { onMount } from 'svelte';
-  import { getTransferFiles, deleteTransferFile, transferUploadUrl, getCurrentUser } from '../lib/api.js';
+  import {
+    getTransferFiles,
+    deleteTransferFile,
+    transferUploadUrl,
+    getCurrentUser,
+  } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -83,7 +88,11 @@
         xhr.withCredentials = true;
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            uploadProgress = { bytes: e.loaded, total: e.total, percent: Math.round(e.loaded * 100 / e.total) };
+            uploadProgress = {
+              bytes: e.loaded,
+              total: e.total,
+              percent: Math.round((e.loaded * 100) / e.total),
+            };
           }
         };
         xhr.onload = () => {
@@ -133,7 +142,10 @@
 
   async function doDelete(code) {
     const target = files.find((f) => f.code === code);
-    if (!(await showConfirm(t('confirmDeleteTransferFile', { filename: target?.filename || code })))) return;
+    if (
+      !(await showConfirm(t('confirmDeleteTransferFile', { filename: target?.filename || code })))
+    )
+      return;
     deletingCode = code;
     try {
       await deleteTransferFile(code);
@@ -204,7 +216,11 @@
     <div class="stat">
       <div class="stat-icon purple">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+          />
         </svg>
       </div>
       <div class="label">{t('storageUsed')}</div>
@@ -213,7 +229,11 @@
     <div class="stat">
       <div class="stat-icon blue">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+          />
         </svg>
       </div>
       <div class="label">{t('totalFiles')}</div>
@@ -242,8 +262,13 @@
       class:drag-over={dragOver}
       role="button"
       tabindex="0"
-      ondragover={(e) => { e.preventDefault(); dragOver = true; }}
-      ondragleave={() => { dragOver = false; }}
+      ondragover={(e) => {
+        e.preventDefault();
+        dragOver = true;
+      }}
+      ondragleave={() => {
+        dragOver = false;
+      }}
       ondrop={onDrop}
       onkeydown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -252,13 +277,31 @@
         }
       }}
     >
-      <input type="file" bind:this={fileInput} onchange={onFileChange} class="file-input-hidden" id="transfer-file-input" />
+      <input
+        type="file"
+        bind:this={fileInput}
+        onchange={onFileChange}
+        class="file-input-hidden"
+        id="transfer-file-input"
+      />
       <label for="transfer-file-input" class="drop-zone-content">
-        <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+        <svg
+          class="drop-zone-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+          />
         </svg>
         <span class="drop-zone-text">
-          {selectedFile ? selectedFile.name + ' (' + formatSize(selectedFile.size) + ')' : t('dragOrClick')}
+          {selectedFile
+            ? selectedFile.name + ' (' + formatSize(selectedFile.size) + ')'
+            : t('dragOrClick')}
         </span>
       </label>
     </div>
@@ -283,7 +326,11 @@
           <option value={100}>100</option>
         </select>
       </div>
-      <button class="btn btn-primary btn-sm" onclick={doUpload} disabled={!selectedFile || uploading}>
+      <button
+        class="btn btn-primary btn-sm"
+        onclick={doUpload}
+        disabled={!selectedFile || uploading}
+      >
         {#if uploading}
           <span class="spinner"></span>
           {uploadProgress ? uploadProgress.percent + '%' : t('uploading')}
@@ -301,7 +348,9 @@
           <div class="progress-fill" style="width:{uploadProgress.percent || 0}%;"></div>
         </div>
         <div class="progress-caption">
-          {formatSize(uploadProgress.bytes)} / {uploadProgress.total ? formatSize(uploadProgress.total) : '?'}
+          {formatSize(uploadProgress.bytes)} / {uploadProgress.total
+            ? formatSize(uploadProgress.total)
+            : '?'}
         </div>
       </div>
     {/if}
@@ -324,44 +373,54 @@
           <span class="card-title-count">{files.length}</span>
         </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>{t('filename')}</th>
-            <th>{t('size')}</th>
-            {#if isAdmin}<th>{t('uploader')}</th>{/if}
-            <th>{t('expiresAt')}</th>
-            <th>{t('downloadCount')}</th>
-            <th>{t('shareLink')}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each files as f}
+      <div class="table-wrap">
+        <table>
+          <thead>
             <tr>
-              <td class="cell-strong cell-ellipsis" title={f.filename}>
-                {f.filename}
-              </td>
-              <td class="td-muted">{formatSize(f.size)}</td>
-              {#if isAdmin}<td class="td-muted">{f.uploader}</td>{/if}
-              <td class={isExpired(f) ? 'td-muted text-danger' : 'td-muted'}>{formatDate(f.expires_at)}</td>
-              <td class="td-muted">{downloadCount(f)}</td>
-              <td>
-                <button class="btn btn-ghost btn-sm" onclick={() => copyLink(f.code)} title={t('copyLink')}>
-                  {t('copyLink')}
-                </button>
-              </td>
-              <td>
-                {#if deletingCode === f.code}
-                  <span class="spinner"></span>
-                {:else}
-                  <button class="btn btn-danger btn-sm" onclick={() => doDelete(f.code)}>{t('delete')}</button>
-                {/if}
-              </td>
+              <th>{t('filename')}</th>
+              <th>{t('size')}</th>
+              {#if isAdmin}<th>{t('uploader')}</th>{/if}
+              <th>{t('expiresAt')}</th>
+              <th>{t('downloadCount')}</th>
+              <th>{t('shareLink')}</th>
+              <th></th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {#each files as f}
+              <tr>
+                <td class="cell-strong cell-ellipsis" title={f.filename}>
+                  {f.filename}
+                </td>
+                <td class="td-muted">{formatSize(f.size)}</td>
+                {#if isAdmin}<td class="td-muted">{f.uploader}</td>{/if}
+                <td class={isExpired(f) ? 'td-muted text-danger' : 'td-muted'}
+                  >{formatDate(f.expires_at)}</td
+                >
+                <td class="td-muted">{downloadCount(f)}</td>
+                <td>
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    onclick={() => copyLink(f.code)}
+                    title={t('copyLink')}
+                  >
+                    {t('copyLink')}
+                  </button>
+                </td>
+                <td>
+                  {#if deletingCode === f.code}
+                    <span class="spinner"></span>
+                  {:else}
+                    <button class="btn btn-danger btn-sm" onclick={() => doDelete(f.code)}
+                      >{t('delete')}</button
+                    >
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
   {:else if !loading}
     <div class="card">

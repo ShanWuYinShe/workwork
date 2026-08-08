@@ -161,7 +161,13 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast(t('catalogExportDone', { count: data?.count ?? 0, scope: label || category || t('catalogExportAll') }), 'success');
+      toast(
+        t('catalogExportDone', {
+          count: data?.count ?? 0,
+          scope: label || category || t('catalogExportAll'),
+        }),
+        'success',
+      );
     } catch (e) {
       toast(e?.message || String(e), 'error');
     } finally {
@@ -259,7 +265,6 @@
     if (s === 'rejected') return t('catalogStatusRejected');
     return t('catalogStatusAll');
   }
-
 </script>
 
 <div class="card">
@@ -292,42 +297,44 @@
     </div>
 
     <div class="cat-table-wrap">
-      <table class="cat-table">
-        <thead>
-          <tr>
-            <th>{t('catalogColCategory')}</th>
-            <th class="num">{t('catalogColPending')}</th>
-            <th class="num">{t('catalogColApproved')}</th>
-            <th class="num">{t('catalogColRejected')}</th>
-            <th class="actions-col">{t('catalogColActions')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each overview.categories as cat (cat.id)}
-            <tr class:active-row={activeCategory === cat.id}>
-              <td>
-                <div class="cat-name">{cat.title || cat.id}</div>
-                <div class="cat-id">{cat.id}</div>
-              </td>
-              <td class="num">{cat.pending}</td>
-              <td class="num">{cat.approved}</td>
-              <td class="num">{cat.rejected}</td>
-              <td class="actions-col">
-                <button
-                  class="btn btn-xs btn-ghost"
-                  onclick={() => loadItems(cat.id, cat.title || cat.id)}
-                  disabled={!overview.catalogEnabled}>{t('catalogReview')}</button
-                >
-                <button
-                  class="btn btn-xs btn-ghost"
-                  onclick={() => runExport(cat.id, cat.title || cat.id)}
-                  disabled={exportBusy || !overview.catalogEnabled}>{t('catalogExport')}</button
-                >
-              </td>
+      <div class="table-wrap">
+        <table class="cat-table">
+          <thead>
+            <tr>
+              <th>{t('catalogColCategory')}</th>
+              <th class="num">{t('catalogColPending')}</th>
+              <th class="num">{t('catalogColApproved')}</th>
+              <th class="num">{t('catalogColRejected')}</th>
+              <th class="actions-col">{t('catalogColActions')}</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {#each overview.categories as cat (cat.id)}
+              <tr class:active-row={activeCategory === cat.id}>
+                <td>
+                  <div class="cat-name">{cat.title || cat.id}</div>
+                  <div class="cat-id">{cat.id}</div>
+                </td>
+                <td class="num">{cat.pending}</td>
+                <td class="num">{cat.approved}</td>
+                <td class="num">{cat.rejected}</td>
+                <td class="actions-col">
+                  <button
+                    class="btn btn-xs btn-ghost"
+                    onclick={() => loadItems(cat.id, cat.title || cat.id)}
+                    disabled={!overview.catalogEnabled}>{t('catalogReview')}</button
+                  >
+                  <button
+                    class="btn btn-xs btn-ghost"
+                    onclick={() => runExport(cat.id, cat.title || cat.id)}
+                    disabled={exportBusy || !overview.catalogEnabled}>{t('catalogExport')}</button
+                  >
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     {#if activeCategory}
@@ -365,8 +372,8 @@
                     {#if it.year}<span>{it.year}</span>{/if}
                     <span>{t('catalogScore', { score: it.score })}</span>
                     {#if it.reason}<span class="item-reason" title={it.reason}
-                      >{t('catalogReason')}：{it.reason}</span
-                    >{/if}
+                        >{t('catalogReason')}：{it.reason}</span
+                      >{/if}
                     {#if it.sourceUrl}<a
                         href={it.sourceUrl}
                         target="_blank"
@@ -458,7 +465,6 @@
         </div>
       {/if}
     </div>
-
   {/if}
 </div>
 

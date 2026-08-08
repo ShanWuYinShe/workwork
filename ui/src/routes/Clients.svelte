@@ -1,6 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { getUsers, getCurrentUser, addXrayClient, deleteXrayClient, getXrayClientConfig } from '../lib/api.js';
+  import {
+    getUsers,
+    getCurrentUser,
+    addXrayClient,
+    deleteXrayClient,
+    getXrayClientConfig,
+  } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -133,7 +139,9 @@
   <div class="page-header">
     <h1 class="page-title">{t('clients')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading || creating}>{t('refresh')}</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading || creating}
+        >{t('refresh')}</button
+      >
     </div>
   </div>
 
@@ -166,47 +174,59 @@
         </div>
       </div>
       {#if clients.length}
-        <table>
-          <thead>
-            <tr>
-              <th>{t('uuid')}</th>
-              {#if isAdmin}<th>{t('owner')}</th>{/if}
-              <th>{t('protocols')}</th>
-              <th>{t('actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each clients as c}
-              <tr
-                class="clickable-row"
-                class:selected={selectedUUID === c.id}
-                tabindex="0"
-                role="button"
-                onclick={() => loadConfig(c.id)}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadConfig(c.id); } }}
-              >
-                <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
-                {#if isAdmin}
-                  <td class="td-muted">{c.owner || '—'}</td>
-                {/if}
-                <td>
-                  <span class="badge badge-green"><span class="badge-dot"></span>{t('protocolReality')}</span>
-                  <span class="badge badge-blue">{t('protocolXhttp')}</span>
-                </td>
-                <td>
-                  {#if deletingId === c.id}
-                    <span class="spinner"></span>
-                  {:else}
-                    <button
-                      class="btn btn-danger btn-sm"
-                      onclick={(e) => { e.stopPropagation(); deleteClient(c.id); }}
-                    >{t('delete')}</button>
-                  {/if}
-                </td>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t('uuid')}</th>
+                {#if isAdmin}<th>{t('owner')}</th>{/if}
+                <th>{t('protocols')}</th>
+                <th>{t('actions')}</th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {#each clients as c}
+                <tr
+                  class="clickable-row"
+                  class:selected={selectedUUID === c.id}
+                  tabindex="0"
+                  role="button"
+                  onclick={() => loadConfig(c.id)}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      loadConfig(c.id);
+                    }
+                  }}
+                >
+                  <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
+                  {#if isAdmin}
+                    <td class="td-muted">{c.owner || '—'}</td>
+                  {/if}
+                  <td>
+                    <span class="badge badge-green"
+                      ><span class="badge-dot"></span>{t('protocolReality')}</span
+                    >
+                    <span class="badge badge-blue">{t('protocolXhttp')}</span>
+                  </td>
+                  <td>
+                    {#if deletingId === c.id}
+                      <span class="spinner"></span>
+                    {:else}
+                      <button
+                        class="btn btn-danger btn-sm"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          deleteClient(c.id);
+                        }}>{t('delete')}</button
+                      >
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}
         <div class="empty-state">
           {isAdmin ? t('noProxyClients') : t('noClientsYet')}
@@ -228,10 +248,18 @@
           {#if configLoading}<span class="spinner spinner-inline"></span>{/if}
         </div>
         <div class="card-actions">
-          <button class="btn btn-sm btn-primary" onclick={copyConfig} aria-label={t('copyConfiguration')}>
+          <button
+            class="btn btn-sm btn-primary"
+            onclick={copyConfig}
+            aria-label={t('copyConfiguration')}
+          >
             {t('copyConfig')}
           </button>
-          <button class="btn btn-sm btn-ghost" onclick={downloadConfig} aria-label={t('downloadConfiguration')}>
+          <button
+            class="btn btn-sm btn-ghost"
+            onclick={downloadConfig}
+            aria-label={t('downloadConfiguration')}
+          >
             {t('download')}
           </button>
         </div>
@@ -239,10 +267,11 @@
       <div class="badge-list config-badges">
         <span class="badge badge-gray">{t('socks5')}:10808</span>
         <span class="badge badge-gray">{t('http')}:10809</span>
-        <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
+        <span class="badge badge-gray"
+          >{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span
+        >
       </div>
       <textarea rows="16" readonly>{generatedJSON}</textarea>
-
     </div>
   {:else if clients.length && !configLoading}
     <div class="card">
@@ -258,9 +287,9 @@
     cursor: pointer;
   }
   .clickable-row:hover {
-    background: var(--c-bg-hover, rgba(255,255,255,0.03));
+    background: var(--c-bg-hover, rgba(255, 255, 255, 0.03));
   }
   .clickable-row.selected {
-    background: var(--c-accent-bg, rgba(59,130,246,0.1));
+    background: var(--c-accent-bg, rgba(59, 130, 246, 0.1));
   }
 </style>
