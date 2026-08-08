@@ -1122,7 +1122,6 @@
                     if (e.key === 'Escape') { addingProvider = false; newProviderId = ''; }
                   }}
                   placeholder={t('mediaCredProviderId')}
-                  autofocus
                 />
                 <button class="btn btn-sm btn-success" onclick={addProvider}>{t('add')}</button>
                 <button

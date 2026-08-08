@@ -13,6 +13,7 @@
   let authLoading = $state(true);
   let sidebarCollapsed = $state(false);
   let mobileMenuOpen = $state(false);
+  let mainScroll = $state(null);
 
   async function loadUser() {
     authLoading = true;
@@ -47,6 +48,11 @@
 
   $effect(() => {
     document.title = 'WorkWork — ' + t(routeTitles[currentPath] || 'dashboard');
+  });
+  // 路由切换后回到顶部：避免从长页面进入新页面仍停留在旧滚动位置。
+  $effect(() => {
+    currentPath;
+    mainScroll?.scrollTo(0, 0);
   });
 
   let isAdmin = $derived(userInfo?.role === 'admin');
@@ -87,7 +93,7 @@
       </button>
       <span class="topbar-title">WorkWork</span>
     </div>
-    <div class="main-scroll" class:main-scroll-wide={currentPath === '/media-center'}>
+    <div class="main-scroll" class:main-scroll-wide={currentPath === '/media-center'} bind:this={mainScroll}>
       {#if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
           <currentRoute.component />

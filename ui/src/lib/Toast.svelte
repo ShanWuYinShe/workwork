@@ -23,7 +23,7 @@
         type="button"
         onclick={() => dismiss(t.id)}
         onanimationend={(e) => handleAnimationEnd(e, t.id)}
-        style="animation: toastIn 0.25s ease, toastOut 0.3s ease {t.duration - 300}ms forwards;"
+        style="animation: toastIn 0.25s ease{t.duration > 0 ? `, toastOut 0.3s ease ${Math.max(0, t.duration - 300)}ms forwards` : ''};"
       >
         <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           {@html typeIcons[t.type] || typeIcons.info}
