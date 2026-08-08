@@ -172,9 +172,12 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           requestLogMiddleware(handler),
-		ReadTimeout:       30 * time.Second,
+		Addr:    ":" + port,
+		Handler: requestLogMiddleware(handler),
+		// 大文件上传（transfer 2GB / APK 300MB）需要长时间读取请求体，30s 单一
+		// 读截止时间会让慢速上传被服务端掐断；读超时交由 nginx 层管理，
+		// ReadHeaderTimeout 仍防止慢连接头攻击，请求体大小由 MaxBytesReader 限制。
+		ReadTimeout:       0,
 		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
