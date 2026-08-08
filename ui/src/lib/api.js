@@ -1,6 +1,7 @@
 const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
 const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
+const APK_UPLOAD_TIMEOUT = 30 * 60 * 1000;
 
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
@@ -146,10 +147,11 @@ export async function getMediaCatalogOverview() {
   return req('/media-center/catalog/overview');
 }
 
-export async function getMediaCatalogItems(category, status = '', limit = 200) {
+export async function getMediaCatalogItems(category, status = '', limit = 200, offset = 0) {
   const params = new URLSearchParams({ category });
   if (status) params.set('status', status);
   if (limit) params.set('limit', String(limit));
+  if (offset > 0) params.set('offset', String(offset));
   return req(`/media-center/catalog/items?${params.toString()}`);
 }
 
@@ -199,7 +201,8 @@ export async function getMediaAppRelease(variant) {
 
 export async function uploadMediaAppRelease(formData, variant) {
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), MEDIA_CENTER_SAVE_TIMEOUT);
+  // APK 最大 300MB，90s 的通用保存超时会在慢速网络下掐断上传，单独放宽。
+  const timeout = setTimeout(() => ctrl.abort(), APK_UPLOAD_TIMEOUT);
   if (variant) formData.append('variant', variant);
   const r = await fetch(BASE + '/media-center/app-release', {
     credentials: 'same-origin',
