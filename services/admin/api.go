@@ -1879,9 +1879,39 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		var buf limitWriter
 		buf.max = 128 * 1024
 		stdcopy.StdCopy(&buf, &buf, logs)
-		s := string(buf.buf)
+		lines := strings.Split(string(buf.buf), "\n")
+		for i, line := range lines {
+			lines[i] = convertDockerLogTimestamp(line)
+		}
+		s := strings.Join(lines, "\n")
 		writeJSON(w, map[string]any{"logs": s})
 	}
+}
+
+// dockerLogTimestampRE 匹配 Docker 日志行开头的 RFC3339 UTC 时间戳（Timestamps: true）。
+// docker logs 的时间戳由 daemon 以 UTC 生成，与容器 TZ 无关，需要转成中国时区展示。
+var dockerLogTimestampRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) `)
+
+// chinaLocation 返回 Asia/Shanghai；zoneinfo 缺失时回退固定 +08:00（中国无夏令时）。
+var chinaLocation = sync.OnceValue(func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*60*60)
+	}
+	return loc
+})
+
+// convertDockerLogTimestamp 把行首的 UTC 时间戳转换为中国时区，非时间戳开头原样返回。
+func convertDockerLogTimestamp(line string) string {
+	m := dockerLogTimestampRE.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	t, err := time.Parse(time.RFC3339Nano, m[1])
+	if err != nil {
+		return line
+	}
+	return t.In(chinaLocation()).Format("2006-01-02T15:04:05.000Z07:00") + line[len(m[1]):]
 }
 
 // limitWriter 只保留最近 max 字节的写入(环形覆盖),用于日志等只需要尾部的场景。
@@ -2010,7 +2040,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 				if line != "" {
 					for _, part := range strings.Split(line, "\n") {
 						// 转义 \r 防止 SSE 注入
-						escaped := strings.ReplaceAll(part, "\r", "")
+						escaped := strings.ReplaceAll(convertDockerLogTimestamp(part), "\r", "")
 						fmt.Fprintf(w, "data: %s\n", escaped)
 					}
 					fmt.Fprint(w, "\n")
