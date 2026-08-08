@@ -150,6 +150,9 @@ func apiMediaCatalogItems() http.HandlerFunc {
 		if limit := strings.TrimSpace(r.URL.Query().Get("limit")); limit != "" {
 			q.Set("limit", limit)
 		}
+		if offset := strings.TrimSpace(r.URL.Query().Get("offset")); offset != "" {
+			q.Set("offset", offset)
+		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		proxyMediaCenterInternal(w, ctx, http.MethodGet, "/internal/catalog/items", q, nil)

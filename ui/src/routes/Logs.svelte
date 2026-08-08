@@ -15,6 +15,7 @@
   let es = $state(null);
   let reconnectTimer = $state(null);
   let reconnectDelay = 1000;
+  let reconnected = $state(false);
   let logContainer = $state(null);
 
   onMount(() => {
@@ -53,6 +54,12 @@
     );
     es.onopen = () => {
       reconnectDelay = 1000;
+      // 重连成功后服务端会重新推送尾部 tail=200 行；清掉断线前的旧行，
+      // 避免同一批日志重复累积（列表有 5000 行上限，重复会挤掉更多历史）。
+      if (reconnected) {
+        logLines = [];
+        reconnected = false;
+      }
     };
     es.onmessage = (e) => {
       logLines.push(e.data);
@@ -60,6 +67,7 @@
     };
     es.onerror = () => {
       closeStream();
+      reconnected = true;
       if (following) {
         scheduleReconnect();
       }

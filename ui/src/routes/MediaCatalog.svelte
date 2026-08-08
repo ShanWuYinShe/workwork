@@ -21,6 +21,8 @@
   let statusFilter = $state('pending');
   let items = $state([]);
   let itemsLoading = $state(false);
+  let itemsLoadingMore = $state(false);
+  let hasMore = $state(false);
   let rankDraft = $state({});
 
   let importText = $state('');
@@ -32,6 +34,7 @@
   let exportBusy = $state(false);
 
   const statusOptions = ['pending', 'approved', 'rejected', ''];
+  const CATALOG_PAGE_SIZE = 300;
 
   onMount(load);
 
@@ -60,24 +63,50 @@
     return `${it.provider}:${it.nativeId}`;
   }
 
-  async function loadItems(categoryId, title) {
+  async function loadItems(categoryId, title, append = false) {
     activeCategory = categoryId;
     activeTitle = title;
-    itemsLoading = true;
+    if (append) {
+      itemsLoadingMore = true;
+    } else {
+      itemsLoading = true;
+    }
     try {
-      const data = await getMediaCatalogItems(categoryId, statusFilter, 300);
-      items = data.items || [];
-      const drafts = {};
-      for (const it of items) {
-        drafts[itemKey(it)] = it.rank == null ? '' : String(it.rank);
+      const offset = append ? items.length : 0;
+      const data = await getMediaCatalogItems(categoryId, statusFilter, CATALOG_PAGE_SIZE, offset);
+      const incoming = data.items || [];
+      hasMore = incoming.length >= CATALOG_PAGE_SIZE;
+      if (append) {
+        const seen = new Set(items.map(itemKey));
+        items = [...items, ...incoming.filter((it) => !seen.has(itemKey(it)))];
+        const drafts = { ...rankDraft };
+        for (const it of incoming) {
+          if (drafts[itemKey(it)] === undefined) {
+            drafts[itemKey(it)] = it.rank == null ? '' : String(it.rank);
+          }
+        }
+        rankDraft = drafts;
+      } else {
+        items = incoming;
+        const drafts = {};
+        for (const it of items) {
+          drafts[itemKey(it)] = it.rank == null ? '' : String(it.rank);
+        }
+        rankDraft = drafts;
       }
-      rankDraft = drafts;
     } catch (e) {
       toast(e?.message || String(e), 'error');
-      items = [];
+      if (!append) items = [];
+      hasMore = false;
     } finally {
       itemsLoading = false;
+      itemsLoadingMore = false;
     }
+  }
+
+  async function loadMore() {
+    if (!hasMore || itemsLoadingMore) return;
+    await loadItems(activeCategory, activeTitle, true);
   }
 
   function closeReview() {
@@ -100,10 +129,29 @@
     try {
       await reviewMediaCatalogItem(payload);
       toast(t('catalogReviewSaved'), 'success');
-      await loadItems(activeCategory, activeTitle);
+      // 原地应用结果，不重拉列表：保留分页位置和滚动位置。
+      applyLocalChange(it, change);
       await refreshOverview();
     } catch (e) {
       toast(e?.message || String(e), 'error');
+    }
+  }
+
+  // 把审校结果就地写回当前列表；状态变化后不再匹配当前筛选的条目直接移除。
+  function applyLocalChange(it, change) {
+    const key = itemKey(it);
+    let updated = null;
+    items = items
+      .map((x) => (itemKey(x) === key ? { ...x, ...change } : x))
+      .filter((x) => {
+        if (itemKey(x) !== key) return true;
+        updated = x;
+        if (change.status && statusFilter && x.status !== statusFilter) return false;
+        return true;
+      });
+    if (updated) {
+      if (change.rank !== undefined) rankDraft[key] = String(change.rank);
+      if (change.clearRank) rankDraft[key] = '';
     }
   }
 
@@ -139,7 +187,9 @@
         nativeId: it.nativeId,
       });
       toast(t('catalogDeleteDone'), 'success');
-      await loadItems(activeCategory, activeTitle);
+      const key = itemKey(it);
+      items = items.filter((x) => itemKey(x) !== key);
+      delete rankDraft[key];
       await refreshOverview();
     } catch (e) {
       toast(e?.message || String(e), 'error');
@@ -408,6 +458,14 @@
               </div>
             {/each}
           </div>
+          {#if hasMore}
+            <div class="load-more-row">
+              <button class="btn btn-sm btn-ghost" onclick={loadMore} disabled={itemsLoadingMore}>
+                {#if itemsLoadingMore}<span class="spinner"></span>{/if}
+                {t('catalogLoadMore')}
+              </button>
+            </div>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -577,6 +635,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+  .load-more-row {
+    display: flex;
+    justify-content: center;
+    padding: 0.75rem 0 0.25rem;
   }
   .item-row {
     display: flex;
