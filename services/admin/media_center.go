@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -237,16 +238,22 @@ func applyMediaCenterConfigLocked(ctx context.Context, cli *client.Client, cfg m
 	if err := persistMediaCenterConfig(cfg); err != nil {
 		return nil, nil, fmt.Errorf("persist media center config: %w", err)
 	}
-	if err := writeMediaCenterCategoriesFile(cfg); err != nil {
+	categoriesChanged, err := writeMediaCenterCategoriesFileIfChanged(cfg)
+	if err != nil {
 		return nil, nil, fmt.Errorf("write media center categories: %w", err)
 	}
-	if err := writeMediaCenterCredentialsFile(cfg); err != nil {
+	credentialsChanged, err := writeMediaCenterCredentialsFileIfChanged(cfg)
+	if err != nil {
 		return nil, nil, fmt.Errorf("write media center credentials: %w", err)
 	}
-	if err := genNginxConfigForMediaCenter(cfg); err != nil {
+	nginxChanged, err := genNginxConfigForMediaCenter(cfg)
+	if err != nil {
 		return nil, nil, fmt.Errorf("regenerate nginx config after media center save: %w", err)
 	}
-	restarted, warnings, err := restartMediaCenterServices(ctx, cli)
+	// 只重启配置实际变化的下游服务：改分类/凭证只动 media_server，
+	// 只有 public_path/upstream 等 nginx 配置变化才重启 nginx，避免每次
+	// 保存都打断全部代理与 admin 连接。
+	restarted, warnings, err := restartMediaCenterServices(ctx, cli, categoriesChanged || credentialsChanged, nginxChanged)
 	if err != nil {
 		return restarted, warnings, fmt.Errorf("restart media center services: %w", err)
 	}
@@ -357,8 +364,15 @@ func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
 }
 
 func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
+	_, err := writeMediaCenterCategoriesFileIfChanged(cfg)
+	return err
+}
+
+// writeMediaCenterCategoriesFileIfChanged 写 contentCategories.json；内容未变化时
+// 跳过写盘并返回 false，供保存流程判断是否需要重启 media_server。
+func writeMediaCenterCategoriesFileIfChanged(cfg mediaCenterConfig) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(mediaCenterCategoriesPath), 0755); err != nil {
-		return err
+		return false, err
 	}
 	payload := struct {
 		Sources    []mediaCenterRuntimeSource `json:"sources"`
@@ -366,28 +380,53 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 	}{Sources: runtimeMediaCenterSources(cfg.Sources), Categories: cfg.Categories}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterCategoriesPath, data, 0644)
+	if sameFileContent(mediaCenterCategoriesPath, data) {
+		return false, nil
+	}
+	if err := atomicWriteFile(mediaCenterCategoriesPath, data, 0644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // writeMediaCenterCredentialsFile 生成注入 media_server 的 providerCredentials.json。
 // 权限与 contentCategories.json 一致(0644)：media_server 容器 cap_drop:ALL
 // 无 DAC_OVERRIDE，0640 会导致读取失败。
 func writeMediaCenterCredentialsFile(cfg mediaCenterConfig) error {
+	_, err := writeMediaCenterCredentialsFileIfChanged(cfg)
+	return err
+}
+
+// writeMediaCenterCredentialsFileIfChanged 写 providerCredentials.json；内容未变化时
+// 跳过写盘并返回 false，供保存流程判断是否需要重启 media_server。
+func writeMediaCenterCredentialsFileIfChanged(cfg mediaCenterConfig) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(mediaCenterCredentialsPath), 0755); err != nil {
-		return err
+		return false, err
 	}
 	payload := struct {
 		Credentials []providerCredential `json:"credentials"`
 	}{Credentials: cfg.Credentials}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return err
+		return false, err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterCredentialsPath, data, 0644)
+	if sameFileContent(mediaCenterCredentialsPath, data) {
+		return false, nil
+	}
+	if err := atomicWriteFile(mediaCenterCredentialsPath, data, 0644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// sameFileContent 判断 path 现有内容是否与 data 完全一致（用于跳过无变化写盘）。
+func sameFileContent(path string, data []byte) bool {
+	existing, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(existing, data)
 }
 
 type mediaCenterRuntimeSource struct {
@@ -803,10 +842,19 @@ func renderNginxConfigWithMediaCenter(tmpl string, cfg mediaCenterConfig) string
 	return out
 }
 
-func restartMediaCenterServices(ctx context.Context, cli *client.Client) ([]string, []string, error) {
+// restartMediaCenterServices 按需重启下游服务：media_server 在分类/凭证变化时重启，
+// nginx 仅在 nginx 配置变化时重启。两个开关均为 false 时直接返回，不做任何容器操作。
+func restartMediaCenterServices(ctx context.Context, cli *client.Client, restartMedia, restartNginx bool) ([]string, []string, error) {
 	var restarted []string
 	var warnings []string
-	for _, service := range []string{"media_server", "nginx"} {
+	var services []string
+	if restartMedia {
+		services = append(services, "media_server")
+	}
+	if restartNginx {
+		services = append(services, "nginx")
+	}
+	for _, service := range services {
 		ok, err := restartComposeService(ctx, cli, service)
 		if err != nil {
 			return restarted, warnings, err

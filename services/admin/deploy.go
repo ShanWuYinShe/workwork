@@ -251,13 +251,16 @@ func genNginxConfig() error {
 	if err != nil {
 		return err
 	}
-	return genNginxConfigForMediaCenter(mediaCfg)
+	_, err = genNginxConfigForMediaCenter(mediaCfg)
+	return err
 }
 
-func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) error {
+// genNginxConfigForMediaCenter 渲染并（仅在内容变化时）写 nginx 配置，
+// 返回是否实际写入，供保存流程判断是否需要重启 nginx。
+func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) (bool, error) {
 	tmpl, err := os.ReadFile(nginxConfigTemplatePath)
 	if err != nil {
-		return err
+		return false, err
 	}
 	out := string(tmpl)
 	out = renderNginxConfigWithMediaCenter(out, mediaCfg)
@@ -273,12 +276,15 @@ func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) error {
 		"__ADMIN_PORT__": "8318",
 	})
 	if err := os.MkdirAll("/app/data/generated/nginx", 0755); err != nil {
-		return err
+		return false, err
 	}
 	if existing, err := os.ReadFile(nginxConfigPath); err == nil && string(existing) == out {
-		return ensurePerm(nginxConfigPath, 0644)
+		return false, ensurePerm(nginxConfigPath, 0644)
 	}
-	return atomicWriteFile(nginxConfigPath, []byte(out), 0644)
+	if err := atomicWriteFile(nginxConfigPath, []byte(out), 0644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func genHtpasswd() error {
