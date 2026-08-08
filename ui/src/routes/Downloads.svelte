@@ -2,10 +2,18 @@
   import { onMount } from 'svelte';
   import {
     getCurrentUser,
-    getClaudeReleases, getClaudeStored, getClaudePlatforms,
-    downloadClaudeVersion, deleteClaudeDownload, refreshClaudeVersions,
-    getXrayReleases, getXrayStored, getXrayPlatforms,
-    downloadXrayVersion, deleteXrayDownload, refreshXrayVersions,
+    getClaudeReleases,
+    getClaudeStored,
+    getClaudePlatforms,
+    downloadClaudeVersion,
+    deleteClaudeDownload,
+    refreshClaudeVersions,
+    getXrayReleases,
+    getXrayStored,
+    getXrayPlatforms,
+    downloadXrayVersion,
+    deleteXrayDownload,
+    refreshXrayVersions,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -116,14 +124,24 @@
     downloadProgress = null;
     try {
       const fn = tab === 'claude' ? downloadClaudeVersion : downloadXrayVersion;
-      const d = await fn(version, plat, (p) => { downloadProgress = p; });
+      const d = await fn(version, plat, (p) => {
+        downloadProgress = p;
+      });
       if (d.status === 'already_exists') {
-        const msg = tab === 'claude'
-          ? t('alreadyDownloaded', { version, plat })
-          : t('alreadyDownloadedXray', { version, plat });
+        const msg =
+          tab === 'claude'
+            ? t('alreadyDownloaded', { version, plat })
+            : t('alreadyDownloadedXray', { version, plat });
         toast(msg, 'info');
       } else {
-        toast(t('downloadSuccess', { filename: d.filename, size: formatSize(d.size), checksum: (d.checksum || '').slice(0, 16) }), 'success');
+        toast(
+          t('downloadSuccess', {
+            filename: d.filename,
+            size: formatSize(d.size),
+            checksum: (d.checksum || '').slice(0, 16),
+          }),
+          'success',
+        );
       }
       await loadTabData();
     } catch (e) {
@@ -196,7 +214,12 @@
     <div class="stat">
       <div class="stat-icon purple">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-          ><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+          ><path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+          /></svg
+        >
       </div>
       <div class="label">{t('stored')}</div>
       <div class="value">{stored.length}</div>
@@ -205,7 +228,12 @@
       <div class="stat">
         <div class="stat-icon blue">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-            ><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>
+            ><path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+            /></svg
+          >
         </div>
         <div class="label">{t('available')}</div>
         <div class="value">{releases.length}</div>
@@ -224,34 +252,49 @@
           {tab === 'claude' ? t('officialBinaries') : t('xrayBinaries')}
         </div>
       </div>
-      <table>
-        <thead><tr><th>{t('version')}</th><th>{t('platform')}</th><th>{t('size')}</th><th>{t('checksum')}</th><th></th></tr></thead>
-        <tbody>
-          {#each stored as s}
-            <tr>
-              <td class="cell-strong">
-                <a href={downloadUrl(s.filename)} download={s.filename} class="link" title={t('downloadToLocal')}>
-                  {s.version}
-                </a>
-              </td>
-              <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
-              <td class="td-muted">{formatSize(s.size)}</td>
-              <td class="td-mono muted-text" title={s.checksum}>
-                {s.checksum ? s.checksum.slice(0, 12) + '…' : '—'}
-              </td>
-              <td>
-                {#if isAdmin}
-                  {#if deletingFile === s.filename}
-                    <span class="spinner"></span>
-                  {:else}
-                    <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}>{t('delete')}</button>
+      <div class="table-wrap">
+        <table>
+          <thead
+            ><tr
+              ><th>{t('version')}</th><th>{t('platform')}</th><th>{t('size')}</th><th
+                >{t('checksum')}</th
+              ><th></th></tr
+            ></thead
+          >
+          <tbody>
+            {#each stored as s}
+              <tr>
+                <td class="cell-strong">
+                  <a
+                    href={downloadUrl(s.filename)}
+                    download={s.filename}
+                    class="link"
+                    title={t('downloadToLocal')}
+                  >
+                    {s.version}
+                  </a>
+                </td>
+                <td><span class="badge badge-purple">{s.platform_name || s.plat}</span></td>
+                <td class="td-muted">{formatSize(s.size)}</td>
+                <td class="td-mono muted-text" title={s.checksum}>
+                  {s.checksum ? s.checksum.slice(0, 12) + '…' : '—'}
+                </td>
+                <td>
+                  {#if isAdmin}
+                    {#if deletingFile === s.filename}
+                      <span class="spinner"></span>
+                    {:else}
+                      <button class="btn btn-danger btn-sm" onclick={() => doDelete(s.filename)}
+                        >{t('delete')}</button
+                      >
+                    {/if}
                   {/if}
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
   {/if}
 
@@ -267,59 +310,81 @@
       {#if loading}
         <div class="loading-skeleton" style="height:200px;"></div>
       {:else}
-        <table>
-          <thead><tr><th>{t('version')}</th><th>{t('created')}</th><th>{t('platform')}</th><th></th></tr></thead>
-          <tbody>
-            {#each latestReleases as rel}
-              {@const vPlats = versionPlatforms[rel.version]}
-              <tr>
-                <td class="cell-strong">
-                  {rel.version}
-                  <button class="btn btn-ghost btn-xs badge-inline"
-                    onclick={() => loadPlatforms(rel.version)} disabled={vPlats} title={t('loadPlatforms')}>
-                    {vPlats ? '✓' : t('check')}
-                  </button>
-                </td>
-                <td class="td-muted">{formatDate(rel.date)}</td>
-                <td>
-                  {#if vPlats === undefined}
-                    <span class="badge badge-gray">—</span>
-                  {:else if vPlats.length === 0}
-                    <span class="badge badge-red">{t('noPlatforms')}</span>
-                  {:else}
-                    <div class="badge-list">
-                      {#each vPlats as p}
-                        {@const key = rel.version + '-' + p.plat}
-                        {#if alreadyDownloaded.has(key)}
-                          <span class="badge badge-green">{p.label}</span>
-                        {:else if downloadKey === key && downloadProgress}
-                          <span class="badge badge-blue badge-progress">{downloadProgress.percent || 0}%</span>
-                        {:else if downloadKey === key}
-                          <span class="badge badge-blue"><span class="spinner spinner-xs"></span></span>
-                        {:else}
-                          <button class="badge badge-blue badge-action"
-                            onclick={() => doDownload(rel.version, p.plat)} disabled={downloading}>
-                            {p.label}
-                          </button>
-                        {/if}
-                      {/each}
-                    </div>
-                  {/if}
-                </td>
-                <td>
-                  {#if downloadKey.startsWith(rel.version) && downloadProgress}
-                    <div class="progress-bar progress-bar-sm">
-                      <div class="progress-fill" style="width:{downloadProgress.percent || 0}%;"></div>
-                    </div>
-                    <div class="progress-caption">
-                      {formatSize(downloadProgress.bytes)} / {downloadProgress.total ? formatSize(downloadProgress.total) : '?'}
-                    </div>
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead
+              ><tr
+                ><th>{t('version')}</th><th>{t('created')}</th><th>{t('platform')}</th><th></th></tr
+              ></thead
+            >
+            <tbody>
+              {#each latestReleases as rel}
+                {@const vPlats = versionPlatforms[rel.version]}
+                <tr>
+                  <td class="cell-strong">
+                    {rel.version}
+                    <button
+                      class="btn btn-ghost btn-xs badge-inline"
+                      onclick={() => loadPlatforms(rel.version)}
+                      disabled={vPlats}
+                      title={t('loadPlatforms')}
+                    >
+                      {vPlats ? '✓' : t('check')}
+                    </button>
+                  </td>
+                  <td class="td-muted">{formatDate(rel.date)}</td>
+                  <td>
+                    {#if vPlats === undefined}
+                      <span class="badge badge-gray">—</span>
+                    {:else if vPlats.length === 0}
+                      <span class="badge badge-red">{t('noPlatforms')}</span>
+                    {:else}
+                      <div class="badge-list">
+                        {#each vPlats as p}
+                          {@const key = rel.version + '-' + p.plat}
+                          {#if alreadyDownloaded.has(key)}
+                            <span class="badge badge-green">{p.label}</span>
+                          {:else if downloadKey === key && downloadProgress}
+                            <span class="badge badge-blue badge-progress"
+                              >{downloadProgress.percent || 0}%</span
+                            >
+                          {:else if downloadKey === key}
+                            <span class="badge badge-blue"
+                              ><span class="spinner spinner-xs"></span></span
+                            >
+                          {:else}
+                            <button
+                              class="badge badge-blue badge-action"
+                              onclick={() => doDownload(rel.version, p.plat)}
+                              disabled={downloading}
+                            >
+                              {p.label}
+                            </button>
+                          {/if}
+                        {/each}
+                      </div>
+                    {/if}
+                  </td>
+                  <td>
+                    {#if downloadKey.startsWith(rel.version) && downloadProgress}
+                      <div class="progress-bar progress-bar-sm">
+                        <div
+                          class="progress-fill"
+                          style="width:{downloadProgress.percent || 0}%;"
+                        ></div>
+                      </div>
+                      <div class="progress-caption">
+                        {formatSize(downloadProgress.bytes)} / {downloadProgress.total
+                          ? formatSize(downloadProgress.total)
+                          : '?'}
+                      </div>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {/if}
     </div>
   {/if}

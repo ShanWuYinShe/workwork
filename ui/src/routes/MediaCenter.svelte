@@ -168,7 +168,11 @@
       const data = await getMediaCenterCredentials();
       credentials = (data?.credentials || []).map((c) => ({
         provider: c.provider,
-        fields: Object.entries(c.fields || {}).map(([k, v]) => ({ id: ++fieldSeq, key: k, value: v })),
+        fields: Object.entries(c.fields || {}).map(([k, v]) => ({
+          id: ++fieldSeq,
+          key: k,
+          value: v,
+        })),
       }));
     } catch (e) {
       toast(e.message, 'error');
@@ -209,7 +213,10 @@
       toast(t('mediaCredProviderExists'), 'error');
       return;
     }
-    credentials = [...credentials, { provider: id, fields: [{ id: ++fieldSeq, key: '', value: '' }] }];
+    credentials = [
+      ...credentials,
+      { provider: id, fields: [{ id: ++fieldSeq, key: '', value: '' }] },
+    ];
     newProviderId = '';
     addingProvider = false;
   }
@@ -235,7 +242,9 @@
     warnings = [];
     try {
       const openCategoryIDs = new Set(
-        config.categories.filter((category) => isExpanded(category._uid)).map((category) => category.id),
+        config.categories
+          .filter((category) => isExpanded(category._uid))
+          .map((category) => category.id),
       );
       const result = await saveMediaCenterConfig(toPayload(config));
       config = withUids(normalizeConfigShape(clone(result.config || config)));
@@ -342,9 +351,7 @@
   }
 
   function toggleExpanded(uid) {
-    expandedIds = isExpanded(uid)
-      ? expandedIds.filter((id) => id !== uid)
-      : [...expandedIds, uid];
+    expandedIds = isExpanded(uid) ? expandedIds.filter((id) => id !== uid) : [...expandedIds, uid];
   }
 
   function setAllExpanded(open) {
@@ -607,11 +614,7 @@
       {#if activeTab === 'runtime' || activeTab === 'rules'}
         <!-- 保存并应用只作用于 runtime/rules 的可编辑配置；
              app/credentials/catalog 各自有独立提交操作，显示全局保存会误导用户。 -->
-        <button
-          class="btn btn-sm btn-primary"
-          onclick={save}
-          disabled={loading || saving}
-        >
+        <button class="btn btn-sm btn-primary" onclick={save} disabled={loading || saving}>
           {#if saving}<span class="spinner"></span>{/if}
           {saving ? t('saving') : t('saveAndApply')}
         </button>
@@ -733,7 +736,11 @@
               {t('appReleaseDesc')}
             </div>
           </div>
-          <button class="btn btn-sm btn-ghost" onclick={loadAppRelease} disabled={appReleaseLoading}>
+          <button
+            class="btn btn-sm btn-ghost"
+            onclick={loadAppRelease}
+            disabled={appReleaseLoading}
+          >
             {appReleaseLoading ? t('appReleaseRefreshing') : t('refresh')}
           </button>
         </div>
@@ -1002,7 +1009,8 @@
                       <input
                         id={`category-${category._uid}-query`}
                         value={category.searchQuery || ''}
-                        oninput={(e) => updateCategory(index, { searchQuery: e.currentTarget.value })}
+                        oninput={(e) =>
+                          updateCategory(index, { searchQuery: e.currentTarget.value })}
                         placeholder={category.keywords?.[0] || ''}
                       />
                       <div class="helper-text">{t('searchQueryHelp')}</div>
@@ -1023,7 +1031,9 @@
                   {#if config.sources?.length}
                     <details class="field-section advanced-panel">
                       <summary>{t('sourceSpecificQueries')}</summary>
-                      <div class="helper-text source-query-help">{t('sourceSpecificQueriesDesc')}</div>
+                      <div class="helper-text source-query-help">
+                        {t('sourceSpecificQueriesDesc')}
+                      </div>
                       <div class="source-query-grid advanced-panel-body">
                         {#each config.sources as source}
                           <div class="form-group">
@@ -1055,7 +1065,8 @@
                         id={`category-${category._uid}-keywords`}
                         rows="6"
                         value={(category.keywords || []).join('\n')}
-                        oninput={(e) => updateCategoryList(index, 'keywords', e.currentTarget.value)}
+                        oninput={(e) =>
+                          updateCategoryList(index, 'keywords', e.currentTarget.value)}
                       ></textarea>
                       <div class="helper-text">{t('keywordsHelp')}</div>
                     </div>
@@ -1090,28 +1101,37 @@
                   {#each cred.fields as f, fi (f.id)}
                     <div class="field-row">
                       <input
-                        class="input" style="width:160px;flex-shrink:0"
+                        class="input"
+                        style="width:160px;flex-shrink:0"
                         value={f.key}
-                        oninput={(e) => { f.key = e.target.value; }}
+                        oninput={(e) => {
+                          f.key = e.target.value;
+                        }}
                         placeholder={t('mediaCredFieldName')}
                       />
                       <input
                         class="input"
                         type="password"
                         value={f.value}
-                        oninput={(e) => { f.value = e.target.value; }}
+                        oninput={(e) => {
+                          f.value = e.target.value;
+                        }}
                         placeholder={t('mediaCredFieldValue')}
                       />
                       <button
                         class="btn btn-sm btn-ghost"
-                        onclick={() => { cred.fields.splice(fi, 1); }}
-                      >{t('remove')}</button>
+                        onclick={() => {
+                          cred.fields.splice(fi, 1);
+                        }}>{t('remove')}</button
+                      >
                     </div>
                   {/each}
                   <button
                     class="btn btn-sm btn-ghost"
-                    onclick={() => { cred.fields.push({ id: ++fieldSeq, key: '', value: '' }); }}
-                  >{t('mediaCredAddField')}</button>
+                    onclick={() => {
+                      cred.fields.push({ id: ++fieldSeq, key: '', value: '' });
+                    }}>{t('mediaCredAddField')}</button
+                  >
                 </div>
               </div>
             {/each}
@@ -1122,22 +1142,34 @@
                   value={newProviderId}
                   oninput={(e) => (newProviderId = e.currentTarget.value)}
                   onkeydown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); addProvider(); }
-                    if (e.key === 'Escape') { addingProvider = false; newProviderId = ''; }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addProvider();
+                    }
+                    if (e.key === 'Escape') {
+                      addingProvider = false;
+                      newProviderId = '';
+                    }
                   }}
                   placeholder={t('mediaCredProviderId')}
                 />
                 <button class="btn btn-sm btn-success" onclick={addProvider}>{t('add')}</button>
                 <button
                   class="btn btn-sm btn-ghost"
-                  onclick={() => { addingProvider = false; newProviderId = ''; }}
-                >{t('cancel')}</button>
+                  onclick={() => {
+                    addingProvider = false;
+                    newProviderId = '';
+                  }}>{t('cancel')}</button
+                >
               </div>
             {:else}
               <button
                 class="btn btn-sm"
-                onclick={() => { addingProvider = true; newProviderId = ''; }}
-              >{t('mediaCredAddProvider')}</button>
+                onclick={() => {
+                  addingProvider = true;
+                  newProviderId = '';
+                }}>{t('mediaCredAddProvider')}</button
+              >
             {/if}
           </div>
           {#if credentialsSaving}

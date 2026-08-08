@@ -5,6 +5,7 @@
   import { copyToClipboard } from '../lib/clipboard.js';
   import { serviceDisplayName } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { navigate } from '../lib/nav.svelte.js';
 
   let stats = $state({
     services: '-',
@@ -156,7 +157,15 @@
       </div>
       <div class="quick-actions">
         {#each quickActions as action}
-          <a class="quick-action" class:primary={action.primary} href={'/admin' + action.path}>
+          <a
+            class="quick-action"
+            class:primary={action.primary}
+            href={'/admin' + action.path}
+            onclick={(e) => {
+              e.preventDefault();
+              navigate(action.path);
+            }}
+          >
             <span class="quick-action-title">{t(action.label)}</span>
             <span class="quick-action-desc">{t(action.desc)}</span>
           </a>
@@ -172,22 +181,25 @@
         </div>
       </div>
       {#if services.length}
-        <table>
-          <thead><tr><th>{t('service')}</th><th>{t('state')}</th><th>{t('image')}</th></tr></thead>
-          <tbody>
-            {#each services as s}
-              <tr>
-                <td class="cell-strong">{serviceDisplayName(s.name)}</td>
-                <td>
-                  <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                    <span class="badge-dot"></span>{s.state}
-                  </span>
-                </td>
-                <td class="td-muted">{s.image}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>{t('service')}</th><th>{t('state')}</th><th>{t('image')}</th></tr></thead
+            >
+            <tbody>
+              {#each services as s}
+                <tr>
+                  <td class="cell-strong">{serviceDisplayName(s.name)}</td>
+                  <td>
+                    <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
+                      <span class="badge-dot"></span>{s.state}
+                    </span>
+                  </td>
+                  <td class="td-muted">{s.image}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}
         <div class="empty-state">{t('noServices')}</div>
       {/if}
@@ -243,20 +255,24 @@
             <span class="card-title-count">{myClients.length}</span>
           </div>
         </div>
-        <table>
-          <thead><tr><th>{t('uuid')}</th><th>{t('protocols')}</th></tr></thead>
-          <tbody>
-            {#each myClients as c}
-              <tr>
-                <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
-                <td>
-                  <span class="badge badge-green"><span class="badge-dot"></span>{t('protocolReality')}</span>
-                  <span class="badge badge-blue">{t('protocolXhttp')}</span>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>{t('uuid')}</th><th>{t('protocols')}</th></tr></thead>
+            <tbody>
+              {#each myClients as c}
+                <tr>
+                  <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
+                  <td>
+                    <span class="badge badge-green"
+                      ><span class="badge-dot"></span>{t('protocolReality')}</span
+                    >
+                    <span class="badge badge-blue">{t('protocolXhttp')}</span>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
@@ -280,7 +296,9 @@
         <div class="badge-list config-badges">
           <span class="badge badge-gray">{t('socks5')} :10808</span>
           <span class="badge badge-gray">{t('http')} :10809</span>
-          <span class="badge badge-gray">{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span>
+          <span class="badge badge-gray"
+            >{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span
+          >
         </div>
         <textarea rows="16" readonly>{generatedJSON}</textarea>
       </div>
@@ -302,7 +320,8 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: linear-gradient(135deg, var(--c-bg-elevated), rgba(59, 130, 246, 0.05)), var(--c-bg-elevated);
+    background:
+      linear-gradient(135deg, var(--c-bg-elevated), rgba(59, 130, 246, 0.05)), var(--c-bg-elevated);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
