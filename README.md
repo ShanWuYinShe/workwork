@@ -233,8 +233,7 @@ docker compose build media_server && docker compose up -d --no-deps media_server
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
 | `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
-| `MEDIA_SERVER_CATEGORY_MAX_PAGES` | Media Server 分类聚合最多抓取页数 | `6` |
-| `MEDIA_SERVER_PUBLIC_URL` | 媒体 API 公网基址，固定用于拼接 App 更新下载地址（防 Host 投毒） | `https://yinghuoren.com` |
+| `MEDIA_SERVER_PUBLIC_URL` | 媒体 API 公网基址，固定用于拼接 App 更新下载地址（防 Host 投毒，需含 `/api/media` 前缀） | `https://yinghuoren.com/api/media` |
 | `MEDIA_SERVER_APP_API_TOKEN` | 凭证接口令牌，与 App 构建时注入的 `APP_API_TOKEN` 一致；为空则凭证接口 401 | `openssl rand -hex 32` |
 | `MEDIA_SERVER_ALLOWED_HOSTS` | 未配置 PUBLIC_URL 时允许推导下载地址的公网域名白名单（逗号分隔） | `yinghuoren.com` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
