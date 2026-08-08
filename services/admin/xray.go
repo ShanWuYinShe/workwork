@@ -591,11 +591,24 @@ func cleanupOldXrayDownloads(maxKeep int) {
 	if len(m.Downloads) <= maxKeep {
 		return
 	}
-	for _, d := range m.Downloads[maxKeep:] {
+	// 保留最近 maxKeep 条（列表按下载时间追加，末尾最新），淘汰最早的多余条目。
+	// 此前反向清理会把刚下载完的文件立即删掉，导致“下载成功但文件不存在”。
+	drop := len(m.Downloads) - maxKeep
+	kept := keepNewestXrayDownloads(m.Downloads, maxKeep)
+	for _, d := range m.Downloads[:drop] {
 		os.Remove(filepath.Join(xrayDownloadsDir, d.Filename))
 	}
-	m.Downloads = m.Downloads[:maxKeep]
+	m.Downloads = kept
 	if err := saveXrayManifestLocked(m); err != nil {
 		log.Printf("ERROR: save xray manifest (cleanup): %v", err)
 	}
+}
+
+// keepNewestXrayDownloads 返回最近 maxKeep 条下载记录（含拷贝，避免与入参共享底层数组）。
+func keepNewestXrayDownloads(entries []xrayStoredDownload, maxKeep int) []xrayStoredDownload {
+	if len(entries) <= maxKeep {
+		return append([]xrayStoredDownload{}, entries...)
+	}
+	drop := len(entries) - maxKeep
+	return append([]xrayStoredDownload{}, entries[drop:]...)
 }
