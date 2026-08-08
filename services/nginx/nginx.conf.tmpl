@@ -174,7 +174,9 @@ server {
 
     # 服务日志 SSE 长连接：/api/admin/ 继承的 300s 读超时会在日志静默时掐断流，
     # 单独放宽到 1 小时（前端断线有自动重连兜底）。
-    location /api/admin/services/ {
+    # 注意：前缀不能以 / 结尾——nginx 会对不带尾斜杠的 /api/admin/services 自动
+    # 301 补斜杠，而 admin 只注册了无斜杠路由，导致 Services/Logs 页 404。
+    location /api/admin/services {
         auth_basic "Restricted";
         auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
         access_log /var/log/nginx/admin-access.log auth_log;
