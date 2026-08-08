@@ -48,6 +48,9 @@ func main() {
 	// Dashboard — viewer+ (returns role-appropriate data)
 	mux.HandleFunc("GET /api/admin/dashboard", requireRole("viewer")(apiDashboard(cli)))
 	mux.HandleFunc("GET /api/admin/services", requireRole("admin")(apiServices(cli)))
+	// 兜底：nginx 历史上曾把 /api/admin/services 301 到带斜杠路径，直接返回列表
+	// 而不是 404，避免浏览器跟随重定向后页面报错。
+	mux.HandleFunc("GET /api/admin/services/", requireRole("admin")(apiServices(cli)))
 	mux.HandleFunc("GET /api/admin/config", requireRole("viewer")(apiConfig(cli)))
 
 	// User operations — viewer+ (read own), admin (manage all)
