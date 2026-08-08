@@ -193,6 +193,7 @@ func main() {
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
 	defer authRateLimiter.stop()
 
+	cleanupOrphanTransferTempFiles()
 	go transferCleanupLoop(ctx)
 
 	go func() {
