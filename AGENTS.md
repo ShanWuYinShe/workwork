@@ -19,8 +19,8 @@ JDK 说明见全局。构建命令：
 ```bash
 # JAVA_HOME 见全局「本机环境」Android Studio JBR 条目（以 ls 验证，变动时用 mdfind 定位）
 export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-./gradlew -C services/media_center/media_app :app:compileDebugKotlin   # 编译检查（最快）
-./gradlew -C services/media_center/media_app :app:assembleDebug        # 出 APK
+services/media_center/media_app/gradlew -p services/media_center/media_app :app:compileDebugKotlin   # 编译检查（最快）
+services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleDebug        # 出 APK
 ```
 
 ```bash
@@ -61,7 +61,7 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # - services/media_center/media_app/**（Android APK，默认 normal 变体）:
 #     # JAVA_HOME 见全局「本机环境」（以 ls 验证，变动时用 mdfind 定位）
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-#       ./gradlew -C services/media_center/media_app :app:assembleDebug && \
+#       services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleDebug && \
 #     scp services/media_center/media_app/app/build/outputs/apk/debug/app-debug.apk \
 #       workwork-server:service/.wework/generated/media_center/media-center-app.apk
 #   也可在管理面板“Android TV App 更新发布”页面选变体后上传（admin 自动写 manifest + APK，
