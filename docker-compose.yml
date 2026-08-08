@@ -190,7 +190,7 @@ services:
       - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
       # App 更新下载地址:显式固定公网基址,禁止从请求 Host 头推导(防 Host 头投毒
       # 引导恶意 APK)。留空时 media_server 只接受白名单/内网 Host,公网不可用。
-      - MEDIA_SERVER_PUBLIC_URL=${MEDIA_SERVER_PUBLIC_URL:-https://yinghuoren.com}
+      - MEDIA_SERVER_PUBLIC_URL=${MEDIA_SERVER_PUBLIC_URL:-https://yinghuoren.com/api/media}
       # App 端凭证接口令牌:与 App 构建时注入的 APP_API_TOKEN 一致;为空则凭证
       # 接口一律 401(App 降级无凭证模式)。
       - MEDIA_SERVER_APP_API_TOKEN=${MEDIA_SERVER_APP_API_TOKEN:-}
