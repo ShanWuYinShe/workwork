@@ -99,7 +99,8 @@ func searchWeb(query string, count int) ([]searchResult, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
-	client := &http.Client{}
+	// 上游搜索必须有限时：DDG 挂起时不能无限占用 goroutine/连接。
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
