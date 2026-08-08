@@ -604,14 +604,18 @@
       <button class="btn btn-sm btn-ghost" onclick={load} disabled={loading || saving}>
         {t('refresh')}
       </button>
-      <button
-        class="btn btn-sm btn-primary"
-        onclick={save}
-        disabled={loading || saving}
-      >
-        {#if saving}<span class="spinner"></span>{/if}
-        {saving ? t('saving') : t('saveAndApply')}
-      </button>
+      {#if activeTab === 'runtime' || activeTab === 'rules'}
+        <!-- 保存并应用只作用于 runtime/rules 的可编辑配置；
+             app/credentials/catalog 各自有独立提交操作，显示全局保存会误导用户。 -->
+        <button
+          class="btn btn-sm btn-primary"
+          onclick={save}
+          disabled={loading || saving}
+        >
+          {#if saving}<span class="spinner"></span>{/if}
+          {saving ? t('saving') : t('saveAndApply')}
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -811,7 +815,7 @@
               (appReleaseForm = { ...appReleaseForm, releaseNotes: e.currentTarget.value })}
           ></textarea>
         </div>
-        <div class="card-actions">
+        <div class="card-actions app-release-actions">
           <button
             class="btn btn-sm btn-primary"
             onclick={publishAppRelease}
@@ -1139,8 +1143,8 @@
           {#if credentialsSaving}
             <div class="card-section"><div class="loading-skeleton" style="height:36px"></div></div>
           {:else}
-            <div class="card-section page-actions">
-              <button class="btn" onclick={saveCredentials}>{t('save')}</button>
+            <div class="card-section page-actions credentials-footer">
+              <button class="btn btn-primary" onclick={saveCredentials}>{t('save')}</button>
             </div>
           {/if}
         {/if}
@@ -1645,6 +1649,17 @@
     padding: 1rem;
     margin-bottom: 0.75rem;
   }
+  /* 凭证卡片内分区统一间距：标题、列表、保存区不再贴在一起 */
+  .card-section + .card-section {
+    margin-top: 1rem;
+  }
+  .credentials-footer {
+    border-top: 1px solid var(--c-border);
+    padding-top: 1rem;
+  }
+  .app-release-actions {
+    margin-top: 1rem;
+  }
   .credential-header {
     display: flex;
     align-items: center;
@@ -1660,6 +1675,8 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    /* 窄屏下字段+删除按钮允许换行，避免横向溢出 */
+    flex-wrap: wrap;
   }
   .add-provider-form {
     display: flex;
