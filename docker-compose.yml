@@ -82,7 +82,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
+          # Reality + XHTTP + observatory 并发下 64M 偏紧，OOM 会静默重启代理；
+          # 放宽到 128M 留出 TLS 握手与连接缓冲余量。
+          memory: 128M
           cpus: "1.0"
     security_opt:
       - "no-new-privileges:true"
