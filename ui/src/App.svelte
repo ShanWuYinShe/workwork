@@ -3,11 +3,11 @@
   import { getCurrentUser } from './lib/api.js';
   import { t } from './lib/i18n.svelte.js';
   import { routes, routeTitles } from './lib/routes.js';
+  import { nav, navigate, syncPath } from './lib/nav.svelte.js';
   import Sidebar from './lib/Sidebar.svelte';
   import ConfirmModal from './lib/ConfirmModal.svelte';
   import Toast from './lib/Toast.svelte';
 
-  let currentPath = $state(window.location.pathname.replace('/admin', '') || '/');
   let userInfo = $state(null);
   let authError = $state(null);
   let authLoading = $state(true);
@@ -34,37 +34,41 @@
 
   onMount(() => {
     loadUser();
-    function onPopstate() {
-      currentPath = window.location.pathname.replace('/admin', '') || '/';
-    }
-    window.addEventListener('popstate', onPopstate);
-    return () => window.removeEventListener('popstate', onPopstate);
+    window.addEventListener('popstate', syncPath);
+    return () => window.removeEventListener('popstate', syncPath);
   });
 
-  function navigate(path) {
-    currentPath = path;
-    window.history.pushState({}, '', '/admin' + path);
-  }
-
   $effect(() => {
-    document.title = 'WorkWork — ' + t(routeTitles[currentPath] || 'dashboard');
+    document.title = 'WorkWork — ' + t(routeTitles[nav.path] || 'dashboard');
   });
   // 路由切换后回到顶部：避免从长页面进入新页面仍停留在旧滚动位置。
   $effect(() => {
-    currentPath;
+    nav.path;
     mainScroll?.scrollTo(0, 0);
   });
 
   let isAdmin = $derived(userInfo?.role === 'admin');
 
-  let currentRoute = $derived(routes.find((r) => r.path === currentPath));
+  let currentRoute = $derived(routes.find((r) => r.path === nav.path));
 </script>
 
 <div class="layout {sidebarCollapsed ? 'collapsed' : ''}">
-  <Sidebar {currentPath} {navigate} {sidebarCollapsed} {userInfo} {isAdmin} {mobileMenuOpen} />
+  <Sidebar
+    currentPath={nav.path}
+    {navigate}
+    {sidebarCollapsed}
+    {userInfo}
+    {isAdmin}
+    {mobileMenuOpen}
+  />
 
   {#if mobileMenuOpen}
-    <button class="mobile-overlay" type="button" aria-label={t('closeMenu')} onclick={() => mobileMenuOpen = false}></button>
+    <button
+      class="mobile-overlay"
+      type="button"
+      aria-label={t('closeMenu')}
+      onclick={() => (mobileMenuOpen = false)}
+    ></button>
   {/if}
 
   <main class="main">
@@ -82,18 +86,40 @@
       </div>
     {/if}
     <div class="mobile-topbar">
-      <button class="hamburger-btn" onclick={() => mobileMenuOpen = !mobileMenuOpen} aria-label={t('menu')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+      <button
+        class="hamburger-btn"
+        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+        aria-label={t('menu')}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          width="20"
+          height="20"
+        >
           {#if mobileMenuOpen}
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           {:else}
-            <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+            <line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line
+              x1="4"
+              y1="18"
+              x2="20"
+              y2="18"
+            />
           {/if}
         </svg>
       </button>
       <span class="topbar-title">WorkWork</span>
     </div>
-    <div class="main-scroll" class:main-scroll-wide={currentPath === '/media-center'} bind:this={mainScroll}>
+    <div
+      class="main-scroll"
+      class:main-scroll-wide={nav.path === '/media-center'}
+      bind:this={mainScroll}
+    >
       {#if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
           <currentRoute.component />
@@ -167,8 +193,9 @@
     --radius-xl: 16px;
 
     /* 字体 */
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-      'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+    --font-sans:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+      'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
     --font-mono: 'SF Mono', 'Fira Code', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
     /* 布局与动效 */
@@ -236,10 +263,10 @@
     transition: width 0.2s ease;
     overflow: hidden;
   }
-:global(.sidebar.collapsed) {
-     width: var(--sidebar-collapsed);
-   }
-   :global(.sidebar.collapsed .sidebar-header) {
+  :global(.sidebar.collapsed) {
+    width: var(--sidebar-collapsed);
+  }
+  :global(.sidebar.collapsed .sidebar-header) {
     flex-direction: column;
     justify-content: center;
     padding: 0.75rem 0;
@@ -305,7 +332,9 @@
     color: var(--c-text-muted);
     cursor: pointer;
     border-radius: var(--radius-sm);
-    transition: color var(--transition), background var(--transition);
+    transition:
+      color var(--transition),
+      background var(--transition);
     flex-shrink: 0;
   }
   :global(.sidebar-toggle svg) {
@@ -525,6 +554,9 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* flex 子项默认 min-width:auto，宽表格内容会把整页撑出横向滚动；
+       允许收缩后，溢出交由内部 .table-wrap 等滚动容器处理。 */
+    min-width: 0;
   }
   .layout.collapsed .main {
     margin-left: var(--sidebar-collapsed);
@@ -535,6 +567,7 @@
     padding: 2rem 2.5rem 3rem;
     max-width: 1200px;
     width: 100%;
+    min-width: 0;
   }
   .main-scroll.main-scroll-wide {
     margin: 0 auto;
@@ -657,6 +690,10 @@
   :global(table) {
     width: 100%;
     border-collapse: collapse;
+  }
+  :global(.table-wrap) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   :global(th) {
     text-align: left;
@@ -854,29 +891,41 @@
   :global(.btn-primary) {
     background: linear-gradient(180deg, #4a90f9, var(--c-accent));
     color: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-primary:hover) {
     background: linear-gradient(180deg, #3d86f7, var(--c-accent-hover));
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 2px 8px rgba(59, 130, 246, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-danger) {
     background: linear-gradient(180deg, #f9625f, var(--c-danger));
     color: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-danger:hover) {
     background: linear-gradient(180deg, #f64f4b, var(--c-danger-hover));
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 2px 8px rgba(239, 68, 68, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-success) {
     background: linear-gradient(180deg, #3bd571, var(--c-success));
     color: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-success:hover) {
     background: linear-gradient(180deg, #2fc763, var(--c-success-hover));
-    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 2px 8px rgba(34, 197, 94, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-secondary) {
     background: var(--c-bg-surface);
@@ -1393,7 +1442,10 @@
     border-radius: var(--radius-sm);
     display: flex;
   }
-  .hamburger-btn:hover { color: var(--c-text); background: var(--c-bg-hover); }
+  .hamburger-btn:hover {
+    color: var(--c-text);
+    background: var(--c-bg-hover);
+  }
   .topbar-title {
     font-size: 0.9rem;
     font-weight: 700;
@@ -1443,8 +1495,12 @@
 
   /* ── Responsive ── */
   @media (max-width: 768px) {
-    .mobile-topbar { display: flex; }
-    .mobile-overlay { display: block; }
+    .mobile-topbar {
+      display: flex;
+    }
+    .mobile-overlay {
+      display: block;
+    }
 
     :global(.sidebar) {
       width: var(--sidebar-width);

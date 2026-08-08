@@ -73,7 +73,12 @@
       </div>
       <div class="form-group form-group-grow">
         <label for="block-reason">{t('reason')}</label>
-        <input id="block-reason" type="text" bind:value={newReason} placeholder={t('reasonPlaceholder')} />
+        <input
+          id="block-reason"
+          type="text"
+          bind:value={newReason}
+          placeholder={t('reasonPlaceholder')}
+        />
       </div>
       <div class="form-group">
         <label for="block-duration">{t('duration')}</label>
@@ -101,32 +106,38 @@
     {#if loading}
       <div class="loading-skeleton" style="height:100px;"></div>
     {:else if entries.length}
-      <table>
-        <thead
-          ><tr><th>{t('ipAddress')}</th><th>{t('reason')}</th><th>{t('blockedAt')}</th><th>{t('expiresAt')}</th><th>{t('actions')}</th></tr
-          ></thead
-        >
-        <tbody>
-          {#each entries as e}
-            <tr>
-              <td class="td-mono">{e.ip}</td>
-              <td class="td-muted">{e.reason || '—'}</td>
-              <td class="td-muted">{e.blocked_at?.slice(0, 16) || '—'}</td>
-              <td>
-                {#if e.expires_at}
-                  <span class="td-muted">{e.expires_at.slice(0, 16)}</span>
-                {:else}
-                  <span class="badge badge-red">{t('permanent')}</span>
-                {/if}
-              </td>
-              <td>
-                <button class="btn btn-ghost btn-sm" onclick={() => doUnblock(e.ip)}>{t('unblock')}</button
-                >
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead
+            ><tr
+              ><th>{t('ipAddress')}</th><th>{t('reason')}</th><th>{t('blockedAt')}</th><th
+                >{t('expiresAt')}</th
+              ><th>{t('actions')}</th></tr
+            ></thead
+          >
+          <tbody>
+            {#each entries as e}
+              <tr>
+                <td class="td-mono">{e.ip}</td>
+                <td class="td-muted">{e.reason || '—'}</td>
+                <td class="td-muted">{e.blocked_at?.slice(0, 16) || '—'}</td>
+                <td>
+                  {#if e.expires_at}
+                    <span class="td-muted">{e.expires_at.slice(0, 16)}</span>
+                  {:else}
+                    <span class="badge badge-red">{t('permanent')}</span>
+                  {/if}
+                </td>
+                <td>
+                  <button class="btn btn-ghost btn-sm" onclick={() => doUnblock(e.ip)}
+                    >{t('unblock')}</button
+                  >
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     {:else}
       <div class="empty-state">{t('noIpsBlocked')}</div>
     {/if}

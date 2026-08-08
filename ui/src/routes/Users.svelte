@@ -113,55 +113,62 @@
     {#if loading}
       <div class="loading-skeleton" style="height:120px;"></div>
     {:else if adminUsers.length}
-      <table>
-        <thead
-          ><tr><th>{t('username')}</th><th>{t('role')}</th><th>{t('created')}</th><th>{t('actions')}</th></tr
-          ></thead
-        >
-        <tbody>
-          {#each adminUsers as u}
-            <tr>
-              <td>
-                <div class="user-line">
-                  <div
-                    class={u.role === 'admin' ? 'table-avatar table-avatar-admin' : 'table-avatar'}
-                  >
-                    {u.username[0].toUpperCase()}
+      <div class="table-wrap">
+        <table>
+          <thead
+            ><tr
+              ><th>{t('username')}</th><th>{t('role')}</th><th>{t('created')}</th><th
+                >{t('actions')}</th
+              ></tr
+            ></thead
+          >
+          <tbody>
+            {#each adminUsers as u}
+              <tr>
+                <td>
+                  <div class="user-line">
+                    <div
+                      class={u.role === 'admin'
+                        ? 'table-avatar table-avatar-admin'
+                        : 'table-avatar'}
+                    >
+                      {u.username[0].toUpperCase()}
+                    </div>
+                    <span class="cell-strong">{u.username}</span>
                   </div>
-                  <span class="cell-strong">{u.username}</span>
-                </div>
-              </td>
-              <td>
-                <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
-              </td>
-              <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
-              <td>
-                <div class="td-actions">
-                  {#if u.username === currentUsername}
-                    <span class="badge badge-gray">{t('currentUser')}</span>
-                  {:else if u.role !== 'admin'}
-                    <button
-                      class="btn btn-primary btn-sm"
-                      onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
-                    >
-                    <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                      >{t('delete')}</button
-                    >
-                  {:else}
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
-                    >
-                    <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                      >{t('delete')}</button
-                    >
-                  {/if}
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+                </td>
+                <td>
+                  <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
+                </td>
+                <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+                <td>
+                  <div class="td-actions">
+                    {#if u.username === currentUsername}
+                      <span class="badge badge-gray">{t('currentUser')}</span>
+                    {:else if u.role !== 'admin'}
+                      <button
+                        class="btn btn-primary btn-sm"
+                        onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
+                      >
+                      <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                        >{t('delete')}</button
+                      >
+                    {:else}
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
+                      >
+                      <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                        >{t('delete')}</button
+                      >
+                    {/if}
+                  </div>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     {:else}
       <div class="empty-state">{t('noUsers')}</div>
     {/if}
@@ -215,24 +222,24 @@
         <input id="pw-user" type="text" bind:value={pwUser} class="input-w-md" />
       </div>
       {#if !isAdmin}
-      <div class="form-group">
-        <label for="pw-old">{t('oldPassword')}</label>
-        <div class="password-input">
-          <input
-            id="pw-old"
-            type={showOldPass ? 'text' : 'password'}
-            bind:value={oldPass}
-            class="input-w-md"
-          />
-          <button
-            class="eye-btn"
-            onclick={() => (showOldPass = !showOldPass)}
-            aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
-          >
-            {@html EyeIcon({ open: showOldPass })}
-          </button>
+        <div class="form-group">
+          <label for="pw-old">{t('oldPassword')}</label>
+          <div class="password-input">
+            <input
+              id="pw-old"
+              type={showOldPass ? 'text' : 'password'}
+              bind:value={oldPass}
+              class="input-w-md"
+            />
+            <button
+              class="eye-btn"
+              onclick={() => (showOldPass = !showOldPass)}
+              aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
+            >
+              {@html EyeIcon({ open: showOldPass })}
+            </button>
+          </div>
         </div>
-      </div>
       {/if}
       <div class="form-group">
         <label for="pw-pass">{t('newPassword')}</label>

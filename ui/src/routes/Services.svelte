@@ -29,7 +29,11 @@
   }
 
   function confirmKey(act) {
-    const map = { stop: 'confirmStopService', start: 'confirmStartService', restart: 'confirmRestartService' };
+    const map = {
+      stop: 'confirmStopService',
+      start: 'confirmStartService',
+      restart: 'confirmRestartService',
+    };
     return map[act] || 'confirmStopService';
   }
 
@@ -55,7 +59,9 @@
   <div class="page-header">
     <h1 class="page-title">{t('services')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}>{t('refresh')}</button>
+      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}
+        >{t('refresh')}</button
+      >
     </div>
   </div>
 
@@ -107,53 +113,56 @@
         <div class="card-title">{t('allServices')}</div>
       </div>
       {#if services.length}
-        <table>
-          <thead
-            ><tr
-              ><th>{t('service')}</th><th>{t('state')}</th><th>{t('ports')}</th><th>{t('image')}</th>{#if isAdmin}<th
-                  >{t('serviceActions')}</th
-                >{/if}</tr
-            ></thead
-          >
-          <tbody>
-            {#each services as s}
-              <tr>
-                <td class="cell-strong">{serviceDisplayName(s.name)}</td>
-                <td>
-                  <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                    <span class="badge-dot"></span>{s.state}
-                  </span>
-                </td>
-                <td class="td-mono">{s.ports || '—'}</td>
-                <td class="td-muted">{s.image}</td>
-                {#if isAdmin}
+        <div class="table-wrap">
+          <table>
+            <thead
+              ><tr
+                ><th>{t('service')}</th><th>{t('state')}</th><th>{t('ports')}</th><th
+                  >{t('image')}</th
+                >{#if isAdmin}<th>{t('serviceActions')}</th>{/if}</tr
+              ></thead
+            >
+            <tbody>
+              {#each services as s}
+                <tr>
+                  <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
-                    <div class="td-actions">
-                      {#if actingService === s.name}
-                        <span class="spinner"></span>
-                      {:else}
-                        <button
-                          class="btn btn-primary btn-sm"
-                          onclick={() => act(s.name, 'restart')}>{t('restart')}</button
-                        >
-                        {#if s.state === 'running'}
-                          <button class="btn btn-danger btn-sm" onclick={() => act(s.name, 'stop')}
-                            >{t('stop')}</button
-                          >
+                    <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
+                      <span class="badge-dot"></span>{s.state}
+                    </span>
+                  </td>
+                  <td class="td-mono">{s.ports || '—'}</td>
+                  <td class="td-muted">{s.image}</td>
+                  {#if isAdmin}
+                    <td>
+                      <div class="td-actions">
+                        {#if actingService === s.name}
+                          <span class="spinner"></span>
                         {:else}
                           <button
-                            class="btn btn-success btn-sm"
-                            onclick={() => act(s.name, 'start')}>{t('start')}</button
+                            class="btn btn-primary btn-sm"
+                            onclick={() => act(s.name, 'restart')}>{t('restart')}</button
                           >
+                          {#if s.state === 'running'}
+                            <button
+                              class="btn btn-danger btn-sm"
+                              onclick={() => act(s.name, 'stop')}>{t('stop')}</button
+                            >
+                          {:else}
+                            <button
+                              class="btn btn-success btn-sm"
+                              onclick={() => act(s.name, 'start')}>{t('start')}</button
+                            >
+                          {/if}
                         {/if}
-                      {/if}
-                    </div>
-                  </td>
-                {/if}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+                      </div>
+                    </td>
+                  {/if}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}
         <div class="empty-state">{t('noServices')}</div>
       {/if}

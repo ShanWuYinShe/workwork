@@ -19,7 +19,10 @@
 
   onMount(() => {
     refresh();
-    return () => { closeStream(); clearReconnect(); };
+    return () => {
+      closeStream();
+      clearReconnect();
+    };
   });
 
   async function refresh() {
@@ -27,7 +30,10 @@
     try {
       const s = await getServices();
       services = s.services || [];
-      if (services.length && (!selectedService || !services.some((svc) => svc.name === selectedService))) {
+      if (
+        services.length &&
+        (!selectedService || !services.some((svc) => svc.name === selectedService))
+      ) {
         selectedService = services[0].name;
       }
       if (selectedService && following) startStream();
@@ -42,7 +48,9 @@
     closeStream();
     if (!selectedService) return;
     if (clear) logLines = [];
-    es = new EventSource(`/api/admin/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`);
+    es = new EventSource(
+      `/api/admin/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`,
+    );
     es.onopen = () => {
       reconnectDelay = 1000;
     };
@@ -136,9 +144,7 @@
   });
 
   let filtered = $derived(
-    search
-      ? logLines.filter((l) => l.toLowerCase().includes(search.toLowerCase()))
-      : logLines,
+    search ? logLines.filter((l) => l.toLowerCase().includes(search.toLowerCase())) : logLines,
   );
 </script>
 
@@ -172,9 +178,7 @@
               onclick={() => selectService(s.name)}
             >
               {serviceDisplayName(s.name)}
-              <span
-                class="badge badge-{s.state === 'running' ? 'green' : 'red'} badge-inline"
-              >
+              <span class="badge badge-{s.state === 'running' ? 'green' : 'red'} badge-inline">
                 <span class="badge-dot"></span>{s.state}
               </span>
             </button>
@@ -214,16 +218,30 @@
             {#if following}
               — {t('reconnecting')}... —
             {:else}
-              — {t('streamPaused')} · <button class="btn btn-sm btn-ghost" onclick={() => { following = true; reconnectDelay = 1000; startStream(false); }}>{t('resume')}</button> —
+              — {t('streamPaused')} ·
+              <button
+                class="btn btn-sm btn-ghost"
+                onclick={() => {
+                  following = true;
+                  reconnectDelay = 1000;
+                  startStream(false);
+                }}>{t('resume')}</button
+              > —
             {/if}
           </div>
         {/if}
       </div>
       <div class="log-status">
         <span class="badge badge-{es ? 'green' : following ? 'yellow' : 'red'}">
-          <span class="badge-dot"></span>{es ? t('live') : following ? t('reconnecting') : t('paused')}
+          <span class="badge-dot"></span>{es
+            ? t('live')
+            : following
+              ? t('reconnecting')
+              : t('paused')}
         </span>
-        <span class="log-count">{t('linesCount', { filtered: filtered.length, total: logLines.length })}</span>
+        <span class="log-count"
+          >{t('linesCount', { filtered: filtered.length, total: logLines.length })}</span
+        >
       </div>
     </div>
   {/if}

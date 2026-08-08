@@ -32,11 +32,18 @@
 
 {#if confirmState.show}
   <div class="modal-overlay">
-    <button class="modal-backdrop" type="button" aria-label={t('cancel')} onclick={() => confirmResponse(false)}></button>
+    <button
+      class="modal-backdrop"
+      type="button"
+      aria-label={t('cancel')}
+      onclick={() => confirmResponse(false)}
+    ></button>
     <div class="modal" bind:this={dialog} role="dialog" aria-modal="true" tabindex="-1">
       <p class="modal-message">{confirmState.message}</p>
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick={() => confirmResponse(false)}>{t('cancel')}</button>
+        <button class="btn btn-secondary" onclick={() => confirmResponse(false)}
+          >{t('cancel')}</button
+        >
         <button class="btn btn-primary" onclick={() => confirmResponse(true)}>{t('ok')}</button>
       </div>
     </div>
@@ -56,8 +63,12 @@
     animation: overlayIn 0.15s ease;
   }
   @keyframes overlayIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   .modal-backdrop {
     position: absolute;
@@ -80,8 +91,14 @@
     animation: modalIn 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   }
   @keyframes modalIn {
-    from { opacity: 0; transform: translateY(8px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
   .modal-message {
     margin: 0 0 1.25rem;
