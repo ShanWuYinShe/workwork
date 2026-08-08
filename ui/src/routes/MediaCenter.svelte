@@ -1166,7 +1166,7 @@
   }
   .media-center-page :global(.card-subtitle),
   .media-center-page :global(.helper-text) {
-    color: #7f8ea3;
+    color: var(--c-text-muted);
   }
   .media-tab-bar {
     background: rgba(6, 10, 19, 0.86);
@@ -1195,7 +1195,7 @@
 
   .warning-card {
     border-color: var(--c-warning);
-    color: #fbbf24;
+    color: var(--c-text-warning);
   }
   .warning-card ul,
   .validation-card ul {
@@ -1205,7 +1205,7 @@
   }
   .validation-card {
     border-color: var(--c-danger);
-    color: #fca5a5;
+    color: var(--c-text-danger);
   }
 
   /* ── Config flow ── */
@@ -1234,7 +1234,7 @@
   .config-step code,
   .runtime-hint code {
     color: var(--c-accent);
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.72rem;
     overflow-wrap: anywhere;
   }
@@ -1273,7 +1273,7 @@
   .release-sha {
     color: var(--c-text-muted);
     display: block;
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.7rem;
     margin-top: 0.65rem;
     overflow-wrap: anywhere;
@@ -1338,7 +1338,7 @@
     border: 1px solid var(--c-border);
     border-radius: var(--radius);
     color: var(--c-accent);
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     padding: 0.5rem 0.65rem;
     overflow-x: auto;
@@ -1392,7 +1392,7 @@
     margin-top: 0.7rem;
   }
   .source-id-tag {
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.68rem;
     color: var(--c-text-muted);
   }
@@ -1536,7 +1536,7 @@
     white-space: nowrap;
   }
   .category-id-tag {
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.65rem;
     color: var(--c-text-muted);
     background: var(--c-bg-elevated);
@@ -1590,7 +1590,7 @@
     background: var(--c-bg-elevated);
     border: 1px solid var(--c-border-strong);
     border-radius: var(--radius);
-    box-shadow: 0 18px 35px rgba(0, 0, 0, 0.28);
+    box-shadow: var(--shadow-lg);
     display: grid;
     gap: 0.35rem;
     min-width: 128px;

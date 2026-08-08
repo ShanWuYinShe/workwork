@@ -258,7 +258,7 @@
     padding: 0.75rem;
     height: 500px;
     overflow-y: auto;
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
     font-size: 0.7rem;
     line-height: 1.6;
   }
@@ -268,15 +268,15 @@
     color: var(--c-text-secondary);
   }
   .log-line.log-error {
-    color: #fca5a5;
-    background: rgba(239, 68, 68, 0.06);
+    color: var(--c-text-danger);
+    background: var(--c-danger-bg);
   }
   .log-line.log-warn {
-    color: #fde68a;
-    background: rgba(245, 158, 11, 0.04);
+    color: var(--c-text-warning);
+    background: var(--c-warning-bg);
   }
   .log-line.log-info {
-    color: #93c5fd;
+    color: var(--c-text-info);
   }
   .log-empty {
     color: var(--c-text-muted);
@@ -297,7 +297,7 @@
     color: var(--c-text-muted);
   }
   .log-count {
-    font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: var(--font-mono);
   }
 
   @media (max-width: 768px) {

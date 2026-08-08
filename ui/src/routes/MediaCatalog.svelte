@@ -515,7 +515,7 @@
   .cat-id {
     color: var(--c-text-muted);
     font-size: 0.72rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     word-break: break-all;
   }
   .actions-col {
@@ -672,7 +672,7 @@
     border-radius: var(--radius-sm);
     background: var(--c-bg);
     color: var(--c-text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     resize: vertical;
   }

@@ -47,12 +47,17 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(2, 6, 15, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(4px);
+    animation: overlayIn 0.15s ease;
+  }
+  @keyframes overlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
   .modal-backdrop {
     position: absolute;
@@ -65,13 +70,18 @@
   .modal {
     position: relative;
     z-index: 1;
-    background: var(--c-bg-elevated);
+    background: linear-gradient(180deg, var(--c-bg-elevated), var(--c-bg));
     border: 1px solid var(--c-border-strong);
-    border-radius: var(--radius, 8px);
+    border-radius: var(--radius-lg, 12px);
     padding: 1.5rem;
     max-width: 420px;
     width: 90%;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-lg);
+    animation: modalIn 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
   .modal-message {
     margin: 0 0 1.25rem;
