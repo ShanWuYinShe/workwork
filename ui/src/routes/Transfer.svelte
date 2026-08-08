@@ -20,6 +20,7 @@
   let maxDownloads = $state(0);
   let dragOver = $state(false);
   let lastUploadedLink = $state('');
+  let uploadXhr = $state(null);
 
   onMount(async () => {
     try {
@@ -72,6 +73,11 @@
 
       const result = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
+        uploadXhr = xhr;
+        // 上传没有默认超时会永久卡在"上传中"；给一个宽松的整体超时（2 小时），
+        // 并允许用户手动取消（xhr.abort() 会走 onerror 分支）。
+        xhr.timeout = 2 * 60 * 60 * 1000;
+        xhr.ontimeout = () => reject(new Error(t('uploadTimeout')));
         xhr.open('POST', transferUploadUrl);
         // Include credentials for basic auth
         xhr.withCredentials = true;
@@ -117,7 +123,12 @@
     } finally {
       uploading = false;
       uploadProgress = null;
+      uploadXhr = null;
     }
+  }
+
+  function cancelUpload() {
+    uploadXhr?.abort();
   }
 
   async function doDelete(code) {
@@ -280,6 +291,9 @@
           {t('upload')}
         {/if}
       </button>
+      {#if uploading}
+        <button class="btn btn-ghost btn-sm" onclick={cancelUpload}>{t('cancelUpload')}</button>
+      {/if}
     </div>
     {#if uploading && uploadProgress}
       <div class="upload-progress">
