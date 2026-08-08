@@ -106,7 +106,7 @@
     {#if userInfo}
       <div class="user-card">
         <div class="user-avatar" class:admin-avatar={userInfo.role === 'admin'}>
-          {userInfo.username[0].toUpperCase()}
+          {(userInfo.username || '?')[0].toUpperCase()}
         </div>
         {#if !sidebarCollapsed}
           <div class="user-info">
