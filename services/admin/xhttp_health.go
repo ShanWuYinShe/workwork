@@ -68,7 +68,9 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	logs, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
 		ShowStdout: true,
 		Since:      checkWindow,
-		Tail:       "200",
+		// packet-up 模式每包一个 POST，2 分钟窗口内可能远超 200 行；
+		// tail 太小会只看到窗口尾部，早期故障被漏检。
+		Tail: "2000",
 	})
 	if err != nil {
 		return 0, 0

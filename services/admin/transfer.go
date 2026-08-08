@@ -118,6 +118,26 @@ func transferFilePath(code, filename string) string {
 	return filepath.Join(transferDir, code+ext)
 }
 
+// cleanupOrphanTransferTempFiles 清理进程崩溃遗留的 multipart 上传临时文件
+// （.upload-*.tmp）。正常路径会在请求结束时 RemoveAll，只有异常退出会残留。
+func cleanupOrphanTransferTempFiles() {
+	entries, err := os.ReadDir(transferDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("WARNING: read transfer dir for orphan cleanup: %v", err)
+		}
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), ".upload-") || !strings.HasSuffix(e.Name(), ".tmp") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(transferDir, e.Name())); err != nil {
+			log.Printf("WARNING: remove orphan upload temp %s: %v", e.Name(), err)
+		}
+	}
+}
+
 // cleanupExpiredTransferFiles 删除过期或达下载上限的文件，返回释放的字节数
 func cleanupExpiredTransferFiles() {
 	transferMu.Lock()

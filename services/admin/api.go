@@ -1211,7 +1211,9 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 				} else {
 					info.Record = rec
 					if rec != nil {
-						info.Synced = rec.Content == expectedIP
+						// 两端都归一化后再比较：CF 返回的 IPv6 压缩形式可能与
+						// 预期值不同，直接字符串比较会误报 mismatch。
+						info.Synced = normalizeIPv6(rec.Content) == normalizeIPv6(expectedIP)
 					}
 				}
 				dnsResults = append(dnsResults, info)
