@@ -151,6 +151,11 @@ services:
       - ALL
     ports:
       - "0.0.0.0:443:443"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       xray:
         condition: service_healthy
