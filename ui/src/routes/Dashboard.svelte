@@ -195,7 +195,7 @@
   {:else}
     <!-- Viewer: personal dashboard -->
     <div class="welcome-card">
-      <div class="welcome-avatar">{username[0].toUpperCase()}</div>
+      <div class="welcome-avatar">{(username || '?')[0].toUpperCase()}</div>
       <div>
         <div class="welcome-title">{t('welcomeTitle', { username })}</div>
         <div class="welcome-sub">{t('welcomeSubTitle')}</div>
@@ -302,17 +302,18 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: var(--c-bg-elevated);
+    background: linear-gradient(135deg, var(--c-bg-elevated), rgba(59, 130, 246, 0.05)), var(--c-bg-elevated);
     border: 1px solid var(--c-border);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-sm);
   }
   .welcome-avatar {
     width: 48px;
     height: 48px;
     border-radius: var(--radius-lg);
-    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    background: var(--gradient-brand);
     color: #fff;
     display: flex;
     align-items: center;
@@ -320,6 +321,7 @@
     font-size: 1.25rem;
     font-weight: 700;
     flex-shrink: 0;
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
   }
   .welcome-title {
     font-size: 1.1rem;
@@ -345,15 +347,18 @@
     border-radius: var(--radius);
     background: var(--c-bg-surface);
     text-decoration: none;
+    box-shadow: var(--shadow-sm);
     transition:
       border-color var(--transition),
       transform var(--transition),
-      background var(--transition);
+      background var(--transition),
+      box-shadow var(--transition);
   }
   .quick-action:hover {
     border-color: var(--c-border-strong);
     background: var(--c-bg-hover);
     transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
   }
   .quick-action.primary {
     border-color: var(--c-accent-border);
