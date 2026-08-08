@@ -62,6 +62,9 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			writeError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
 			return
 		}
+		// 超过内存阈值的 multipart 部分会落盘为临时文件，请求结束必须显式清理，
+		// 否则每个 APK 上传都会在容器临时目录留下最多数百 MB 的残留文件。
+		defer r.MultipartForm.RemoveAll()
 
 		variant := strings.TrimSpace(r.FormValue("variant"))
 		apkPath := mediaCenterAppUpdateAPKPath(variant)

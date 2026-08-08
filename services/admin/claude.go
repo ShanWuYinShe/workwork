@@ -604,13 +604,26 @@ func cleanupOldDownloads(maxKeep int) {
 	if len(m.Downloads) <= maxKeep {
 		return
 	}
-	for _, d := range m.Downloads[maxKeep:] {
+	// 保留最近 maxKeep 条（列表按下载时间追加，末尾最新），淘汰最早的多余条目。
+	// 此前反向清理会把刚下载完的文件立即删掉，导致“下载成功但文件不存在”。
+	drop := len(m.Downloads) - maxKeep
+	kept := keepNewestDownloads(m.Downloads, maxKeep)
+	for _, d := range m.Downloads[:drop] {
 		os.Remove(filepath.Join(claudeDownloadsDir, d.Filename))
 	}
-	m.Downloads = m.Downloads[:maxKeep]
+	m.Downloads = kept
 	if err := saveDownloadsManifestLocked(m); err != nil {
 		log.Printf("ERROR: save claude manifest (cleanup): %v", err)
 	}
+}
+
+// keepNewestDownloads 返回最近 maxKeep 条下载记录（含拷贝，避免与入参共享底层数组）。
+func keepNewestDownloads(entries []claudeStoredDownload, maxKeep int) []claudeStoredDownload {
+	if len(entries) <= maxKeep {
+		return append([]claudeStoredDownload{}, entries...)
+	}
+	drop := len(entries) - maxKeep
+	return append([]claudeStoredDownload{}, entries[drop:]...)
 }
 
 func compareVersions(a, b string) int {

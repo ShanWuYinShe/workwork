@@ -573,7 +573,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
-		if err := restartXray(r.Context(), cli); err != nil {
+		// 重启不随客户端断开而取消：与 apiServiceAction 一致，避免 add 请求断连后
+		// 只完成配置落盘、Xray 停在未加载状态。
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		if err := restartXray(restartCtx, cli); err != nil {
+			cancel()
 			// 配置已落盘但 xray 未加载:必须明确报错,否则用户看到"成功"而代理
 			// 实际不可用;配置保留在磁盘,用户重试会撞 409 无法自愈,因此文案
 			// 明确说明"已保存但未生效"。
@@ -581,6 +585,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			writeError(w, "客户端已保存，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
 			return
 		}
+		cancel()
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -636,11 +641,15 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
-		if err := restartXray(r.Context(), cli); err != nil {
+		// 重启不随客户端断开而取消（与 apiAddXray 一致）。
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		if err := restartXray(restartCtx, cli); err != nil {
+			cancel()
 			log.Printf("ERROR: failed to restart xray after delete: %v", err)
 			writeError(w, "客户端已删除，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
 			return
 		}
+		cancel()
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
