@@ -1,8 +1,9 @@
-ARG NGINX_VERSION=1.30.1
+ARG NGINX_VERSION=1.30.4
 
 FROM nginx:${NGINX_VERSION}-alpine
 
-RUN apk add --no-cache fail2ban supervisor curl logrotate
+RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
+    && apk add --no-cache fail2ban supervisor curl logrotate
 
 # Cloudflare Authenticated Origin Pulls — shared public CA certificate
 # curl -fsSL 已保证 HTTPS 传输,这里再校验 PEM 结构,防止任何错误页被误存为证书

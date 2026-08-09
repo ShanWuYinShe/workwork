@@ -1,6 +1,6 @@
 ARG BUN_VERSION=1.3.14
-ARG GO_VERSION=1.26.2
-ARG ALPINE_VERSION=3.22.4
+ARG GO_VERSION=1.26.5
+ARG ALPINE_VERSION=3.24.1
 
 FROM oven/bun:${BUN_VERSION}-alpine AS ui-builder
 
@@ -12,9 +12,13 @@ RUN bun run build
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
 
-RUN apk add --no-cache git
+RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
+    && apk add --no-cache git
 
 WORKDIR /build
+
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY:-https://goproxy.cn,direct}
 
 COPY services/admin/go.mod services/admin/go.sum ./
 RUN go mod download
@@ -28,7 +32,8 @@ FROM alpine:${ALPINE_VERSION}
 # 镜像内建非 root 用户后,脱离 docker-compose 直接跑也不会以 root 持有
 # docker.sock;compose 的 user: "1001:1001" 作为显式覆盖保持行为一致。
 ARG RUN_UID=1001
-RUN apk add --no-cache ca-certificates bash \
+RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
+    && apk add --no-cache ca-certificates bash \
     && adduser -D -u ${RUN_UID} appuser \
     && mkdir -p /app/configs /app/data \
     && chown -R appuser:appuser /app

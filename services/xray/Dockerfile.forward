@@ -5,7 +5,8 @@
 # 全部端口映射失效(与网络连接顺序无关)。xray 的 IPv6 必须走 ipvlan L3
 # 直连(公网地址),因此 IPv4 入站只能由这个纯 bridge 转发容器发布。
 # xray 本身不再声明 ports。
-FROM alpine:${ALPINE_VERSION:-3.22.4}
-RUN apk add --no-cache socat
+FROM alpine:${ALPINE_VERSION:-3.24.1}
+RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
+    && apk add --no-cache socat
 EXPOSE 443
 CMD ["socat", "TCP-LISTEN:443,fork,reuseaddr", "TCP:xray:443"]
