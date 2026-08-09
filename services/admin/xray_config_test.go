@@ -132,6 +132,12 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if !ok || len(shortIDs) != 2 {
 		t.Fatalf("unexpected reality shortIds: %#v", realitySettings["shortIds"])
 	}
+	xhttpIn := outboundByTag(t, doc["inbounds"].([]any), "xhttp-in")
+	xhttpSockopt := nestedMap(t, nestedMap(t, xhttpIn, "streamSettings"), "sockopt")
+	trustedXFF, ok := xhttpSockopt["trustedXForwardedFor"].([]any)
+	if !ok || !containsAny(trustedXFF, "X-Real-IP") {
+		t.Fatalf("expected xhttp-in trustedXForwardedFor to include X-Real-IP, got %#v", xhttpSockopt["trustedXForwardedFor"])
+	}
 }
 
 func TestXrayShortIDsJSON(t *testing.T) {

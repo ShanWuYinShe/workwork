@@ -58,6 +58,8 @@ services:
     depends_on:
       admin:
         condition: service_healthy
+      xray:
+        condition: service_healthy
     healthcheck:
       # 只探测真实存活信号(serving /nginx-health 返回 204)。不再跑 nginx -t:
       # 其会以 root 打开 error_log 文件做校验,而日志文件归 uid 101(worker),

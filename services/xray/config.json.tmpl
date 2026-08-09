@@ -27,6 +27,9 @@
         "xhttpSettings": {
           "path": "/proxy/query",
           "mode": "packet-up"
+        },
+        "sockopt": {
+          "trustedXForwardedFor": ["X-Real-IP"]
         }
       },
       "sniffing": {
