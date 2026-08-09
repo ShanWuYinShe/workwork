@@ -49,3 +49,4 @@ ui/dist/
 # AI worktrees
 .worktrees/
 .claude/
+.zcode/
