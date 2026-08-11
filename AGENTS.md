@@ -58,14 +58,24 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #   tag 即“自动更新版本”：git tag vX.Y.Z（tag 打在子模块仓库，非外层 workwork）。
 #   发版流程：commit / tag 在对应 Worktree 内完成；合并进主分支后，push（含 tag）一律在主工作树执行，
 #   见全局 Git 准则。无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
-# - services/media_center/media_app/**（Android APK，默认 normal 变体）:
+# - services/media_center/media_app/**（Android APK，normal + legacy 两变体）:
+#     # --no-daemon 必加：Gradle/Kotlin Daemon 构建后 idle 保留数小时不退出（各 -Xmx2g），
+#     # AI agent 多次构建会累积多个 java 进程撑爆内存。--no-daemon 让构建完 java 进程立即退出。
+#     # release（非 debug）：已配 debug 签名 + R8 minify，体积减半且可直接安装。
 #     # JAVA_HOME 见全局「本机环境」（以 ls 验证，变动时用 mdfind 定位）
+#     # normal 变体:
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-#       services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleDebug && \
-#     scp services/media_center/media_app/app/build/outputs/apk/debug/app-debug.apk \
-#       workwork-server:service/.wework/generated/media_center/media-center-app.apk
-#   也可在管理面板“Android TV App 更新发布”页面选变体后上传（admin 自动写 manifest + APK，
-#   支持 variant）；legacy 变体同理，路径为 media-center-app-legacy.apk / app-update-legacy.json。
+#       services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleRelease --no-daemon && \
+#     scp services/media_center/media_app/app/build/outputs/apk/release/app-release.apk \
+#       workwork-server:service/.wework/generated/media_center/media-center-app-v<vc>-<sha12>.apk
+#     # legacy 变体（Android 4.4.2 / API 19）:
+#     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+#       services/media_center/media_app_legacy/gradlew -p services/media_center/media_app_legacy :app:assembleRelease --no-daemon && \
+#     scp services/media_center/media_app_legacy/app/build/outputs/apk/release/app-release.apk \
+#       workwork-server:service/.wework/generated/media_center/media-center-app-legacy-v<vc>-<sha12>.apk
+#     # 上传后手写 app-update.json / app-update-legacy.json（含 versionCode/versionName/
+#     # apkFilename/sizeBytes/sha256/releaseNotes），或在管理面板“Android TV App 更新发布”
+#     # 页面选变体后上传（admin 自动写 manifest + APK）。
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
 # - services/admin/** 或 ui/**:
