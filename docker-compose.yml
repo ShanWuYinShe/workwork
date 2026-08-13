@@ -282,43 +282,6 @@ services:
       retries: 3
       start_period: 10s
 
-  web-search-mcp:
-    build:
-      context: ./services/web-search-mcp
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    volumes:
-      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-    init: true
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    cap_drop:
-      - ALL
-    networks:
-      - internal_docker
-    environment:
-      - TZ=Asia/Shanghai
-      - PORT=8320
-      # MCP 客户端需在 Authorization header 携带此 token。
-      # 留空则跳过认证（仅推荐内部网络使用）。
-      - AUTH_TOKEN=${WEB_SEARCH_AUTH_TOKEN:-}
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8320/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
 networks:
   ipvlan_docker:
     external: true
