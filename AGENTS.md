@@ -94,11 +94,11 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 
 ### services/admin/ — Go 管理面板（端口 8318，内部）
 
-HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（node → golang → alpine），通过 `docker.sock` 操作其他容器。
+HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过 `docker.sock` 操作其他容器。
 
 ### ui/ — Svelte 5 SPA
 
-Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile: node → golang → alpine）。
+Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile: oven/bun → golang → alpine）。
 
 ### services/xray/ — Xray VLESS 代理
 
@@ -150,15 +150,19 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 | 页面 | API 端点 | 角色 |
 |------|---------|------|
 | Dashboard | `GET /api/admin/dashboard` | viewer+（admin 看统计，viewer 看个人数据） |
-| Services | `GET/POST /api/admin/services/*` | admin |
+| Services（含 Logs） | `GET/POST /api/admin/services/*` | admin |
 | Clients | `GET/POST /api/admin/users/xray/*` | viewer+（仅自己的客户端） |
-| Users | `POST /api/admin/users/admin/*`, `/roles/set` | admin |
+| Users 管理 | `POST /api/admin/users/admin/*`, `/roles/set` | admin |
+| 账户 | `GET /api/admin/auth/me`, `GET /api/admin/users`, `POST /api/admin/users/password` | viewer+ |
 | Security | `GET/POST /api/admin/security/*` | admin |
 | Settings | `GET/POST /api/admin/network/*` | admin |
+| Media Center | `GET/PUT /api/admin/media-center/config`, `/credentials`; `GET/POST /api/admin/media-center/catalog/*`, `/app-release` | admin |
 | Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
 | Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
 | Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |
 | Xray 管理 | `GET/POST/DELETE /api/admin/xray/*` | admin |
+| Transfer | `POST/GET/DELETE /api/admin/transfer/*` | viewer+ |
+| Transfer 公开下载 | `GET /api/transfer/{code}` | 无需认证 |
 
 *Downloads 页面对所有用户可见，但 admin-only 的操作（download/delete）只对 admin 展示。
 
