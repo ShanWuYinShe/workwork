@@ -93,12 +93,14 @@ docker compose ps
 |------|------|------|
 | Dashboard | viewer+ | 系统状态（admin）/ 个人信息（viewer） |
 | Services | admin | Docker 容器管理（启停重启） |
+| Logs | admin | 服务日志查看（实时流） |
 | Clients | viewer+ | Xray 代理账号管理、客户端配置下载 |
 | Users | admin | 用户增删改、角色分配 |
 | Security | admin | IP 黑名单、限速状态管理 |
 | Settings | admin | 网络状态、IPv6 轮换、DNS 同步 |
 | Media Center | admin | 媒体服务 upstream、nginx 公开前缀、分类搜索词和过滤词配置 |
 | Downloads | viewer+ | Claude Code / Xray 二进制下载 |
+| Transfer | viewer+ | 临时文件传输（上传需登录，分享链接公开可下载） |
 
 ### Downloads 页面
 
