@@ -2,11 +2,15 @@
   import { onMount } from 'svelte';
   import {
     getMediaAppRelease,
+    getMediaAppReleaseHistory,
     getMediaCenterConfig,
     saveMediaCenterConfig,
     getMediaCenterCredentials,
     saveMediaCenterCredentials,
     uploadMediaAppRelease,
+    rollbackMediaAppRelease,
+    deleteMediaAppReleaseVersion,
+    triggerMediaAppReleaseDownload,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -52,6 +56,9 @@
   let appReleaseUploading = $state(false);
   let appReleaseForm = $state({ versionCode: '', versionName: '', releaseNotes: '' });
   let appReleaseFile = $state(null);
+  // 版本管理：历史列表 + 单行操作（回滚/删除/下载）的忙碌态。
+  let appReleaseHistory = $state([]);
+  let historyBusyCode = $state(null);
   // 变体:空字符串 = 默认 (normal, Compose 版);"legacy" = API19 View 版。与服务端
   // sanitizeVariant 约定一致(^[a-zA-Z0-9_-]+$,空/"normal" 均映射默认发布)。
   let appReleaseVariant = $state('');
@@ -118,6 +125,7 @@
           releaseNotes: '',
         };
       }
+      await loadAppReleaseHistory();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -125,25 +133,103 @@
     }
   }
 
+  async function loadAppReleaseHistory() {
+    try {
+      const data = await getMediaAppReleaseHistory(appReleaseVariant);
+      appReleaseHistory = data?.versions || [];
+    } catch {
+      // 历史加载失败不阻塞发布页主流程；表格区域显示为空态。
+      appReleaseHistory = [];
+    }
+  }
+
+  function downloadAppRelease(rec) {
+    triggerMediaAppReleaseDownload(appReleaseVariant, rec?.versionCode);
+  }
+
+  async function rollbackAppRelease(rec) {
+    // 入口互斥：一行操作进行中时其余行的回滚/删除全部拒绝，
+    // 防止并发请求互相覆盖 historyBusyCode、提前清掉对方 spinner
+    if (historyBusyCode !== null) return;
+    const label = rec.versionName || String(rec.versionCode);
+    if (
+      !(await showConfirm(
+        t('appReleaseRollbackConfirm', { version: label, code: rec.versionCode }),
+        { danger: true },
+      ))
+    )
+      return;
+    // 确认弹窗打开期间其他行可能已抢先开始操作：落 busy 前再查一次
+    if (historyBusyCode !== null) return;
+    historyBusyCode = rec.versionCode;
+    try {
+      await rollbackMediaAppRelease(appReleaseVariant, rec.versionCode);
+      toast(t('appReleaseRolledBackToast', { version: label }), 'success');
+      await loadAppRelease();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      historyBusyCode = null;
+    }
+  }
+
+  async function deleteAppReleaseVersion(rec) {
+    if (historyBusyCode !== null) return;
+    const label = rec.versionName || String(rec.versionCode);
+    if (
+      !(await showConfirm(
+        t('appReleaseDeleteConfirm', { version: label, code: rec.versionCode }),
+        { danger: true },
+      ))
+    )
+      return;
+    if (historyBusyCode !== null) return;
+    historyBusyCode = rec.versionCode;
+    try {
+      await deleteMediaAppReleaseVersion(appReleaseVariant, rec.versionCode);
+      toast(t('appReleaseDeletedToast'), 'success');
+      await loadAppReleaseHistory();
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      historyBusyCode = null;
+    }
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString();
+  }
+
   function onVariantChange(e) {
     appReleaseVariant = e.currentTarget.value.trim();
+    publishAttempted = false;
     loadAppRelease();
   }
 
+  // 发布表单校验：首次点发布后开启，错误就近显示在字段下(不再用 toast)。
+  let publishAttempted = $state(false);
+  let publishErrors = $derived(
+    publishAttempted
+      ? {
+          apk: appReleaseFile ? '' : t('appReleaseSelectApk'),
+          versionCode:
+            Number.isInteger(Number(appReleaseForm.versionCode)) &&
+            Number(appReleaseForm.versionCode) > 0
+              ? ''
+              : t('appReleaseVersionCodeInvalid'),
+          versionName: appReleaseForm.versionName.trim()
+            ? ''
+            : t('appReleaseVersionNameRequired'),
+        }
+      : { apk: '', versionCode: '', versionName: '' },
+  );
   async function publishAppRelease() {
-    if (!appReleaseFile) {
-      toast(t('appReleaseSelectApk'), 'error');
-      return;
-    }
+    publishAttempted = true;
+    if (publishErrors.apk || publishErrors.versionCode || publishErrors.versionName) return;
     const versionCode = Number(appReleaseForm.versionCode);
-    if (!Number.isInteger(versionCode) || versionCode <= 0) {
-      toast(t('appReleaseVersionCodeInvalid'), 'error');
-      return;
-    }
-    if (!appReleaseForm.versionName.trim()) {
-      toast(t('appReleaseVersionNameRequired'), 'error');
-      return;
-    }
     const form = new FormData();
     form.set('versionCode', String(versionCode));
     form.set('versionName', appReleaseForm.versionName.trim());
@@ -153,6 +239,9 @@
     try {
       appRelease = await uploadMediaAppRelease(form, appReleaseVariant);
       appReleaseFile = null;
+      // 成功后表单会被 loadAppRelease 重置，同步关掉校验态，
+      // 否则新空表单下立即渲染出"选择 APK/版本名必填"的幽灵错误
+      publishAttempted = false;
       toast(t('appReleasePublishedToast'), 'success');
       await loadAppRelease();
     } catch (e) {
@@ -390,6 +479,7 @@
     if (
       !(await showConfirm(
         t('confirmDeleteCategory', { title: category?.title || category?.id || '' }),
+        { danger: true },
       ))
     )
       return;
@@ -410,7 +500,7 @@
   }
 
   async function resetCategories() {
-    if (!(await showConfirm(t('confirmResetCategories')))) return;
+    if (!(await showConfirm(t('confirmResetCategories'), { danger: true }))) return;
     config = {
       ...config,
       categories: withUids({ categories: clone(defaultCategories) }).categories,
@@ -419,7 +509,7 @@
   }
 
   async function resetSources() {
-    if (!(await showConfirm(t('confirmResetSources')))) return;
+    if (!(await showConfirm(t('confirmResetSources'), { danger: true }))) return;
     config = { ...config, sources: clone(defaultSources) };
   }
 
@@ -756,7 +846,14 @@
               <strong>{manifest.versionName}</strong>
               <span>versionCode {manifest.versionCode}</span>
               <span>{formatBytes(manifest.sizeBytes)}</span>
-              {#if manifest.publishedAt}<span>{manifest.publishedAt}</span>{/if}
+              {#if manifest.publishedAt}<span>{formatDateTime(manifest.publishedAt)}</span>{/if}
+              <button
+                class="btn btn-sm btn-ghost release-download-btn"
+                onclick={() => downloadAppRelease(manifest)}
+                title={t('appReleaseDownloadCurrent')}
+              >
+                {t('appReleaseDownloadCurrent')}
+              </button>
             </div>
             <code class="release-sha">{manifest.sha256}</code>
           {:else}
@@ -790,7 +887,14 @@
               oninput={(e) =>
                 (appReleaseForm = { ...appReleaseForm, versionCode: e.currentTarget.value })}
               placeholder="2"
+              aria-invalid={publishErrors.versionCode ? 'true' : undefined}
+              aria-describedby={publishErrors.versionCode ? 'app-version-code-error' : undefined}
             />
+            {#if publishErrors.versionCode}
+              <p class="field-error" id="app-version-code-error" role="alert">
+                {publishErrors.versionCode}
+              </p>
+            {/if}
           </div>
           <div class="form-group">
             <label for="app-version-name">{t('appReleaseVersionName')}</label>
@@ -800,7 +904,14 @@
               oninput={(e) =>
                 (appReleaseForm = { ...appReleaseForm, versionName: e.currentTarget.value })}
               placeholder="1.1.0"
+              aria-invalid={publishErrors.versionName ? 'true' : undefined}
+              aria-describedby={publishErrors.versionName ? 'app-version-name-error' : undefined}
             />
+            {#if publishErrors.versionName}
+              <p class="field-error" id="app-version-name-error" role="alert">
+                {publishErrors.versionName}
+              </p>
+            {/if}
           </div>
           <div class="form-group">
             <label for="app-apk-file">{t('appReleaseApkFile')}</label>
@@ -809,7 +920,14 @@
               type="file"
               accept=".apk,application/vnd.android.package-archive"
               onchange={(e) => (appReleaseFile = e.currentTarget.files?.[0] || null)}
+              aria-invalid={publishErrors.apk ? 'true' : undefined}
+              aria-describedby={publishErrors.apk ? 'app-apk-file-error' : undefined}
             />
+            {#if publishErrors.apk}
+              <p class="field-error" id="app-apk-file-error" role="alert">
+                {publishErrors.apk}
+              </p>
+            {/if}
           </div>
         </div>
         <div class="form-group app-release-notes">
@@ -832,6 +950,98 @@
             {appReleaseUploading ? t('appReleasePublishing') : t('appReleasePublish')}
           </button>
         </div>
+      </div>
+
+      <!-- 版本历史：每次发布自动记录；支持下载任意版本 / 回滚 / 删除历史版本 -->
+      <div class="card media-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">
+              {t('appReleaseHistoryTitle')}
+              <span class="card-title-count">
+                {t('appReleaseHistoryCount', { count: appReleaseHistory.length })}
+              </span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button
+              class="btn btn-sm btn-ghost"
+              onclick={loadAppReleaseHistory}
+              disabled={historyBusyCode !== null}
+            >
+              {t('refresh')}
+            </button>
+          </div>
+        </div>
+        {#if appReleaseHistory.length === 0}
+          <div class="helper-text">{t('appReleaseHistoryEmpty')}</div>
+        {:else}
+          <div class="table-wrap">
+            <table>
+              <thead
+                ><tr
+                  ><th>{t('appReleaseColVersion')}</th><th>{t('appReleaseColSize')}</th><th
+                    >{t('appReleaseColSha')}</th
+                  ><th>{t('appReleaseColDate')}</th><th>{t('appReleaseColActions')}</th></tr
+                ></thead
+              >
+              <tbody>
+                {#each appReleaseHistory as rec (rec.versionCode + '-' + rec.sha256)}
+                  <tr>
+                    <td class="cell-strong">
+                      <span>{rec.versionName || '—'}</span>
+                      <span class="td-mono muted-text badge-inline">v{rec.versionCode}</span>
+                      {#if rec.current}
+                        <span class="badge badge-green badge-inline"
+                          >{t('appReleaseCurrentBadge')}</span
+                        >
+                      {/if}
+                      {#if !rec.apkExists}
+                        <span class="badge badge-red badge-inline">{t('appReleaseApkMissing')}</span>
+                      {/if}
+                    </td>
+                    <td class="td-muted">{formatBytes(rec.sizeBytes)}</td>
+                    <td class="td-mono muted-text" title={rec.sha256}>
+                      {rec.sha256 ? rec.sha256.slice(0, 12) + '…' : '—'}
+                    </td>
+                    <td class="td-muted">{formatDateTime(rec.publishedAt)}</td>
+                    <td>
+                      {#if historyBusyCode === rec.versionCode}
+                        <span class="spinner"></span>
+                      {:else}
+                        <div class="history-actions">
+                          <button
+                            class="btn btn-sm btn-ghost"
+                            disabled={!rec.apkExists}
+                            onclick={() => downloadAppRelease(rec)}
+                          >
+                            {t('appReleaseDownload')}
+                          </button>
+                          <button
+                            class="btn btn-sm btn-ghost"
+                            disabled={!rec.apkExists || rec.current}
+                            title={rec.current ? t('appReleaseCurrentBadge') : t('appReleaseRollback')}
+                            onclick={() => rollbackAppRelease(rec)}
+                          >
+                            {t('appReleaseRollback')}
+                          </button>
+                          <button
+                            class="btn btn-sm btn-danger"
+                            disabled={rec.current}
+                            title={rec.current ? t('appReleaseCurrentBadge') : t('appReleaseDelete')}
+                            onclick={() => deleteAppReleaseVersion(rec)}
+                          >
+                            {t('appReleaseDelete')}
+                          </button>
+                        </div>
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
       </div>
     {:else if activeTab === 'rules'}
       <!-- Sources — known sources, only the on/off switch is editable -->
@@ -1108,6 +1318,7 @@
                           f.key = e.target.value;
                         }}
                         placeholder={t('mediaCredFieldName')}
+                        aria-label={t('mediaCredFieldName')}
                       />
                       <input
                         class="input"
@@ -1117,6 +1328,7 @@
                           f.value = e.target.value;
                         }}
                         placeholder={t('mediaCredFieldValue')}
+                        aria-label={t('mediaCredFieldValue')}
                       />
                       <button
                         class="btn btn-sm btn-ghost"
@@ -1152,6 +1364,7 @@
                     }
                   }}
                   placeholder={t('mediaCredProviderId')}
+                  aria-label={t('mediaCredProviderId')}
                 />
                 <button class="btn btn-sm btn-success" onclick={addProvider}>{t('add')}</button>
                 <button
@@ -1172,13 +1385,14 @@
               >
             {/if}
           </div>
-          {#if credentialsSaving}
-            <div class="card-section"><div class="loading-skeleton" style="height:36px"></div></div>
-          {:else}
-            <div class="card-section page-actions credentials-footer">
-              <button class="btn btn-primary" onclick={saveCredentials}>{t('save')}</button>
-            </div>
-          {/if}
+          <!-- mount-not-swap：保存中按钮保持原位仅禁用+转圈，
+               原骨架屏替换会导致焦点丢失、且看起来像在加载内容 -->
+          <div class="card-section page-actions credentials-footer">
+            <button class="btn btn-primary" onclick={saveCredentials} disabled={credentialsSaving}>
+              {#if credentialsSaving}<span class="spinner spinner-xs"></span>{/if}
+              {credentialsSaving ? t('saving') : t('save')}
+            </button>
+          </div>
         {/if}
       </div>
     {:else if activeTab === 'catalog'}
@@ -1190,8 +1404,7 @@
 
 <style>
   .media-center-page {
-    --c-text-secondary: #94a3b8;
-    --c-text-muted: #64748b;
+    /* 文字色统一走全局 token（原局部覆盖 #64748b 对比度仅 3.6:1，已删） */
     max-width: 100%;
   }
   .media-center-page :global(.card-subtitle),
@@ -1304,6 +1517,15 @@
   .release-current strong {
     color: var(--c-text);
     font-size: 0.95rem;
+  }
+  .release-download-btn {
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .history-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
   }
   .release-sha {
     color: var(--c-text-muted);
