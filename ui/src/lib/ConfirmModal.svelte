@@ -32,19 +32,30 @@
 
 {#if confirmState.show}
   <div class="modal-overlay">
-    <button
+    <!-- 背景点击关闭用非焦点元素：Esc 已有取消路径，可聚焦的全屏按钮会干扰 Tab 序 -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div
       class="modal-backdrop"
-      type="button"
-      aria-label={t('cancel')}
+      aria-hidden="true"
       onclick={() => confirmResponse(false)}
-    ></button>
-    <div class="modal" bind:this={dialog} role="dialog" aria-modal="true" tabindex="-1">
-      <p class="modal-message">{confirmState.message}</p>
+    ></div>
+    <div
+      class="modal"
+      bind:this={dialog}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-modal-message"
+      tabindex="-1"
+    >
+      <p class="modal-message" id="confirm-modal-message">{confirmState.message}</p>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick={() => confirmResponse(false)}
           >{t('cancel')}</button
         >
-        <button class="btn btn-primary" onclick={() => confirmResponse(true)}>{t('ok')}</button>
+        <button
+          class="btn {confirmState.danger ? 'btn-danger' : 'btn-primary'}"
+          onclick={() => confirmResponse(true)}>{t('ok')}</button
+        >
       </div>
     </div>
   </div>
@@ -73,8 +84,6 @@
   .modal-backdrop {
     position: absolute;
     inset: 0;
-    border: 0;
-    padding: 0;
     background: transparent;
     cursor: default;
   }
@@ -110,5 +119,12 @@
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .modal-overlay,
+    .modal {
+      animation: none;
+    }
   }
 </style>

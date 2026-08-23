@@ -10,6 +10,15 @@
   let newIP = $state(''),
     newReason = $state(''),
     newDuration = $state('86400');
+  let blocking = $state(false);
+  let ipError = $state('');
+
+  // IPv4/IPv6 粗校验：提交前给出字段旁错误，而不是静默不响应或等后端报错
+  function validateIP(value) {
+    if (!value.trim()) return t('errIpRequired');
+    if (!/^[0-9a-fA-F:.]+$/.test(value.trim())) return t('errIpFormat');
+    return '';
+  }
 
   onMount(refresh);
 
@@ -26,15 +35,19 @@
   }
 
   async function doBlock() {
-    if (!newIP) return;
+    ipError = validateIP(newIP);
+    if (ipError || blocking) return;
+    blocking = true;
     try {
-      await blockIP(newIP, newReason, parseInt(newDuration, 10));
+      await blockIP(newIP.trim(), newReason, parseInt(newDuration, 10));
       toast(t('ipBlocked', { ip: newIP }), 'success');
       newIP = '';
       newReason = '';
       await refresh();
     } catch (e) {
       toast(e.message, 'error');
+    } finally {
+      blocking = false;
     }
   }
 
@@ -69,7 +82,12 @@
           bind:value={newIP}
           placeholder="1.2.3.4"
           class="input-w-sm"
+          aria-invalid={ipError ? 'true' : undefined}
+          aria-describedby={ipError ? 'block-ip-error' : undefined}
         />
+        {#if ipError}
+          <p class="field-error" id="block-ip-error" role="alert">{ipError}</p>
+        {/if}
       </div>
       <div class="form-group form-group-grow">
         <label for="block-reason">{t('reason')}</label>
@@ -89,7 +107,9 @@
           <option value="0">{t('forever')}</option>
         </select>
       </div>
-      <button class="btn btn-danger" onclick={doBlock}>{t('blockIP')}</button>
+      <button class="btn btn-danger" onclick={doBlock} disabled={blocking}>
+        {blocking ? t('blocking') : t('blockIP')}
+      </button>
     </div>
   </div>
 

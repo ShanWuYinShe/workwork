@@ -18,8 +18,9 @@
   };
 </script>
 
-{#if toasts.length}
-  <div class="toast-container">
+<!-- live region 常驻挂载：包在 {#if} 里会让容器与首条内容同帧出现，读屏器可能漏报零→一变化 -->
+<div class="toast-container" role="status" aria-live="polite">
+  {#if toasts.length}
     {#each toasts as t (t.id)}
       <button
         class="toast toast-{t.type}"
@@ -43,8 +44,8 @@
         <span class="toast-close" aria-hidden="true">&times;</span>
       </button>
     {/each}
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
   .toast-container {
@@ -134,6 +135,15 @@
       opacity: 0;
       transform: translateX(20px);
       pointer-events: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* 覆盖内联 style 的入场/离场动画。注意 animation:none 会同时抑制
+       animationend，离场淡出不会触发——自动消失依赖 toast.svelte.js 的
+       setTimeout 兜底，这里只是让动效对 reduced-motion 用户立即完成。 */
+    .toast {
+      animation: none !important;
     }
   }
 </style>

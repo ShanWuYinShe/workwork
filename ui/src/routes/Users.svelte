@@ -19,6 +19,8 @@
   let newUser = $state(''),
     newPass = $state(''),
     newRole = $state('viewer');
+  let addingUser = $state(false);
+  let changingPw = $state(false);
   let pwUser = $state(''),
     oldPass = $state(''),
     pwPass = $state('');
@@ -42,7 +44,8 @@
   });
 
   async function addUser() {
-    if (!newUser || !newPass) return;
+    if (!newUser || !newPass || addingUser) return;
+    addingUser = true;
     try {
       await addAdminUser(newUser, newPass, newRole);
       toast(t('userAdded', { user: newUser }), 'success');
@@ -53,11 +56,13 @@
       adminUsers = d.adminUsers || [];
     } catch (e) {
       toast(e.message, 'error');
+    } finally {
+      addingUser = false;
     }
   }
 
   async function deleteUser(username) {
-    if (!(await showConfirm(t('confirmDeleteUser', { username })))) return;
+    if (!(await showConfirm(t('confirmDeleteUser', { username }), { danger: true }))) return;
     try {
       await deleteAdminUser(username);
       toast(t('userDeleted', { user: username }), 'success');
@@ -69,7 +74,8 @@
   }
 
   async function changePw() {
-    if (!pwUser || !pwPass) return;
+    if (!pwUser || !pwPass || changingPw) return;
+    changingPw = true;
     try {
       await changePassword(pwUser, oldPass, pwPass);
       toast(t('passwordChanged', { user: pwUser }), 'success');
@@ -77,6 +83,8 @@
       pwPass = '';
     } catch (e) {
       toast(e.message, 'error');
+    } finally {
+      changingPw = false;
     }
   }
 
@@ -85,7 +93,7 @@
     if (!(await showConfirm(t('confirmRoleChange', { username, role: roleLabel })))) return;
     try {
       await setUserRole(username, role);
-      toast(t('roleSetTo', { user: username, role }), 'success');
+      toast(t('roleSetTo', { user: username, role: roleLabel }), 'success');
       const d = await getUsers();
       adminUsers = d.adminUsers || [];
     } catch (e) {
@@ -138,7 +146,7 @@
                   </div>
                 </td>
                 <td>
-                  <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role}</span>
+                  <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role === 'admin' ? t('Admin') : t('Viewer')}</span>
                 </td>
                 <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
                 <td>
@@ -208,7 +216,9 @@
           <option value="admin">{t('Admin')}</option>
         </select>
       </div>
-      <button class="btn btn-success" onclick={addUser}>{t('add')}</button>
+      <button class="btn btn-success" onclick={addUser} disabled={addingUser}
+    >{addingUser ? t('saving') : t('add')}</button
+  >
     </div>
   </div>
 
@@ -259,7 +269,9 @@
           </button>
         </div>
       </div>
-      <button class="btn btn-primary" onclick={changePw}>{t('change')}</button>
+      <button class="btn btn-primary" onclick={changePw} disabled={changingPw}
+    >{changingPw ? t('saving') : t('change')}</button
+  >
     </div>
   </div>
 </div>
