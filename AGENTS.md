@@ -41,6 +41,11 @@ go build -C services/media_center/media_server -o /dev/null .
 go vet -C services/media_center/media_server ./...
 go test -C services/media_center/media_server ./...
 
+# Music Server 验证（源码在 services/music_player 子模块的 music_server/）
+go build -C services/music_player/music_server -o /dev/null .
+go vet -C services/music_player/music_server ./...
+go test -C services/music_player/music_server ./...
+
 # 部署（git push 后在服务器执行；用户明确要求时，agent 可执行 SSH 部署）
 # 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
 # 禁止无脑 --no-cache 全量 build 或 docker compose up -d 全量重建。
@@ -78,6 +83,9 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #     # 页面选变体后上传（admin 自动写 manifest + APK）。
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
+# - services/music_player/music_server/**（git submodule；曲库在宿主机
+#     .wework/music-library/，投放音频无需重启，扫描 TTL 内生效）:
+#     docker compose build music_server && docker compose up -d --no-deps music_server
 # - services/admin/** 或 ui/**:
 #     docker compose build admin && docker compose up -d --no-deps admin
 # - services/nginx/**:

@@ -32,8 +32,9 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
+| **music_server** | Go | 8790 | 本地曲库在线音乐 API（列表/搜索/Range 流式播放） |
 |
-Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。首次克隆后需执行 `git submodule update --init --recursive`。
+Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。Music Player 源码通过 submodule 引入到 [`services/music_player`](./services/music_player)（仓库 [`music_player`](https://github.com/ShanWuYinShe/music_player)，HarmonyOS 客户端 `music_app/` + Go 服务端 `music_server/`，组织方式同 media_center）。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
 
@@ -145,6 +146,10 @@ workwork/
 │   ├── media_center/        # Media Center 子模块
 │   │   ├── media_app/       # Android TV 客户端
 │   │   ├── media_server/    # Go 聚合后端
+│   │
+│   ├── music_player/        # Music Player 子模块
+│   │   ├── music_app/       # HarmonyOS 客户端
+│   │   └── music_server/    # Go 在线音乐服务
 │
 ├── ui/                      # Svelte 5 管理面板前端
 │   └── src/routes/          # 各页面组件
