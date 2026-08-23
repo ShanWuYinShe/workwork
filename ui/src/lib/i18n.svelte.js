@@ -508,6 +508,22 @@ const zh = {
   musicColFile: '文件名',
   musicColSize: '大小',
   musicColTime: '上传时间',
+  // NetEase account
+  neteaseAccount: '网易云账号',
+  neteaseAccountDesc:
+    '登录后在线源返回完整音频（匿名部分曲目仅 30~60 秒试听）；权限与 Web 端登录一致，VIP 歌曲仍需账号含 VIP。',
+  neteaseScanLogin: '扫码登录',
+  neteaseLoggedIn: '已登录：{name}',
+  neteaseLoggedInNoName: '已登录',
+  neteaseUpdatedAt: '凭证更新于 {time}',
+  neteaseLogout: '退出登录',
+  neteaseLogoutConfirm: '退出网易云账号？在线源将回退为匿名（部分曲目仅试听）。',
+  neteaseScanTitle: '网易云扫码登录',
+  neteaseScanHint: '打开网易云音乐 App 扫码并确认登录',
+  neteaseScanWaiting: '等待扫码…',
+  neteaseScanScanned: '已扫码，请在手机上确认',
+  neteaseScanExpired: '二维码已过期，请重新生成',
+  neteaseLoginOk: '登录成功：{name}',
 };
 
 const en = {
@@ -1028,6 +1044,22 @@ const en = {
   musicColFile: 'File',
   musicColSize: 'Size',
   musicColTime: 'Uploaded',
+  // NetEase account
+  neteaseAccount: 'NetEase Account',
+  neteaseAccountDesc:
+    'Logged-in sessions return full audio (anonymous gets 30~60s trials on some tracks); permissions match the web player, VIP songs still require a VIP account.',
+  neteaseScanLogin: 'Scan QR to Login',
+  neteaseLoggedIn: 'Logged in: {name}',
+  neteaseLoggedInNoName: 'Logged in',
+  neteaseUpdatedAt: 'Credential updated at {time}',
+  neteaseLogout: 'Log Out',
+  neteaseLogoutConfirm: 'Log out NetEase account? Online source falls back to anonymous (trials on some tracks).',
+  neteaseScanTitle: 'NetEase QR Login',
+  neteaseScanHint: 'Open NetEase Cloud Music app to scan and confirm',
+  neteaseScanWaiting: 'Waiting for scan…',
+  neteaseScanScanned: 'Scanned, confirm on your phone',
+  neteaseScanExpired: 'QR code expired, please regenerate',
+  neteaseLoginOk: 'Logged in: {name}',
 };
 
 const dicts = { zh, en };

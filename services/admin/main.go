@@ -91,6 +91,11 @@ func main() {
 	mux.HandleFunc("GET /api/admin/music-library", requireRole("admin")(apiMusicLibraryList()))
 	mux.HandleFunc("POST /api/admin/music-library/upload", requireRole("admin")(apiMusicLibraryUpload()))
 	mux.HandleFunc("DELETE /api/admin/music-library", requireRole("admin")(apiMusicLibraryDelete()))
+	// 网易云账号扫码登录：二维码生成 / 轮询（成功写 cookie 文件）/ 状态 / 登出
+	mux.HandleFunc("POST /api/admin/music/netease/login/start", requireRole("admin")(apiNeteaseLoginStart()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/poll", requireRole("admin")(apiNeteaseLoginPoll()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/state", requireRole("admin")(apiNeteaseLoginState()))
+	mux.HandleFunc("POST /api/admin/music/netease/login/logout", requireRole("admin")(apiNeteaseLoginLogout()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
