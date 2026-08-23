@@ -143,7 +143,10 @@
   async function doDelete(code) {
     const target = files.find((f) => f.code === code);
     if (
-      !(await showConfirm(t('confirmDeleteTransferFile', { filename: target?.filename || code })))
+      !(await showConfirm(
+        t('confirmDeleteTransferFile', { filename: target?.filename || code }),
+        { danger: true },
+      ))
     )
       return;
     deletingCode = code;

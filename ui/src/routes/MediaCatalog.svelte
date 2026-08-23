@@ -172,14 +172,15 @@
     }
     const n = Number(raw);
     if (!Number.isInteger(n) || n < 0) {
-      toast(t('catalogRankPlaceholder'), 'error');
+      toast(t('catalogRankInvalid'), 'error');
       return;
     }
     applyReview(it, { rank: n });
   }
 
   async function removeItem(it) {
-    if (!(await showConfirm(t('catalogDeleteConfirm', { title: it.title })))) return;
+    if (!(await showConfirm(t('catalogDeleteConfirm', { title: it.title }), { danger: true })))
+      return;
     try {
       await deleteMediaCatalogItem({
         categoryId: activeCategory,
@@ -446,6 +447,7 @@
                     type="number"
                     min="0"
                     placeholder={t('catalogRankPlaceholder')}
+                    aria-label={t('catalogSetRank') + ' - ' + it.title}
                     bind:value={rankDraft[itemKey(it)]}
                   />
                   <button class="btn btn-xs btn-ghost" onclick={() => setRank(it)}

@@ -416,6 +416,10 @@ const zh = {
   noClientsYetDesc: '你还没有代理客户端。在上面添加一个。',
   confirmUnblock: '解封 {ip}？',
   ipBlocked: 'IP {ip} 已封禁。',
+  blocking: '封禁中...',
+  catalogRankInvalid: '排序值需为非负整数',
+  errIpRequired: '请输入 IP 地址',
+  errIpFormat: 'IP 格式不正确',
   ipUnblocked: 'IP {ip} 已解封。',
   resultMsg: '{msg}',
   // Transfer
@@ -465,6 +469,27 @@ const zh = {
   appReleaseVersionCodeInvalid: 'versionCode 必须是正整数',
   appReleaseVersionNameRequired: 'versionName 不能为空',
   appReleasePublishedToast: 'App 更新已发布',
+  // 版本管理
+  appReleaseHistoryTitle: '版本历史',
+  appReleaseHistoryCount: '{count} 个版本',
+  appReleaseHistoryEmpty: '暂无历史版本。发布过的 APK 会自动记录在这里。',
+  appReleaseColVersion: '版本',
+  appReleaseColSize: '大小',
+  appReleaseColSha: 'SHA-256',
+  appReleaseColDate: '发布时间',
+  appReleaseColActions: '操作',
+  appReleaseCurrentBadge: '当前',
+  appReleaseApkMissing: 'APK 缺失',
+  appReleaseDownload: '下载',
+  appReleaseRollback: '回滚',
+  appReleaseRollbackConfirm:
+    '确定回滚到 {version}（versionCode {code}）吗？\n已安装更高版本的设备不会自动降级，只影响尚未升级的客户端。',
+  appReleaseRolledBackToast: '已回滚到 {version}',
+  appReleaseDelete: '删除',
+  appReleaseDeleteConfirm:
+    '确定从历史中删除 {version}（versionCode {code}）吗？对应 APK 文件将一并清理，不可恢复。',
+  appReleaseDeletedToast: '历史版本已删除',
+  appReleaseDownloadCurrent: '下载当前 APK',
   credentialsSaved: '凭证已保存',
   mediaCredProviderInvalid: '视频源 ID 需为小写字母开头，可含数字/连字符',
   mediaCredProviderExists: '该视频源已存在',
@@ -893,6 +918,10 @@ const en = {
   noClientsYetDesc: 'You have no proxy clients yet. Add one above.',
   confirmUnblock: 'Unblock {ip}?',
   ipBlocked: 'IP {ip} blocked.',
+  blocking: 'Blocking...',
+  catalogRankInvalid: 'Rank must be a non-negative integer',
+  errIpRequired: 'Enter an IP address',
+  errIpFormat: 'Invalid IP address format',
   ipUnblocked: 'IP {ip} unblocked.',
   resultMsg: '{msg}',
   // Transfer
@@ -943,6 +972,27 @@ const en = {
   appReleaseVersionCodeInvalid: 'versionCode must be a positive integer',
   appReleaseVersionNameRequired: 'versionName is required',
   appReleasePublishedToast: 'App update published',
+  // Version management
+  appReleaseHistoryTitle: 'Version history',
+  appReleaseHistoryCount: '{count} versions',
+  appReleaseHistoryEmpty: 'No history yet. Published APKs are recorded here automatically.',
+  appReleaseColVersion: 'Version',
+  appReleaseColSize: 'Size',
+  appReleaseColSha: 'SHA-256',
+  appReleaseColDate: 'Published',
+  appReleaseColActions: 'Actions',
+  appReleaseCurrentBadge: 'Current',
+  appReleaseApkMissing: 'APK missing',
+  appReleaseDownload: 'Download',
+  appReleaseRollback: 'Roll back',
+  appReleaseRollbackConfirm:
+    'Roll back to {version} (versionCode {code})?\nDevices already on a higher version will not downgrade; only pending clients are affected.',
+  appReleaseRolledBackToast: 'Rolled back to {version}',
+  appReleaseDelete: 'Delete',
+  appReleaseDeleteConfirm:
+    'Remove {version} (versionCode {code}) from history? The APK file will be deleted and cannot be recovered.',
+  appReleaseDeletedToast: 'History version removed',
+  appReleaseDownloadCurrent: 'Download current APK',
   credentialsSaved: 'Credentials saved',
   mediaCredProviderInvalid:
     'Provider ID must start with a lowercase letter; digits and hyphens allowed',
@@ -954,6 +1004,11 @@ const dicts = { zh, en };
 let lang = $state(
   typeof localStorage !== 'undefined' ? localStorage.getItem('lang') || 'zh' : 'zh',
 );
+
+// 同步 <html lang>：屏幕阅读器发音 / 字体选择 / 翻译工具都依赖它
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = lang;
+}
 
 /**
  * @param {string} key
@@ -977,6 +1032,7 @@ export function t(key, vars) {
 export function toggleLang() {
   lang = lang === 'zh' ? 'en' : 'zh';
   if (typeof localStorage !== 'undefined') localStorage.setItem('lang', lang);
+  if (typeof document !== 'undefined') document.documentElement.lang = lang;
 }
 
 export function getLang() {

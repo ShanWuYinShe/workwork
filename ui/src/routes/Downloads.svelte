@@ -80,8 +80,9 @@
     }
   }
 
-  async function switchTab(t) {
-    tab = t;
+  async function switchTab(next) {
+    // 参数改名 next：原名 t 会遮蔽 i18n 翻译函数 t
+    tab = next;
     releases = [];
     platforms = [];
     stored = [];
@@ -154,7 +155,7 @@
   }
 
   async function doDelete(filename) {
-    if (!(await showConfirm(t('confirmDeleteDownload', { filename })))) return;
+    if (!(await showConfirm(t('confirmDeleteDownload', { filename }), { danger: true }))) return;
     deletingFile = filename;
     try {
       const fn = tab === 'claude' ? deleteClaudeDownload : deleteXrayDownload;

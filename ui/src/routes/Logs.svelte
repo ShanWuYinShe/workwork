@@ -187,7 +187,7 @@
             >
               {serviceDisplayName(s.name)}
               <span class="badge badge-{s.state === 'running' ? 'green' : 'red'} badge-inline">
-                <span class="badge-dot"></span>{s.state}
+                <span class="badge-dot"></span>{s.state === 'running' ? t('stateRunning') : t('stateStopped')}
               </span>
             </button>
           {/each}
@@ -197,6 +197,7 @@
             class="log-search input-compact"
             type="text"
             placeholder={t('searchLogs')}
+            aria-label={t('searchLogs')}
             bind:value={search}
           />
           <button

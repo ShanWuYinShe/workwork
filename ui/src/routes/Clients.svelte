@@ -97,7 +97,8 @@
   }
 
   async function deleteClient(uuid) {
-    if (!(await showConfirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) })))) return;
+    if (!(await showConfirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) }), { danger: true })))
+      return;
     deletingId = uuid;
     try {
       await deleteXrayClient(uuid);
@@ -186,20 +187,18 @@
             </thead>
             <tbody>
               {#each clients as c}
-                <tr
-                  class="clickable-row"
-                  class:selected={selectedUUID === c.id}
-                  tabindex="0"
-                  role="button"
-                  onclick={() => loadConfig(c.id)}
-                  onkeydown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      loadConfig(c.id);
-                    }
-                  }}
-                >
-                  <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
+                <!-- 行点击仅作鼠标便利；键盘/读屏语义由 UUID 单元格里的真实按钮承载，
+                     tr[role=button] 会破坏表格语义并让操作单元格按钮嵌套进"按钮行" -->
+                <tr class="clickable-row" class:selected={selectedUUID === c.id} onclick={() => loadConfig(c.id)}>
+                  <td class="td-mono">
+                    <button
+                      class="link cell-strong"
+                      style="background:none;border:none;cursor:pointer;font-family:var(--font-mono);padding:0"
+                      title={c.id}
+                      aria-label={t('clientConfig') + ': ' + c.id.slice(0, 8)}
+                      onclick={() => loadConfig(c.id)}
+                    >{c.id.slice(0, 16)}...</button>
+                  </td>
                   {#if isAdmin}
                     <td class="td-muted">{c.owner || '—'}</td>
                   {/if}
