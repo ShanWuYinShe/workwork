@@ -216,6 +216,46 @@ export async function uploadMediaAppRelease(formData, variant) {
   return json.data;
 }
 
+// ── App 版本管理：历史 / 回滚 / 删除 / 下载 ──
+
+export async function getMediaAppReleaseHistory(variant) {
+  const q = variant ? `?variant=${encodeURIComponent(variant)}` : '';
+  return req('/media-center/app-release/history' + q);
+}
+
+export async function rollbackMediaAppRelease(variant, versionCode) {
+  return req('/media-center/app-release/rollback', {
+    method: 'POST',
+    body: JSON.stringify({ variant, versionCode }),
+  });
+}
+
+export async function deleteMediaAppReleaseVersion(variant, versionCode) {
+  return req('/media-center/app-release/history', {
+    method: 'DELETE',
+    body: JSON.stringify({ variant, versionCode }),
+  });
+}
+
+// 管理员下载 APK（basic auth 同源自动携带凭证），触发浏览器另存为。
+export function mediaAppReleaseDownloadUrl(variant, versionCode) {
+  const params = new URLSearchParams();
+  if (variant) params.set('variant', variant);
+  if (versionCode) params.set('versionCode', String(versionCode));
+  const qs = params.toString();
+  // 必须指向 /download 端点：GET /app-release(无 download)返回的是 manifest JSON
+  return `${BASE}/media-center/app-release/download${qs ? `?${qs}` : ''}`;
+}
+
+export function triggerMediaAppReleaseDownload(variant, versionCode) {
+  const a = document.createElement('a');
+  a.href = mediaAppReleaseDownloadUrl(variant, versionCode);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export async function getBlockedIPs() {
   return req('/security/blocked');
 }

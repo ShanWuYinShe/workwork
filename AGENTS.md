@@ -156,7 +156,8 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 | 账户 | `GET /api/admin/auth/me`, `GET /api/admin/users`, `POST /api/admin/users/password` | viewer+ |
 | Security | `GET/POST /api/admin/security/*` | admin |
 | Settings | `GET/POST /api/admin/network/*` | admin |
-| Media Center | `GET/PUT /api/admin/media-center/config`, `/credentials`; `GET/POST /api/admin/media-center/catalog/*`, `/app-release` | admin |
+| Media Center | `GET/PUT /api/admin/media-center/config`, `/credentials`; `GET/POST /api/admin/media-center/catalog/*` | admin |
+| App 版本管理 | `GET/POST /api/admin/media-center/app-release`；`GET .../app-release/history`、`GET .../app-release/download`、`POST .../app-release/rollback`、`DELETE .../app-release/history`（发布历史 / 回滚 / 删除历史版本 / 按版本下载 APK） | admin |
 | Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
 | Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
 | Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |

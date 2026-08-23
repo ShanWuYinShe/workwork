@@ -82,6 +82,11 @@ func main() {
 	mux.HandleFunc("POST /api/admin/media-center/catalog/import", requireRole("admin")(apiMediaCatalogImport()))
 	mux.HandleFunc("GET /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseGet()))
 	mux.HandleFunc("POST /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseUpload()))
+	// 版本管理：发布历史 / 回滚 / 删除历史版本 / 管理员下载指定版本 APK。
+	mux.HandleFunc("GET /api/admin/media-center/app-release/history", requireRole("admin")(apiMediaAppReleaseHistory()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release/download", requireRole("admin")(apiMediaAppReleaseDownload()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", requireRole("admin")(apiMediaAppReleaseRollback()))
+	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", requireRole("admin")(apiMediaAppReleaseVersionDelete()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
