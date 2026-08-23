@@ -90,6 +90,19 @@ server {
         proxy_send_timeout 600s;
     }
 
+    # 在线音乐服务:/api/music/ 前缀去前缀转发到 music_server。
+    # 与 media_center 不同,该服务无需管理面板开关,静态暴露;认证模型同
+    # media API(边缘 Cloudflare mTLS),服务内自带 per-IP 限流。
+    # proxy_buffering off:音频 Range 请求逐段下发,不在 nginx 侧缓冲整文件。
+    set $music_upstream music_server:8790;
+    location /api/music/ {
+        rewrite ^/api/music(/.*)$ $1 break;
+        proxy_pass http://$music_upstream;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_buffering off;
+    }
+
     location /proxy/query {
         __XHTTP_PROXY_AUTH__
         access_log /var/log/nginx/admin-access.log auth_log;

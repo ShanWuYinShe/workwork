@@ -221,6 +221,49 @@ services:
       retries: 3
       start_period: 20s
 
+  # 在线音乐服务:扫描本地曲库目录,提供曲目列表/搜索/Range 流式播放。
+  # 曲库文件投放到宿主机 .wework/music-library/(ro 挂载),新增文件无需重启。
+  # 经 nginx 以 /api/music/ 前缀对外暴露,认证模型同 media API(边缘 CF mTLS)。
+  # 服务源码在 music_player 子模块内(客户端+服务端同仓库,组织方式同 media_center)。
+  music_server:
+    build:
+      context: ./services/music_player/music_server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    environment:
+      - TZ=Asia/Shanghai
+      - HOST=0.0.0.0
+      - PORT=8790
+      - LIBRARY_DIR=/data/library
+    volumes:
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+      - ./.wework/music-library:/data/library:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8790/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   admin:
     build:
       context: .
