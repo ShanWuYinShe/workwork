@@ -414,3 +414,21 @@ export async function uploadMusicLibrary(formData) {
 export async function deleteMusicLibraryFile(name) {
   return req(`/music-library?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
+
+// ── NetEase account (QR login) ──
+
+export async function neteaseLoginStart() {
+  return req('/music/netease/login/start', { method: 'POST' });
+}
+
+export async function neteaseLoginPoll(key) {
+  return req(`/music/netease/login/poll?key=${encodeURIComponent(key)}`);
+}
+
+export async function neteaseLoginState() {
+  return req('/music/netease/login/state');
+}
+
+export async function neteaseLogout() {
+  return req('/music/netease/login/logout', { method: 'POST' });
+}

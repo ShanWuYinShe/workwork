@@ -286,9 +286,12 @@ services:
       - LIBRARY_DIR=/data/library
       - NETEASE_API_BASE=http://netease_api:3000
       - NETEASE_MUSIC_COOKIE=${NETEASE_MUSIC_COOKIE:-}
+      # 管理面板扫码登录写入的 cookie(热加载);目录与 admin 共享(.wework)
+      - NETEASE_COOKIE_FILE=/data/netease/netease-cookie.txt
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - ./.wework/music-library:/data/library:ro
+      - ./.wework/generated/music:/data/netease:ro
     depends_on:
       - netease_api
     healthcheck:
@@ -341,6 +344,8 @@ services:
       # 媒体中心分类预采集管理：admin 代理 media_server 内部接口（同一令牌）
       - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
       - MEDIA_CENTER_INTERNAL_URL=${MEDIA_CENTER_INTERNAL_URL:-http://media_server:8787}
+      # 网易云扫码登录：admin 调 netease_api 上游
+      - NETEASE_API_BASE=${NETEASE_API_BASE:-http://netease_api:3000}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - /var/run/docker.sock:/var/run/docker.sock
