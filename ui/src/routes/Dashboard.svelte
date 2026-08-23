@@ -162,6 +162,8 @@
             class:primary={action.primary}
             href={'/admin' + action.path}
             onclick={(e) => {
+              // 修饰键点击(ctrl/cmd/shift)保留浏览器原生行为(新标签打开)
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
               e.preventDefault();
               navigate(action.path);
             }}
@@ -191,7 +193,7 @@
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
                     <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                      <span class="badge-dot"></span>{s.state}
+                      <span class="badge-dot"></span>{s.state === 'running' ? t('stateRunning') : t('stateStopped')}
                     </span>
                   </td>
                   <td class="td-muted">{s.image}</td>
@@ -223,7 +225,17 @@
       </div>
       <div class="quick-actions">
         {#each quickActions as action}
-          <a class="quick-action" class:primary={action.primary} href={'/admin' + action.path}>
+          <a
+            class="quick-action"
+            class:primary={action.primary}
+            href={'/admin' + action.path}
+            onclick={(e) => {
+              // 修饰键点击(ctrl/cmd/shift)保留浏览器原生行为(新标签打开)
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              navigate(action.path);
+            }}
+          >
             <span class="quick-action-title">{t(action.label)}</span>
             <span class="quick-action-desc">{t(action.desc)}</span>
           </a>

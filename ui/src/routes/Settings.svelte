@@ -50,7 +50,7 @@
   }
 
   async function doRotate() {
-    if (!(await showConfirm(t('rotateConfirm')))) return;
+    if (!(await showConfirm(t('rotateConfirm'), { danger: true }))) return;
     rotating = true;
     try {
       const d = await rotateIPv6();

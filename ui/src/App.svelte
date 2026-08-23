@@ -151,7 +151,8 @@
     /* 文字层次 */
     --c-text: #cbd5e1;
     --c-text-secondary: #7d8da8;
-    --c-text-muted: #556584;
+    /* WCAG 校准：于各层级背景对比度 ≥5:1，标签/表头/帮助文本可读 */
+    --c-text-muted: #8697b3;
     --c-text-heading: #f1f5f9;
     --c-text-info: #93c5fd;
     --c-text-success: #4ade80;
@@ -221,6 +222,17 @@
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 键盘可达性兜底：所有链接与可交互元素都有可见焦点环（组件已有专属样式时以其为准） */
+  :global(a:focus-visible) {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  :global(button:focus-visible:not(.btn):not(.nav-item):not(.tab-btn):not(.badge-action)) {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
   }
 
   :global(*::-webkit-scrollbar) {
@@ -360,7 +372,7 @@
     color: var(--c-text-muted);
     cursor: pointer;
     border-radius: var(--radius-sm);
-    font-size: 0.6rem;
+    font-size: 0.65rem;
     font-weight: 700;
     flex-shrink: 0;
     transition: all var(--transition);
@@ -502,7 +514,7 @@
   }
   :global(.user-role) {
     display: inline-block;
-    font-size: 0.6rem;
+    font-size: 0.65rem; /* 9.6px 过小，10.4px 保底可读 */
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -532,18 +544,28 @@
     border-radius: 4px;
     display: flex;
     margin-left: auto;
-    opacity: 0;
-    transition: opacity 0.15s;
+    /* 常显弱化而非 hover 才出现：键盘 Tab / 触屏用户也需要能看到并点到退出入口 */
+    opacity: 0.6;
+    transition:
+      opacity 0.15s,
+      color var(--transition),
+      background var(--transition);
   }
-  :global(.user-card:hover .logout-btn) {
+  :global(.user-card:hover .logout-btn),
+  :global(.logout-btn:focus-visible) {
     opacity: 1;
   }
   :global(.logout-btn:hover) {
     color: var(--c-danger);
     background: var(--c-danger-bg);
   }
+  /* 折叠态保留退出入口(图标竖排在头像下) */
+  :global(.sidebar.collapsed .user-card) {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
   :global(.sidebar.collapsed .logout-btn) {
-    display: none;
+    margin-left: 0;
   }
 
   /* ── Main content ── */
@@ -827,6 +849,10 @@
   :global(.badge-action:active) {
     transform: scale(0.97);
   }
+  :global(.badge-action:focus-visible) {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
   :global(.badge-action:disabled) {
     cursor: not-allowed;
     opacity: 0.5;
@@ -880,8 +906,8 @@
   }
   :global(.btn:disabled) {
     opacity: 0.5;
+    /* 不用 pointer-events:none：那样 cursor:not-allowed 和 title 提示都会失效 */
     cursor: not-allowed;
-    pointer-events: none;
   }
   :global(.btn:focus-visible) {
     outline: none;
@@ -889,40 +915,40 @@
   }
 
   :global(.btn-primary) {
-    background: linear-gradient(180deg, #4a90f9, var(--c-accent));
+    background: #2563eb; /* 白字对比度 5.2:1 */
     color: #fff;
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-primary:hover) {
-    background: linear-gradient(180deg, #3d86f7, var(--c-accent-hover));
+    background: #1d4ed8;
     box-shadow:
       0 2px 8px rgba(59, 130, 246, 0.35),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-danger) {
-    background: linear-gradient(180deg, #f9625f, var(--c-danger));
+    background: #dc2626; /* 白字对比度 4.8:1 */
     color: #fff;
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-danger:hover) {
-    background: linear-gradient(180deg, #f64f4b, var(--c-danger-hover));
+    background: #b91c1c;
     box-shadow:
       0 2px 8px rgba(239, 68, 68, 0.3),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-success) {
-    background: linear-gradient(180deg, #3bd571, var(--c-success));
+    background: #15803d; /* 白字对比度 5.0:1 */
     color: #fff;
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
   }
   :global(.btn-success:hover) {
-    background: linear-gradient(180deg, #2fc763, var(--c-success-hover));
+    background: #166534;
     box-shadow:
       0 2px 8px rgba(34, 197, 94, 0.3),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
@@ -1154,6 +1180,12 @@
     color: var(--c-text-muted);
     font-size: 0.75rem;
   }
+  /* 表单字段旁的内联错误（配合 aria-invalid / aria-describedby） */
+  :global(.field-error) {
+    color: var(--c-text-danger);
+    font-size: 0.75rem;
+    margin-top: 0.3rem;
+  }
   :global(.section-copy) {
     color: var(--c-text-secondary);
     font-size: 0.78rem;
@@ -1190,7 +1222,7 @@
   }
   :global(.progress-caption) {
     color: var(--c-text-muted);
-    font-size: 0.6rem;
+    font-size: 0.65rem;
     margin-top: 1px;
   }
   :global(.drop-zone) {

@@ -91,6 +91,8 @@
                 class:active={currentPath === item.path}
                 onclick={() => handleNav(item.path)}
                 title={sidebarCollapsed ? t(item.key) : ''}
+                aria-label={t(item.key)}
+                aria-current={currentPath === item.path ? 'page' : undefined}
               >
                 <svg
                   class="nav-icon"
@@ -129,6 +131,7 @@
           onclick={() =>
             (window.location.href = 'https://logout:logout@' + window.location.host + '/admin/')}
           title={t('logout')}
+          aria-label={t('logout')}
         >
           <svg
             viewBox="0 0 24 24"
