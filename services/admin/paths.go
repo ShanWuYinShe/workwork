@@ -25,7 +25,9 @@ const (
 	mediaCenterCredentialsPath         = "/app/data/generated/media_center/providerCredentials.json"
 	mediaCenterAppUpdateManifestPrefix = "/app/data/generated/media_center/app-update"
 	mediaCenterAppUpdateAPKPrefix      = "/app/data/generated/media_center/media-center-app"
-	mediaCenterDefaultCategoriesPath   = "/app/configs/media-center-content-categories.json"
+	// 发布历史（每次上传都追加一条记录），与 app-update*.json 同目录、同变体后缀。
+	mediaCenterAppUpdateHistoryPrefix = "/app/data/generated/media_center/app-history"
+	mediaCenterDefaultCategoriesPath  = "/app/configs/media-center-content-categories.json"
 )
 
 func sanitizeVariant(v string) string {
@@ -52,4 +54,12 @@ func mediaCenterAppUpdateAPKPath(variant string) string {
 		return mediaCenterAppUpdateAPKPrefix + ".apk"
 	}
 	return mediaCenterAppUpdateAPKPrefix + "-" + v + ".apk"
+}
+
+func mediaCenterAppUpdateHistoryPath(variant string) string {
+	v := sanitizeVariant(variant)
+	if v == "" {
+		return mediaCenterAppUpdateHistoryPrefix + ".json"
+	}
+	return mediaCenterAppUpdateHistoryPrefix + "-" + v + ".json"
 }
