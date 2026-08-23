@@ -46,6 +46,8 @@ go build -C services/music_player/music_server -o /dev/null .
 go vet -C services/music_player/music_server ./...
 go test -C services/music_player/music_server ./...
 
+# netease_api(网易云上游):纯 Dockerfile 打包 npm 包,无本地源码,验证即 compose build
+
 # 部署（git push 后在服务器执行；用户明确要求时，agent 可执行 SSH 部署）
 # 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
 # 禁止无脑 --no-cache 全量 build 或 docker compose up -d 全量重建。
@@ -84,8 +86,13 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
 # - services/music_player/music_server/**（git submodule；曲库在宿主机
-#     .wework/music-library/，投放音频无需重启，扫描 TTL 内生效）:
+#     .wework/music-library/，管理面板「音乐曲库」页上传或手动投放，扫描
+#     TTL 内生效；网络源上游失败自动降级仅本地）:
 #     docker compose build music_server && docker compose up -d --no-deps music_server
+# - services/netease_api/** 或 music_server 需要网络源时:
+#     docker compose build netease_api music_server && \
+#     docker compose up -d --no-deps netease_api music_server
+#     （可选 .env 配 NETEASE_MUSIC_COOKIE 解锁登录态曲目；匿名仅免费曲）
 # - services/admin/** 或 ui/**:
 #     docker compose build admin && docker compose up -d --no-deps admin
 # - services/nginx/**:

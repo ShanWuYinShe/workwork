@@ -221,9 +221,39 @@ services:
       retries: 3
       start_period: 20s
 
-  # 在线音乐服务:扫描本地曲库目录,提供曲目列表/搜索/Range 流式播放。
-  # 曲库文件投放到宿主机 .wework/music-library/(ro 挂载),新增文件无需重启。
-  # 经 nginx 以 /api/music/ 前缀对外暴露,认证模型同 media API(边缘 CF mTLS)。
+  # 网易云 API 上游(NeteaseCloudMusicApi Enhanced,非官方接口仅限个人使用):
+  # 仅容器内网,供 music_server 聚合搜索与流解析;不对外暴露端口。
+  netease_api:
+    build:
+      context: ./services/netease_api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    environment:
+      - TZ=Asia/Shanghai
+
+  # 在线音乐服务:聚合本地曲库目录(扫描/搜索/Range 流式播放)与网易云网络源
+  # (netease_api 上游,失败自动降级为仅本地)。曲库音频经管理面板「音乐曲库」
+  # 页上传(admin rw 挂载同目录)或手动投放;经 nginx 以 /api/music/ 前缀对外
+  # 暴露,认证模型同 media API(边缘 CF mTLS)。网络源音频由本服务代理转发。
   # 服务源码在 music_player 子模块内(客户端+服务端同仓库,组织方式同 media_center)。
   music_server:
     build:
@@ -234,8 +264,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 64M
-          cpus: "0.25"
+          memory: 128M
+          cpus: "0.5"
     security_opt:
       - "no-new-privileges:true"
     logging:
@@ -254,9 +284,13 @@ services:
       - HOST=0.0.0.0
       - PORT=8790
       - LIBRARY_DIR=/data/library
+      - NETEASE_API_BASE=http://netease_api:3000
+      - NETEASE_MUSIC_COOKIE=${NETEASE_MUSIC_COOKIE:-}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - ./.wework/music-library:/data/library:ro
+    depends_on:
+      - netease_api
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8790/health"]
       interval: 30s

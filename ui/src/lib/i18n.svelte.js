@@ -493,6 +493,21 @@ const zh = {
   credentialsSaved: '凭证已保存',
   mediaCredProviderInvalid: '视频源 ID 需为小写字母开头，可含数字/连字符',
   mediaCredProviderExists: '该视频源已存在',
+  // Music library
+  musicLibrary: '音乐曲库',
+  musicLibraryDesc: '上传音频到服务器曲库，music_player 在线源即可搜索与播放（约 1 分钟内生效，无需重启）。',
+  musicUploadButton: '上传音频',
+  musicUploadCount: '上传 {n} 个文件',
+  musicUploadDone: '已上传 {n} 个文件',
+  musicUploadSkipped: '{n} 个文件被跳过（格式不符或超过 200MB）',
+  musicUploadHint:
+    '支持 mp3/wav/flac/m4a/ogg/aac/opus，单文件 ≤200MB，单次 ≤50 个；按「歌手 - 歌名.ext」命名可自动解析歌手与歌名，同名文件将被覆盖。',
+  musicDeleteConfirm: '删除 {name}？',
+  musicDeleteDone: '已删除',
+  musicLibraryEmpty: '曲库还是空的，上传第一批音频吧',
+  musicColFile: '文件名',
+  musicColSize: '大小',
+  musicColTime: '上传时间',
 };
 
 const en = {
@@ -997,6 +1012,22 @@ const en = {
   mediaCredProviderInvalid:
     'Provider ID must start with a lowercase letter; digits and hyphens allowed',
   mediaCredProviderExists: 'This provider already exists',
+  // Music library
+  musicLibrary: 'Music Library',
+  musicLibraryDesc:
+    'Upload audio to the server library; music_player online source picks it up within ~1 minute, no restart needed.',
+  musicUploadButton: 'Upload Audio',
+  musicUploadCount: 'Upload {n} files',
+  musicUploadDone: '{n} file(s) uploaded',
+  musicUploadSkipped: '{n} file(s) skipped (unsupported format or over 200MB)',
+  musicUploadHint:
+    'Supports mp3/wav/flac/m4a/ogg/aac/opus, up to 200MB each and 50 files per batch; name files as "Artist - Title.ext" to parse metadata, same names are overwritten.',
+  musicDeleteConfirm: 'Delete {name}?',
+  musicDeleteDone: 'Deleted',
+  musicLibraryEmpty: 'The library is empty. Upload your first audio files.',
+  musicColFile: 'File',
+  musicColSize: 'Size',
+  musicColTime: 'Uploaded',
 };
 
 const dicts = { zh, en };
