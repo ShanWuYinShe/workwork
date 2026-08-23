@@ -1,3 +1,6 @@
 [submodule "media_center"]
 	path = services/media_center
 	url = git@github.com:ShanWuYinShe/media_center.git
+[submodule "services/music_player"]
+	path = services/music_player
+	url = git@github.com:ShanWuYinShe/music_player.git
