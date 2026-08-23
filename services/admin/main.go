@@ -87,6 +87,10 @@ func main() {
 	mux.HandleFunc("GET /api/admin/media-center/app-release/download", requireRole("admin")(apiMediaAppReleaseDownload()))
 	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", requireRole("admin")(apiMediaAppReleaseRollback()))
 	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", requireRole("admin")(apiMediaAppReleaseVersionDelete()))
+	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
+	mux.HandleFunc("GET /api/admin/music-library", requireRole("admin")(apiMusicLibraryList()))
+	mux.HandleFunc("POST /api/admin/music-library/upload", requireRole("admin")(apiMusicLibraryUpload()))
+	mux.HandleFunc("DELETE /api/admin/music-library", requireRole("admin")(apiMusicLibraryDelete()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))

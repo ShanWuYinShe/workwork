@@ -388,3 +388,29 @@ export async function deleteTransferFile(code) {
 }
 
 export const transferUploadUrl = BASE + '/transfer/upload';
+
+// ── Music library ──
+
+export async function getMusicLibrary() {
+  return req('/music-library');
+}
+
+export async function uploadMusicLibrary(formData) {
+  const ctrl = new AbortController();
+  // 音频最大 200MB/文件,批量最多 50 个,走与 APK 一致的长上传超时。
+  const timeout = setTimeout(() => ctrl.abort(), APK_UPLOAD_TIMEOUT);
+  const r = await fetch(BASE + '/music-library/upload', {
+    credentials: 'same-origin',
+    method: 'POST',
+    body: formData,
+    signal: ctrl.signal,
+  });
+  clearTimeout(timeout);
+  const json = await parseJSONResponse(r);
+  if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
+  return json.data;
+}
+
+export async function deleteMusicLibraryFile(name) {
+  return req(`/music-library?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
