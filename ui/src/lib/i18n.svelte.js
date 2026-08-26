@@ -495,11 +495,11 @@ const zh = {
   mediaCredProviderExists: '该视频源已存在',
   // Music library
   musicLibrary: '音乐曲库',
-  musicLibraryDesc: '上传音频到服务器曲库，music_player 在线源即可搜索与播放（约 1 分钟内生效，无需重启）。',
+  musicLibraryDesc:
+    '上传音频到服务器曲库，music_player 在线源即可搜索与播放（约 1 分钟内生效，无需重启）。',
   musicUploadButton: '上传音频',
   musicUploadCount: '上传 {n} 个文件',
   musicUploadDone: '已上传 {n} 个文件',
-  musicUploadSkipped: '{n} 个文件被跳过（格式不符或超过 200MB）',
   musicUploadHint:
     '支持 mp3/wav/flac/m4a/ogg/aac/opus，单文件 ≤200MB，单次 ≤50 个；按「歌手 - 歌名.ext」命名可自动解析歌手与歌名，同名文件将被覆盖。',
   musicDeleteConfirm: '删除 {name}？',
@@ -508,6 +508,15 @@ const zh = {
   musicColFile: '文件名',
   musicColSize: '大小',
   musicColTime: '上传时间',
+  musicDropHint: '拖拽音频文件到这里，或点击选择（支持多选）',
+  musicQueueCount: '待上传 {n} 个 · 共 {size}',
+  musicQueueClear: '清空',
+  musicQueueRemove: '移除',
+  musicIgnoredBad: '{n} 个非音频文件已忽略',
+  musicIgnoredDup: '{n} 个重复文件已忽略',
+  musicSkippedTitle: '{n} 个文件未入库：',
+  musicSearchPlaceholder: '搜索文件名…',
+  musicNoMatch: '没有匹配的文件',
   // NetEase account
   neteaseAccount: '网易云账号',
   neteaseAccountDesc:
@@ -1035,7 +1044,6 @@ const en = {
   musicUploadButton: 'Upload Audio',
   musicUploadCount: 'Upload {n} files',
   musicUploadDone: '{n} file(s) uploaded',
-  musicUploadSkipped: '{n} file(s) skipped (unsupported format or over 200MB)',
   musicUploadHint:
     'Supports mp3/wav/flac/m4a/ogg/aac/opus, up to 200MB each and 50 files per batch; name files as "Artist - Title.ext" to parse metadata, same names are overwritten.',
   musicDeleteConfirm: 'Delete {name}?',
@@ -1044,6 +1052,15 @@ const en = {
   musicColFile: 'File',
   musicColSize: 'Size',
   musicColTime: 'Uploaded',
+  musicDropHint: 'Drag audio files here, or click to select (multiple allowed)',
+  musicQueueCount: '{n} pending · {size} total',
+  musicQueueClear: 'Clear',
+  musicQueueRemove: 'Remove',
+  musicIgnoredBad: '{n} non-audio file(s) ignored',
+  musicIgnoredDup: '{n} duplicate file(s) ignored',
+  musicSkippedTitle: '{n} file(s) not imported:',
+  musicSearchPlaceholder: 'Search files…',
+  musicNoMatch: 'No matching files',
   // NetEase account
   neteaseAccount: 'NetEase Account',
   neteaseAccountDesc:
@@ -1053,7 +1070,8 @@ const en = {
   neteaseLoggedInNoName: 'Logged in',
   neteaseUpdatedAt: 'Credential updated at {time}',
   neteaseLogout: 'Log Out',
-  neteaseLogoutConfirm: 'Log out NetEase account? Online source falls back to anonymous (trials on some tracks).',
+  neteaseLogoutConfirm:
+    'Log out NetEase account? Online source falls back to anonymous (trials on some tracks).',
   neteaseScanTitle: 'NetEase QR Login',
   neteaseScanHint: 'Open NetEase Cloud Music app to scan and confirm',
   neteaseScanWaiting: 'Waiting for scan…',
