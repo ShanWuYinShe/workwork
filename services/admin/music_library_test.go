@@ -64,8 +64,18 @@ func TestMusicLibraryUploadListDelete(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &up); err != nil {
 		t.Fatal(err)
 	}
-	if len(up.Data.Saved) != 3 || up.Data.Saved[0] != "歌手A - 歌名B.mp3" {
+	if len(up.Data.Saved) != 3 {
 		t.Fatalf("expect 3 audio files saved, got %s", rec.Body.String())
+	}
+	// map 遍历顺序随机,saved 顺序不定,按集合断言。
+	savedSet := map[string]bool{}
+	for _, n := range up.Data.Saved {
+		savedSet[n] = true
+	}
+	for _, want := range []string{"歌手A - 歌名B.mp3", "evil.wav", "track.flac"} {
+		if !savedSet[want] {
+			t.Fatalf("expect %q in saved, got %s", want, rec.Body.String())
+		}
 	}
 	if len(up.Data.Skipped) != 1 {
 		t.Fatalf("expect only notes.txt skipped, got %s", rec.Body.String())
@@ -127,5 +137,51 @@ func TestMusicLibraryUploadOverwrites(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Fatalf("expect single file, no tmp residue, got %d", len(entries))
+	}
+}
+
+// 回归:music-library 上传必须豁免 main 的全局 1MB body 上限,否则超过 1MB
+// 的真实歌曲在 ParseMultipartForm 即失败(线上 400"上传内容过大或格式不正确")。
+// 走 applyBodyLimit + handler 完整链路 + 真 HTTP 客户端,模拟线上请求路径。
+func TestMusicLibraryUploadBypassesGlobalBodyLimit(t *testing.T) {
+	if !bodyLimitExempt("/api/admin/music-library/upload") {
+		t.Fatal("music-library/upload must be exempt from the global 1MB body limit")
+	}
+
+	dir := t.TempDir()
+	old := musicLibraryDir
+	musicLibraryDir = dir
+	t.Cleanup(func() { musicLibraryDir = old })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		applyBodyLimit(w, r)
+		apiMusicLibraryUpload().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	// 3MB 内容,multipart 编码后必然超过 1MB 全局上限。
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("files", "大文件 - 回归测试.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("a"), 3<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Post(srv.URL+"/api/admin/music-library/upload", writer.FormDataContentType(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("3MB upload through global body limit chain: %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "大文件 - 回归测试.mp3")); err != nil {
+		t.Fatalf("file must land in library: %v", err)
 	}
 }
