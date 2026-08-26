@@ -163,11 +163,7 @@ func main() {
 		// Transfer upload streams large bodies (per-file cap enforced in the
 		// handler via io.LimitReader); use exact match to avoid false positives
 		// on similar paths.
-		if r.URL.Path != "/api/admin/transfer/upload" &&
-			r.URL.Path != "/api/admin/media-center/app-release" &&
-			r.URL.Path != "/api/admin/media-center/catalog/import" {
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
-		}
+		applyBodyLimit(w, r)
 		// Static assets: /assets/ 是指纹文件名(内容哈希),可永久缓存;
 		// favicon.svg / icons.svg 非指纹,更新后需尽快生效,只给短缓存。
 		// 两者都跳过 rate limit(高频低价值)。
@@ -251,4 +247,27 @@ func isStaticAsset(path string) bool {
 	return len(path) >= 8 &&
 		(path == "/favicon.svg" || path == "/icons.svg" ||
 			(len(path) > 8 && path[:8] == "/assets/"))
+}
+
+// bodyLimitExempt 列出豁免全局 1MB 请求体上限的大上传端点;各自 handler 内
+// 用 MaxBytesReader/io.LimitReader 施加自己的上限。新增大上传端点必须加进
+// 此名单,否则 multipart 解析在 1MB 处即失败(music-library 上传曾因未豁免
+// 而全部 400)。精确匹配,防相似路径误豁免。
+var bodyLimitExemptPaths = map[string]bool{
+	"/api/admin/transfer/upload":             true, // handler: 2GB
+	"/api/admin/media-center/app-release":    true, // APK 发布上传
+	"/api/admin/media-center/catalog/import": true, // 目录导入
+	"/api/admin/music-library/upload":        true, // handler: 408MB(multipart)
+}
+
+func bodyLimitExempt(path string) bool {
+	return bodyLimitExemptPaths[path]
+}
+
+// applyBodyLimit 对未豁免路径施加全局 1MB 请求体上限(大上传端点见
+// bodyLimitExemptPaths,由各 handler 自行限制)。抽成函数以便测试覆盖完整链路。
+func applyBodyLimit(w http.ResponseWriter, r *http.Request) {
+	if !bodyLimitExempt(r.URL.Path) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
+	}
 }
