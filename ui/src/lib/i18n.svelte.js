@@ -501,7 +501,7 @@ const zh = {
   musicUploadCount: '上传 {n} 个文件',
   musicUploadDone: '已上传 {n} 个文件',
   musicUploadHint:
-    '支持 mp3/wav/flac/m4a/ogg/aac/opus，单文件 ≤200MB，单次 ≤50 个；按「歌手 - 歌名.ext」命名可自动解析歌手与歌名，同名文件将被覆盖。',
+    '支持 mp3/wav/flac/m4a/ogg/aac/opus，单文件 ≤200MB，单批总体积 ≤100MB（Cloudflare 限制）；按「歌手 - 歌名.ext」命名可自动解析歌手与歌名，同名文件将被覆盖。',
   musicDeleteConfirm: '删除 {name}？',
   musicDeleteDone: '已删除',
   musicLibraryEmpty: '曲库还是空的，上传第一批音频吧',
@@ -1045,7 +1045,7 @@ const en = {
   musicUploadCount: 'Upload {n} files',
   musicUploadDone: '{n} file(s) uploaded',
   musicUploadHint:
-    'Supports mp3/wav/flac/m4a/ogg/aac/opus, up to 200MB each and 50 files per batch; name files as "Artist - Title.ext" to parse metadata, same names are overwritten.',
+    'Supports mp3/wav/flac/m4a/ogg/aac/opus, up to 200MB each and 100MB per batch (Cloudflare limit); name files as "Artist - Title.ext" to parse metadata, same names are overwritten.',
   musicDeleteConfirm: 'Delete {name}?',
   musicDeleteDone: 'Deleted',
   musicLibraryEmpty: 'The library is empty. Upload your first audio files.',
