@@ -397,6 +397,12 @@ export async function getMusicLibrary() {
 
 // 上传走组件内 XHR(进度/取消),这里只暴露端点 URL(同 transferUploadUrl 模式)。
 export const musicLibraryUploadUrl = BASE + '/music-library/upload';
+export const musicChunkUploadUrl = BASE + '/music-library/upload-chunk';
+
+// 分片续传查询:返回 {received, total, fileName}(无会话时 received 为空)。
+export async function getMusicChunks(uploadId) {
+  return req(`/music-library/upload-chunk?uploadId=${encodeURIComponent(uploadId)}`);
+}
 
 export async function deleteMusicLibraryFile(name) {
   return req(`/music-library?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
