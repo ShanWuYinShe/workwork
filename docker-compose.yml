@@ -55,6 +55,11 @@ services:
       # SETGID+SETUID: nginx master 以 root 运行，worker 需要降权到 nginx (uid 101)
       - SETGID
       - SETUID
+      # DAC_OVERRIDE: logrotate 后 master reopen 会把日志 chown 给 uid 101(0644),
+      # 此后 root master 无此 cap 便打不开自己的日志文件,reload(新 cycle 重新
+      # 打开日志)全部静默失败——封禁同步/IP 轮换/配置更新长期不生效。HTTP 暴露
+      # 面在无任何 cap 的 worker 上,master 多此 cap 风险可控(docker 默认含此 cap)。
+      - DAC_OVERRIDE
     depends_on:
       admin:
         condition: service_healthy
