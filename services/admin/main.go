@@ -90,6 +90,9 @@ func main() {
 	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
 	mux.HandleFunc("GET /api/admin/music-library", requireRole("admin")(apiMusicLibraryList()))
 	mux.HandleFunc("POST /api/admin/music-library/upload", requireRole("admin")(apiMusicLibraryUpload()))
+	// 分片上传（大文件绕过 CF 单请求 100MB 上限 + 断点续传）
+	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", requireRole("admin")(apiMusicChunkUpload()))
+	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", requireRole("admin")(apiMusicChunkQuery()))
 	mux.HandleFunc("DELETE /api/admin/music-library", requireRole("admin")(apiMusicLibraryDelete()))
 	// 网易云账号扫码登录：二维码生成 / 轮询（成功写 cookie 文件）/ 状态 / 登出
 	mux.HandleFunc("POST /api/admin/music/netease/login/start", requireRole("admin")(apiNeteaseLoginStart()))
@@ -208,6 +211,8 @@ func main() {
 
 	cleanupOrphanTransferTempFiles()
 	go transferCleanupLoop(ctx)
+	cleanupExpiredChunkUploads()
+	go chunkCleanupLoop(ctx)
 
 	go func() {
 		log.Printf("Admin panel listening on %s", srv.Addr)
@@ -258,6 +263,7 @@ var bodyLimitExemptPaths = map[string]bool{
 	"/api/admin/media-center/app-release":    true, // APK 发布上传
 	"/api/admin/media-center/catalog/import": true, // 目录导入
 	"/api/admin/music-library/upload":        true, // handler: 408MB(multipart)
+	"/api/admin/music-library/upload-chunk":  true, // handler: 单片 8MB+开销
 }
 
 func bodyLimitExempt(path string) bool {

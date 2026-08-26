@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import {
     getMusicLibrary,
+    getMusicChunks,
     musicLibraryUploadUrl,
+    musicChunkUploadUrl,
     deleteMusicLibraryFile,
     neteaseLoginStart,
     neteaseLoginPoll,
@@ -22,8 +24,9 @@
   let picked = $state([]); // File[]
   let dragOver = $state(false);
   let uploading = $state(false);
-  let uploadProgress = $state(null); // {bytes, total, percent}
+  let uploadProgress = $state(null); // {bytes, total} 全队列字节聚合
   let uploadXhr = $state(null);
+  let phaseLabel = $state(''); // 当前阶段(批量第 n 批 / 分片上传 xxx)
   let lastSkipped = $state([]); // 最近一次上传被跳过的文件明细
 
   // 曲库列表:搜索 + 列头排序
@@ -173,62 +176,206 @@
     picked = [];
   }
 
+  // ── 上传执行 ──
+  // 小文件(≤16MB)聚合 multipart 批量上传;大文件走 8MB 分片(绕过 Cloudflare
+  // 单请求 100MB 上限,支持断点续传)。进度按全队列字节聚合。
+
+  const CHUNK_SIZE = 8 << 20;
+  const SMALL_FILE_THRESHOLD = 16 << 20;
+  const BATCH_BYTES_LIMIT = 80 << 20; // 单批总量上限,留出 CF 100MB 余量
+  const MAX_FILE_BYTES = 200 << 20;
+
+  async function sha256Hex(buf) {
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // uploadId 跨会话稳定(文件名/大小/mtime/首1MB 内容派生),刷新后重传同一
+  // 文件可续传;文件内容变化(首1MB/mtime/大小)则派生新 id,不会错拼。
+  async function deriveUploadId(file) {
+    const headHash = await sha256Hex(await file.slice(0, 1 << 20).arrayBuffer());
+    const seed = new TextEncoder().encode(
+      `${file.name}:${file.size}:${file.lastModified}:${headHash}`,
+    );
+    return sha256Hex(seed);
+  }
+
+  // 通用 multipart XHR POST(进度/取消/超时);multipart 批量与分片单片共用。
+  function xhrPostForm(url, form, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      uploadXhr = xhr;
+      xhr.timeout = 10 * 60 * 1000; // 单请求最大 80MB 批 / 8MB 片,10min 足够
+      xhr.ontimeout = () => reject(new Error(t('uploadTimeout')));
+      xhr.open('POST', url);
+      xhr.withCredentials = true;
+      if (onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded);
+        };
+      }
+      xhr.onload = () => {
+        uploadXhr = null;
+        try {
+          const json = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300 && json.success) resolve(json.data);
+          else reject(new Error(json.error || `${xhr.status} ${xhr.statusText}`));
+        } catch {
+          reject(new Error(`${xhr.status} ${xhr.statusText}`));
+        }
+      };
+      xhr.onerror = () => {
+        uploadXhr = null;
+        reject(new Error('Network error'));
+      };
+      xhr.send(form);
+    });
+  }
+
+  const chunkBytes = (file, index) => Math.min(CHUNK_SIZE, file.size - index * CHUNK_SIZE);
+
+  // 分片上传单个大文件:onBytes(fileOffset) 报告该文件已传字节(含当前片进度)。
+  async function uploadFileChunked(file, onBytes) {
+    const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+    const uploadId = await deriveUploadId(file);
+
+    // 续传:查询已收分片,跳过已传部分。布局(total)不一致时服务端首片会重置,
+    // 这里同样按无进度处理。
+    let state = { received: [], total: 0 };
+    try {
+      state = await getMusicChunks(uploadId);
+    } catch {
+      // 查询失败不阻断:按全新上传继续。
+    }
+    const received = new Set(state.total === total ? state.received : []);
+    let doneBytes = 0;
+    for (const i of received) doneBytes += chunkBytes(file, i);
+    if (received.size > 0) toast(t('musicChunkResumed', { name: file.name, n: received.size }));
+    onBytes(doneBytes);
+
+    for (let i = 0; i < total; i++) {
+      if (received.has(i)) continue;
+      const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+      const sha = await sha256Hex(await blob.arrayBuffer());
+      let resp;
+      // 单片重试:网络抖动/超时常见,重传单片代价小。
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const form = new FormData();
+          form.append('uploadId', uploadId);
+          form.append('index', String(i));
+          form.append('total', String(total));
+          form.append('fileName', file.name);
+          form.append('sha256', sha);
+          form.append('chunk', blob);
+          resp = await xhrPostForm(musicChunkUploadUrl, form, (loaded) =>
+            onBytes(doneBytes + loaded),
+          );
+          break;
+        } catch (e) {
+          if (attempt >= 2 || cancelledUpload) throw e;
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
+      for (const idx of resp.received ?? []) received.add(idx);
+      doneBytes += chunkBytes(file, i);
+      onBytes(doneBytes);
+      if (resp.complete) return resp.saved ?? file.name;
+    }
+    throw new Error(t('musicChunkIncomplete'));
+  }
+
+  let cancelledUpload = false;
+
   async function upload() {
     if (picked.length === 0) return;
-    const form = new FormData();
-    for (const f of picked) form.append('files', f);
+    cancelledUpload = false;
     uploading = true;
     uploadProgress = null;
+    phaseLabel = '';
     lastSkipped = [];
-    try {
-      // 批量最多 50 个 × 200MB,fetch 无上传进度且无法取消,走 XHR(同 Transfer 页)。
-      const result = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        uploadXhr = xhr;
-        xhr.timeout = 2 * 60 * 60 * 1000;
-        xhr.ontimeout = () => reject(new Error(t('uploadTimeout')));
-        xhr.open('POST', musicLibraryUploadUrl);
-        xhr.withCredentials = true;
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            uploadProgress = {
-              bytes: e.loaded,
-              total: e.total,
-              percent: Math.round((e.loaded * 100) / e.total),
-            };
-          }
-        };
-        xhr.onload = () => {
-          try {
-            const json = JSON.parse(xhr.responseText);
-            if (xhr.status >= 200 && xhr.status < 300 && json.success) {
-              resolve(json.data);
-            } else {
-              reject(new Error(json.error || `${xhr.status} ${xhr.statusText}`));
-            }
-          } catch {
-            reject(new Error(`${xhr.status} ${xhr.statusText}`));
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.send(form);
-      });
 
-      const savedCount = result?.saved?.length ?? 0;
-      lastSkipped = result?.skipped ?? [];
-      if (savedCount > 0) toast(t('musicUploadDone', { n: savedCount }), 'success');
+    // 前置过滤超限文件(后端 200MB 也会拒,提前给明确提示)。
+    const oversize = picked.filter((f) => f.size > MAX_FILE_BYTES);
+    const active = picked.filter((f) => f.size <= MAX_FILE_BYTES);
+    lastSkipped = oversize.map((f) => `${f.name}(${t('musicOversize')})`);
+
+    const small = active.filter((f) => f.size <= SMALL_FILE_THRESHOLD);
+    const big = active.filter((f) => f.size > SMALL_FILE_THRESHOLD);
+    const totalBytes = active.reduce((s, f) => s + f.size, 0);
+    let sentBytes = 0;
+    const report = () => {
+      uploadProgress = { bytes: sentBytes, total: totalBytes };
+    };
+
+    try {
+      const savedNames = [];
+
+      // Phase 1:小文件按 80MB 滚动分批 multipart(单批避开 CF 100MB)。
+      let batch = [];
+      let batchBytes = 0;
+      const flushBatch = async () => {
+        if (batch.length === 0) return;
+        const form = new FormData();
+        for (const f of batch) form.append('files', f);
+        phaseLabel = t('musicPhaseBatch', { n: batch.length });
+        const base = sentBytes;
+        const result = await xhrPostForm(musicLibraryUploadUrl, form, (loaded) => {
+          sentBytes = base + loaded;
+          report();
+        });
+        sentBytes = base + batchBytes;
+        report();
+        savedNames.push(...(result?.saved ?? []));
+        lastSkipped = [...lastSkipped, ...(result?.skipped ?? [])];
+        batch = [];
+        batchBytes = 0;
+      };
+      for (const f of small) {
+        if (batchBytes + f.size > BATCH_BYTES_LIMIT && batch.length > 0) await flushBatch();
+        batch.push(f);
+        batchBytes += f.size;
+      }
+      await flushBatch();
+
+      // Phase 2:大文件逐个分片(串行,服务端收齐自动合并)。
+      for (const f of big) {
+        phaseLabel = t('musicPhaseChunk', { name: f.name });
+        try {
+          const base = sentBytes;
+          const saved = await uploadFileChunked(f, (fileBytes) => {
+            sentBytes = base + fileBytes;
+            report();
+          });
+          savedNames.push(saved);
+        } catch (e) {
+          if (cancelledUpload) throw e;
+          lastSkipped = [...lastSkipped, `${f.name}(${e.message})`];
+        }
+      }
+
+      sentBytes = totalBytes;
+      report();
+      if (savedNames.length > 0) toast(t('musicUploadDone', { n: savedNames.length }), 'success');
       picked = [];
       await load();
     } catch (e) {
-      toast(e.message, 'error');
+      if (cancelledUpload) {
+        toast(t('musicUploadCancelled'));
+        await load(); // 已完成的批次/分片可能已入库,刷新列表
+      } else {
+        toast(e.message, 'error');
+      }
     } finally {
       uploading = false;
       uploadProgress = null;
       uploadXhr = null;
+      phaseLabel = '';
     }
   }
 
   function cancelUpload() {
+    cancelledUpload = true;
     uploadXhr?.abort();
   }
 
@@ -388,7 +535,9 @@
             <button class="btn btn-sm btn-primary" onclick={upload} disabled={uploading}>
               {#if uploading}
                 <span class="spinner"></span>
-                {uploadProgress ? uploadProgress.percent + '%' : t('uploading')}
+                {uploadProgress && uploadProgress.total
+                  ? Math.round((uploadProgress.bytes * 100) / uploadProgress.total) + '%'
+                  : t('uploading')}
               {:else}
                 {t('musicUploadCount', { n: picked.length })}
               {/if}
@@ -407,9 +556,15 @@
         {#if uploading && uploadProgress}
           <div class="queue-progress">
             <div class="progress-bar progress-bar-thin">
-              <div class="progress-fill" style="width:{uploadProgress.percent || 0}%;"></div>
+              <div
+                class="progress-fill"
+                style="width:{uploadProgress.total
+                  ? Math.min(100, (uploadProgress.bytes * 100) / uploadProgress.total)
+                  : 0}%;"
+              ></div>
             </div>
             <div class="progress-caption">
+              {phaseLabel ? phaseLabel + ' · ' : ''}
               {fmtSize(uploadProgress.bytes)} / {uploadProgress.total
                 ? fmtSize(uploadProgress.total)
                 : '?'}
