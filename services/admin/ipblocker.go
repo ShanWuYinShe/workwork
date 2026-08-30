@@ -106,6 +106,21 @@ func (s *ipBlockStore) remove(ip string) {
 	s.Entries = kept
 }
 
+// find 返回指定 IP 封禁条目的副本（锁内读，nil 表示未封禁）。
+// 供 apiBlockIP 回读「add 后实际生效」的条目——add 对已封禁 IP 是覆盖
+// 语义（更新 reason/时长），回读才能保证响应反映真实状态而非请求参数。
+func (s *ipBlockStore) find(ip string) *ipBlockEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Entries {
+		if s.Entries[i].IP == ip {
+			e := s.Entries[i]
+			return &e
+		}
+	}
+	return nil
+}
+
 // cleanupExpired 移除已过期的封禁条目，防止 blocked-ips.json 无限增长。
 func (s *ipBlockStore) cleanupExpired() {
 	s.mu.Lock()
@@ -194,27 +209,49 @@ func apiBlockIP() http.HandlerFunc {
 			Duration int    `json:"duration"`
 		}
 		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+			writeErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			writeError(w, "IP required", 400)
+			writeErrorCode(w, "IP required", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			writeError(w, "Invalid IP address", 400)
+			writeErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
 			return
 		}
 		// duration < 0 silently creates a permanent block; reject it explicitly.
 		// duration == 0 is allowed (= permanent).
 		if body.Duration < 0 {
-			writeError(w, "Duration must be >= 0 (0 = permanent)", 400)
+			writeErrorCode(w, "Duration must be >= 0 (0 = permanent)", 400, errCodeInvalidDuration)
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second
 		ipBlocker.add(body.IP, body.Reason, dur)
 		ipBlocker.save()
-		writeJSON(w, map[string]string{"status": "ok"})
+
+		// 回读生效条目：add 对已封禁 IP 是覆盖（更新 reason/时长），
+		// 用回读结果构造响应，保证展示的封禁状态与持久化一致。
+		entry := ipBlocker.find(body.IP)
+		kind := "permanent"
+		if entry != nil && entry.ExpiresAt != "" {
+			kind = "temporary"
+		}
+		_, actor := getUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
+		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
+			body.IP, body.Reason, body.Duration, kind, actor)
+
+		writeJSON(w, map[string]any{
+			"status": "ok",
+			"block": map[string]any{
+				"ip":         body.IP,
+				"reason":     body.Reason,
+				"blocked_at": entry.BlockedAt,
+				"expires_at": entry.ExpiresAt, // 空串 = 永久
+				"kind":       kind,
+				"duration":   body.Duration,
+			},
+		})
 	}
 }
 
@@ -224,19 +261,28 @@ func apiUnblockIP() http.HandlerFunc {
 			IP string `json:"ip"`
 		}
 		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+			writeErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			writeError(w, "IP required", 400)
+			writeErrorCode(w, "IP required", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			writeError(w, "Invalid IP address", 400)
+			writeErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
+			return
+		}
+		// 幂等提示分支：目标不在列表 → 404 + 错误码（明确语义而非静默 ok）。
+		// 注意：fail2ban 的 unban 在 bantime 到期后触发，此时条目可能已被
+		// cleanupExpired 清理，404 属预期，action 侧应容忍（见 admin-api.conf）。
+		if prev := ipBlocker.find(body.IP); prev == nil {
+			writeErrorCode(w, "IP is not blocked", http.StatusNotFound, errCodeBlockNotFound)
 			return
 		}
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()
+		_, actor := getUserFromContext(r)
+		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
