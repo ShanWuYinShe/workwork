@@ -11,9 +11,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,8 +31,27 @@ const (
 // neteaseCookiePath var 供测试替换。
 var neteaseCookiePath = neteaseCookiePathDefault
 
-// musicURe 从 check 响应的 Set-Cookie 风格串中提取 MUSIC_U 值。
-var musicURe = regexp.MustCompile(`MUSIC_U=([0-9a-zA-Z]+)`)
+// extractMusicU 从扫码成功返回的 cookie 串中提取 MUSIC_U 值。
+// 不用正则匹配：cookie 值可能含 _ / - / URL 编码字符（%xx），旧的正则
+// `[0-9a-zA-Z]+` 会截断导致登录态不完整（扫码成功但解锁静默失败）。
+// 按 cookie 语义解析：分号分段后在段内定位 MUSIC_U= 取值到段尾（兼容
+// 段间逗号分隔，如 "Path=/, MUSIC_U=xxx"），再做 URL 解码。
+func extractMusicU(cookie string) string {
+	const prefix = "MUSIC_U="
+	for _, part := range strings.Split(cookie, ";") {
+		if idx := strings.Index(part, prefix); idx >= 0 {
+			raw := strings.TrimSpace(part[idx+len(prefix):])
+			if raw == "" {
+				return ""
+			}
+			if dec, err := url.QueryUnescape(raw); err == nil {
+				raw = dec
+			}
+			return raw
+		}
+	}
+	return ""
+}
 
 // neteaseLoginSession 保存一次扫码会话(key 对应的二维码)。
 type neteaseLoginSession struct {
@@ -157,13 +177,13 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 			writeJSON(w, map[string]any{"code": check.Code, "message": check.Message})
 			return
 		case 803:
-			m := musicURe.FindStringSubmatch(check.Cookie)
-			if m == nil {
+			musicU := extractMusicU(check.Cookie)
+			if musicU == "" {
 				log.Printf("netease login 803 without MUSIC_U cookie")
 				writeError(w, "登录成功但未取得凭证，请重试", http.StatusBadGateway)
 				return
 			}
-			if err := writeNeteaseCookie("MUSIC_U=" + m[1]); err != nil {
+			if err := writeNeteaseCookie("MUSIC_U=" + musicU); err != nil {
 				writeInternalError(w, err)
 				return
 			}

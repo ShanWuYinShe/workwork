@@ -2,6 +2,11 @@
 ignoreself = true
 ignoreip = 127.0.0.1/8 ::1
 
+# 只保留一个 nginx-auth jail（原 nginx-secure-auth / admin-manual 已合并）：
+# 三个 jail 监听同一日志、同一 filter、调用同一 admin block API，导致
+# 同一批 401 被各自计数、封禁时长（3600/7200/86400s）不可预期，且任一
+# jail 的 unban（bantime 到期）会解除 admin 侧的整条封禁，另两个 jail
+# 的剩余封禁期被提前终止——防御时长被削弱。合并为一档后行为可预期。
 [nginx-auth]
 enabled = true
 filter = nginx-auth
@@ -10,24 +15,6 @@ action = admin-api
 bantime = 3600
 findtime = 300
 maxretry = 8
-
-[nginx-secure-auth]
-enabled = true
-filter = nginx-auth
-logpath = /var/log/nginx/admin-access.log
-action = admin-api
-bantime = 7200
-findtime = 600
-maxretry = 15
-
-[admin-manual]
-enabled = true
-filter = nginx-auth
-logpath = /var/log/nginx/admin-access.log
-action = admin-api
-bantime = 86400
-findtime = 60
-maxretry = 20
 
 [sshd]
 enabled = false
