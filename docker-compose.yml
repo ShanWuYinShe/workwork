@@ -152,10 +152,22 @@ services:
       args:
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
     restart: unless-stopped
+    init: true
     environment:
       - TZ=Asia/Shanghai
     networks:
       - xray_egress
+    security_opt:
+      - "no-new-privileges:true"
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     cap_drop:
       - ALL
     ports:
@@ -170,6 +182,14 @@ services:
     depends_on:
       xray:
         condition: service_healthy
+    healthcheck:
+      # 转发面只关心本容器 443 是否在监听；xray 本身健康由 xray 的
+      # healthcheck 保证，这里不做重复的端到端探测。
+      test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   media_server:
     build:

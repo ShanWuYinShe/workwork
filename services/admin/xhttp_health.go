@@ -22,11 +22,22 @@ const (
 	checkInterval  = 5 * time.Minute
 	checkWindow    = "2m"
 	cooldownPeriod = 15 * time.Minute
-	threshold      = 3
+	// minBadPosts 是触发重启的最低失败数（绝对阈值）：窗口内零星 400
+	// （单个客户端协议不匹配）不会触发。
+	minBadPosts = 3
+	// minBadRatioPct 是失败占比阈值（百分比）：窗口内混入少量正常请求时
+	// （如合法客户端正在使用）不判定为 transport 整体损坏。旧逻辑
+	// `total == bad` 在攻击者用认证后的垃圾 POST 制造全 400 时会把 xray
+	// 拖入重启循环（每冷却期重启一次 → 全体代理周期性抖动）。
+	minBadRatioPct = 80
+	// maxRestartsPerHour 是 1 小时内的重启次数上限：达到上限后只告警不
+	// 重启，防止自愈逻辑本身成为 DoS 向量。
+	maxRestartsPerHour = 2
 )
 
 func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
-	var lastRestart time.Time
+	// restartHistory 保存最近重启时间，用于冷却期 + 每小时上限双重约束。
+	var restartHistory []time.Time
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
@@ -35,17 +46,34 @@ func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if time.Since(lastRestart) < cooldownPeriod {
+			if len(restartHistory) > 0 && time.Since(restartHistory[len(restartHistory)-1]) < cooldownPeriod {
 				continue
 			}
 			total, bad := countXHTTPPosts(ctx, cli)
-			if total >= threshold && total == bad {
+			// 双条件：失败数达标 且 失败占比达标（bad*100 >= total*80，
+			// total 为 0 时不成立，天然避免除零）。
+			if bad >= minBadPosts && bad*100 >= total*minBadRatioPct {
+				// 滑动 1 小时窗口计数，裁剪过期记录。
+				cutoff := time.Now().Add(-time.Hour)
+				recent := 0
+				kept := restartHistory[:0]
+				for _, t := range restartHistory {
+					if t.After(cutoff) {
+						kept = append(kept, t)
+						recent++
+					}
+				}
+				restartHistory = kept
+				if recent >= maxRestartsPerHour {
+					log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", bad, total, maxRestartsPerHour)
+					continue
+				}
 				log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
 				if err := restartXray(ctx, cli); err != nil {
 					log.Printf("[xhttp-health] restart failed: %v", err)
 					continue
 				}
-				lastRestart = time.Now()
+				restartHistory = append(restartHistory, time.Now())
 				log.Printf("[xhttp-health] xray restarted successfully")
 			}
 		}
@@ -68,9 +96,10 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	logs, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
 		ShowStdout: true,
 		Since:      checkWindow,
-		// packet-up 模式每包一个 POST，2 分钟窗口内可能远超 200 行；
-		// tail 太小会只看到窗口尾部，早期故障被漏检。
-		Tail: "2000",
+		// 时间过滤优先于行数：packet-up 模式每包一个 POST，2 分钟窗口内
+		// 高流量可能远超固定 Tail 行数，固定行数会截断窗口早期、漏检故障。
+		// 去掉 Tail 后窗口内日志全量返回，5 分钟低频检查的 stdout buffer
+		// 开销可接受（正确性优先）。
 	})
 	if err != nil {
 		return 0, 0

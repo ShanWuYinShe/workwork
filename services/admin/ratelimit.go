@@ -29,6 +29,12 @@ var authRateLimiter = &rateLimiter{
 	banTime: 30 * time.Minute, // ban for 30 minutes
 }
 
+// maxRateLimitEntries 限制内存型限流表的最大条目数。走 Cloudflare 时
+// clientIP() 是真实客户端 IPv6，攻击者可用海量源地址持续制造新 key；
+// 若无上限，1 分钟一次的 cleanup 跟不上写入速度，最终撑爆 256M 容器内存。
+// 超过上限后新 IP 直接 429（已有条目不受影响），OOM 风险被消除。
+const maxRateLimitEntries = 100000
+
 func (rl *rateLimiter) start() {
 	rl.stopChan = make(chan struct{})
 	go rl.cleanupLoop()
@@ -90,6 +96,12 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	e, exists := rl.entries[ip]
 	if !exists {
+		// 容量上限守卫：新 IP 在表满时直接拒绝，保护内存不被无限增长。
+		// 只拒绝新 key，不影响已跟踪 IP 的判定。
+		if len(rl.entries) >= maxRateLimitEntries {
+			rl.mu.Unlock()
+			return false
+		}
 		e = &rateLimitEntry{}
 		rl.entries[ip] = e
 	}
