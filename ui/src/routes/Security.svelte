@@ -39,13 +39,27 @@
     if (ipError || blocking) return;
     blocking = true;
     try {
-      await blockIP(newIP.trim(), newReason, parseInt(newDuration, 10));
-      toast(t('ipBlocked', { ip: newIP }), 'success');
+      const data = await blockIP(newIP.trim(), newReason, parseInt(newDuration, 10));
+      // 用服务端回读的封禁详情展示真实状态（add 对已封禁 IP 是覆盖语义，
+      // 响应反映的是实际生效的 kind/expires_at，而非请求参数）。
+      const b = data?.block;
+      if (b?.kind === 'permanent') {
+        toast(t('ipBlockedPermanent', { ip: b.ip }), 'success');
+      } else {
+        toast(t('ipBlockedUntil', { ip: b.ip, until: b?.expires_at?.slice(0, 16) }), 'success');
+      }
       newIP = '';
       newReason = '';
       await refresh();
     } catch (e) {
-      toast(e.message, 'error');
+      // 按机器可读错误码分支提示；未知错误回退展示原始 message（含服务端文案）
+      if (e.code === 'INVALID_DURATION') {
+        toast(t('errInvalidDuration'), 'error');
+      } else if (e.code === 'INVALID_IP') {
+        toast(t('errIpFormat'), 'error');
+      } else {
+        toast(e.message, 'error');
+      }
     } finally {
       blocking = false;
     }
@@ -58,7 +72,13 @@
       toast(t('ipUnblocked', { ip }), 'success');
       await refresh();
     } catch (e) {
-      toast(e.message, 'error');
+      if (e.code === 'BLOCK_NOT_FOUND') {
+        // 幂等场景（如 fail2ban 已自动解封 / 条目被清理）：提示而非报错，并刷新列表
+        toast(t('errNotBlocked', { ip }), 'info');
+        await refresh();
+      } else {
+        toast(e.message, 'error');
+      }
     }
   }
 </script>

@@ -3,6 +3,17 @@ const FETCH_TIMEOUT = 30000;
 const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
 const APK_UPLOAD_TIMEOUT = 30 * 60 * 1000;
 
+// ApiError 保留服务端 error_code 与原始响应体，供 UI 按业务分支展示。
+// message 始终是服务端 error 原文（原始错误信息完整透传，不被统一文案覆盖）。
+export class ApiError extends Error {
+  constructor(message, { code = '', details = null } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
   const headers = { ...opts.headers };
@@ -21,7 +32,12 @@ async function req(path, opts = {}) {
       headers,
     });
     const json = await parseJSONResponse(r);
-    if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
+    if (!r.ok || !json.success) {
+      throw new ApiError(json.error || `${r.status} ${r.statusText}`, {
+        code: json.error_code,
+        details: json,
+      });
+    }
     return json.data;
   } finally {
     clearTimeout(timer);
