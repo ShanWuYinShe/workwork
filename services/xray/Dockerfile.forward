@@ -9,4 +9,7 @@ FROM alpine:${ALPINE_VERSION:-3.24.1}
 RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
     && apk add --no-cache socat
 EXPOSE 443
-CMD ["socat", "TCP-LISTEN:443,fork,reuseaddr", "TCP:xray:443"]
+# max-children=256: 限制 fork 模式的并发子进程数,超出后新连接被拒绝。
+# 纯 TCP 转发器没有应用层鉴权,公网暴露在 443,无上限的 fork 会被连接
+# 洪泛打满(每个连接一个子进程),导致容器资源耗尽。
+CMD ["socat", "TCP-LISTEN:443,fork,reuseaddr,max-children=256", "TCP:xray:443"]
