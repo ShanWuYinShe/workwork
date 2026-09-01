@@ -175,9 +175,14 @@ func headerIP(raw string) net.IP {
 	return net.ParseIP(raw)
 }
 
+// forwardedForIP 从 X-Forwarded-For 链解析客户端 IP。取"最后一个可解析条目"
+// 而非第一个:nginx 用 $proxy_add_x_forwarded_for 追加的 $remote_addr 在末尾,
+// 是可信的一跳;链首由客户端可伪造(纵深防御——正常路径 nginx 恒设置 X-Real-IP,
+// 此函数仅在 X-Real-IP 缺失时兜底)。
 func forwardedForIP(raw string) net.IP {
-	for _, part := range strings.Split(raw, ",") {
-		if ip := headerIP(part); ip != nil {
+	parts := strings.Split(raw, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if ip := headerIP(parts[i]); ip != nil {
 			return ip
 		}
 	}
@@ -221,9 +226,11 @@ func apiBlockIP() http.HandlerFunc {
 			return
 		}
 		// duration < 0 silently creates a permanent block; reject it explicitly.
-		// duration == 0 is allowed (= permanent).
-		if body.Duration < 0 {
-			writeErrorCode(w, "Duration must be >= 0 (0 = permanent)", 400, errCodeInvalidDuration)
+		// duration == 0 is allowed (= permanent). Upper bound guards the
+		// time.Duration multiply: values over ~292 years overflow int64 to
+		// negative and would silently turn into a permanent block.
+		if body.Duration < 0 || int64(body.Duration) > int64((10*365*24*time.Hour)/time.Second) {
+			writeErrorCode(w, "Duration must be 0 (permanent) or at most 10 years in seconds", 400, errCodeInvalidDuration)
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second

@@ -50,17 +50,25 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// redactRequestPath 脱敏敏感路径:/api/transfer/{code} 的分享码相当于临时下载
+// redactRequestPath 脱敏敏感路径:分享码/客户端 UUID/扫码会话 key 相当于临时
 // 凭据,写进日志文件即泄露(日志可能被转发/留存);保留 query 便于排查。
 func redactRequestPath(r *http.Request) string {
 	path := r.URL.RequestURI()
-	if strings.HasPrefix(path, "/api/transfer/") {
-		if idx := strings.Index(path, "?"); idx > 0 {
-			return "/api/transfer/[redacted]" + path[idx:]
-		}
-		return "/api/transfer/[redacted]"
+	q := ""
+	if idx := strings.Index(path, "?"); idx > 0 {
+		q = path[idx:]
+		path = path[:idx]
 	}
-	return path
+	switch {
+	case strings.HasPrefix(path, "/api/transfer/"):
+		return "/api/transfer/[redacted]" + q
+	case strings.HasPrefix(path, "/api/admin/users/xray/config/"):
+		return "/api/admin/users/xray/config/[redacted]" + q
+	case strings.HasPrefix(path, "/api/admin/music/netease/login/poll"):
+		// poll 的 ?key= 是扫码会话标识,与二维码绑定。
+		return "/api/admin/music/netease/login/poll?key=[redacted]"
+	}
+	return path + q
 }
 
 // statusRecorder 包裹 http.ResponseWriter 以捕获状态码与已写字节数。
