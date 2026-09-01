@@ -9,6 +9,9 @@ FROM alpine:${ALPINE_VERSION:-3.24.1}
 RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
     && apk add --no-cache socat
 EXPOSE 443
+# 非 root 运行:容器 netns 内 ip_unprivileged_port_start=0(同 xray 容器),
+# 443 对非 root 开放,cap_drop:ALL 下无需任何特权即可监听。
+USER nobody
 # max-children=256: 限制 fork 模式的并发子进程数,超出后新连接被拒绝。
 # 纯 TCP 转发器没有应用层鉴权,公网暴露在 443,无上限的 fork 会被连接
 # 洪泛打满(每个连接一个子进程),导致容器资源耗尽。
