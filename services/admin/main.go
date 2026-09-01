@@ -24,6 +24,12 @@ func main() {
 		log.Fatalf("Config generation failed: %v", err)
 	}
 
+	// 不要用 client.WithTimeout:它设置的是 http.Client.Timeout,即整个
+	// 请求-响应周期(含 body 读取)的硬墙,会把无 deadline 的长连接流掐断——
+	// 服务日志 SSE(/api/admin/services 的 logs/stream,Follow:true)会在
+	// 60s 后被硬切,ipWatcher 的 Events 流也会每 60s 断开重连。
+	// 需要超时兜底的自愈调用改为在调用点显式包 context deadline(见
+	// xhttpHealthChecker 的 restartXray、ipWatcher 的 restoreServiceRotatingIP)。
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
