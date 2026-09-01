@@ -65,7 +65,7 @@ var neteaseLoginMu sync.Mutex
 var neteaseLoginSessions = map[string]neteaseLoginSession{}
 
 func neteaseUpstreamBase() string {
-	return os.Getenv("NETEASE_API_BASE")
+	return getEnv("NETEASE_API_BASE")
 }
 
 // neteaseUpstreamGet 请求上游并原样返回 JSON body(只透传,不解析细节)。

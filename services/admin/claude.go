@@ -305,7 +305,8 @@ func apiClaudeCodeServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
 		if !strings.HasPrefix(filename, "claude-") ||
-			strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+			strings.Contains(filename, "..") || strings.Contains(filename, "/") ||
+			strings.Contains(filename, ".download-") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}
@@ -334,7 +335,8 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 			return
 		}
 		if !strings.HasPrefix(body.Filename, "claude-") ||
-			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") {
+			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") ||
+			strings.Contains(body.Filename, ".download-") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}

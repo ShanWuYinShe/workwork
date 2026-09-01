@@ -291,7 +291,8 @@ func apiXrayServeDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
 		if (!strings.HasPrefix(filename, "Xray-") && !strings.HasPrefix(filename, "xray-")) ||
-			strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+			strings.Contains(filename, "..") || strings.Contains(filename, "/") ||
+			strings.Contains(filename, ".download-") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}
@@ -320,7 +321,8 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 			return
 		}
 		if (!strings.HasPrefix(body.Filename, "Xray-") && !strings.HasPrefix(body.Filename, "xray-")) ||
-			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") {
+			strings.Contains(body.Filename, "..") || strings.Contains(body.Filename, "/") ||
+			strings.Contains(body.Filename, ".download-") {
 			writeError(w, "Invalid filename", 400)
 			return
 		}

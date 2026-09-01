@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -65,7 +66,7 @@ func syncBlockedIPsToNginx(cli *client.Client) error {
 	sb.WriteString("map $http_cf_connecting_ip $workwork_blocked_cf {\n")
 	sb.WriteString("    default 0;\n")
 	for _, e := range entries {
-		if e.IP != "" && !blockEntryExpired(e) {
+		if validBlockIP(e.IP) && !blockEntryExpired(e) {
 			sb.WriteString("    " + e.IP + " 1;\n")
 		}
 	}
@@ -73,7 +74,7 @@ func syncBlockedIPsToNginx(cli *client.Client) error {
 	sb.WriteString("map $remote_addr $workwork_blocked_direct {\n")
 	sb.WriteString("    default 0;\n")
 	for _, e := range entries {
-		if e.IP != "" && !blockEntryExpired(e) {
+		if validBlockIP(e.IP) && !blockEntryExpired(e) {
 			sb.WriteString("    " + e.IP + " 1;\n")
 		}
 	}
@@ -82,6 +83,14 @@ func syncBlockedIPsToNginx(cli *client.Client) error {
 		return fmt.Errorf("write %s: %w", nginxBlockedConfPath, err)
 	}
 	return reloadNginx(cli)
+}
+
+// validBlockIP 校验条目 IP 是合法 IP 再写入 nginx map。内存路径的条目都经过
+// ParseIP/客户端 IP 解析,但 load() 从磁盘恢复的 blocked-ips.json 未校验——
+// 文件被篡改时可借 map 配置向 nginx 注入任意指令,这里以 net.ParseIP 兜底。
+func validBlockIP(raw string) bool {
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	return ip != nil && raw == strings.TrimSpace(raw)
 }
 
 // blockEntryExpired 判断封禁条目是否已过期(ExpiresAt 为空 = 永久封禁)。
