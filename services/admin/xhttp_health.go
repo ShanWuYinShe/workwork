@@ -69,7 +69,13 @@ func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
 					continue
 				}
 				log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
-				if err := restartXray(ctx, cli); err != nil {
+				// 显式 deadline:后台 goroutine 继承的是 Background ctx,
+				// docker.sock 挂起时无此超时会永久卡住整个自检循环
+				// (与 apiServiceAction 的 2min 对齐)。
+				restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				err := restartXray(restartCtx, cli)
+				cancel()
+				if err != nil {
 					log.Printf("[xhttp-health] restart failed: %v", err)
 					continue
 				}
