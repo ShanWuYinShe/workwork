@@ -14,7 +14,9 @@ logpath = /var/log/nginx/admin-access.log
 action = admin-api
 bantime = 3600
 findtime = 300
-maxretry = 8
+# 在线撞库预算收紧:8 次/5min × 多 IP 仍有撞库空间;5 次对正常用户
+# (密码错几次)足够宽容,panel basic auth 有 bcrypt 兜底离线暴力。
+maxretry = 5
 
 [sshd]
 enabled = false

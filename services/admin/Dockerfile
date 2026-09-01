@@ -24,7 +24,8 @@ COPY services/admin/go.mod services/admin/go.sum ./
 RUN go mod download
 
 COPY services/admin/ ./
-RUN CGO_ENABLED=0 go build -o admin .
+# -trimpath -ldflags "-s -w": 去掉本地路径与符号表(与 media/music 镜像一致)。
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o admin .
 
 FROM alpine:${ALPINE_VERSION}
 

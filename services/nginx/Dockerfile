@@ -13,9 +13,10 @@ RUN curl -fsSL -o /etc/nginx/cloudflare-origin-pull.pem \
     && grep -q -- "-----BEGIN CERTIFICATE-----" /etc/nginx/cloudflare-origin-pull.pem \
     && grep -q -- "-----END CERTIFICATE-----" /etc/nginx/cloudflare-origin-pull.pem
 
-# Cloudflare IP range fetch script
+# Cloudflare IP range fetch script (+ scheduled refresh wrapper)
 COPY fetch-cloudflare-ips.sh /usr/local/bin/fetch-cloudflare-ips.sh
-RUN chmod +x /usr/local/bin/fetch-cloudflare-ips.sh
+COPY refresh-cloudflare-ips.sh /usr/local/bin/refresh-cloudflare-ips.sh
+RUN chmod +x /usr/local/bin/fetch-cloudflare-ips.sh /usr/local/bin/refresh-cloudflare-ips.sh
 
 COPY config/nginx-main.conf /etc/nginx/nginx.conf
 COPY config/logrotate.conf /etc/logrotate.d/nginx

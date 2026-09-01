@@ -33,7 +33,9 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
+    # 会话票据关闭 + 短超时:票据密钥长期不轮换会破坏 PFS(回放解密风险)。
+    ssl_session_tickets off;
+    ssl_session_timeout 4h;
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -109,7 +111,9 @@ server {
         __XHTTP_PROXY_AUTH__
         access_log /var/log/nginx/admin-access.log auth_log;
         access_log /dev/stdout auth_log;
-        client_max_body_size 0;
+        # packet-up 单 POST 携带单个 packet(远小于 MB 级);设 16m 上限封住
+        # 无限上传面,与 upload-chunk 档对齐。0(无上限)只省一次 413。
+        client_max_body_size 16m;
         client_body_timeout 3600s;
         proxy_pass http://unix:/run/xray/xrxh.socket;
         proxy_read_timeout 3600s;
@@ -230,5 +234,11 @@ server {
         add_header X-Frame-Options "DENY" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    }
+
+    # 兜底:未匹配路径显式 404,避免落到镜像默认静态根(/index.html、/50x.html)
+    # 暴露 nginx:alpine 默认页面。
+    location / {
+        return 404;
     }
 }
