@@ -238,11 +238,19 @@ func respondChunkErr(w http.ResponseWriter, err error) {
 	writeInternalError(w, err)
 }
 
-// saveChunk 校验单片 SHA-256 后原子落盘;重复片静默幂等(返回 saved=false)。
+// saveChunk 校验单片 SHA-256 后原子落盘;重复片幂等(返回 saved=false),但
+// 已存在分片与新片 SHA 不一致时报 409——静默接受旧分片会让断点续传把损坏/
+// 不同来源的内容合并入库,且上传者无从得知结果与意图不符。
 func saveChunk(uploadID string, index int, chunkSHA string, header *multipart.FileHeader) (bool, error) {
 	partPath := filepath.Join(chunkDir(uploadID), fmt.Sprintf("%06d.part", index))
-	if _, err := os.Stat(partPath); err == nil {
-		return false, nil // 已有同序号分片,续传幂等
+	if existing, err := os.ReadFile(partPath); err == nil {
+		sum := sha256.Sum256(existing)
+		if hex.EncodeToString(sum[:]) == chunkSHA {
+			return false, nil // 内容一致:续传幂等
+		}
+		return false, chunkErr("同序号分片已存在且内容不一致,请更换 uploadId 重传", http.StatusConflict)
+	} else if !os.IsNotExist(err) {
+		return false, err
 	}
 	src, err := header.Open()
 	if err != nil {

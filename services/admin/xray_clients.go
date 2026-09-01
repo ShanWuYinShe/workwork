@@ -147,6 +147,31 @@ func deleteXrayClientIfOwner(id string, ownerFilter string) (bool, error) {
 	return true, writeXrayClientsNoLock(kept)
 }
 
+// deleteXrayClientsByOwner 删除某 owner 名下的全部 client，返回删除数量。
+// 用于删除面板用户时联动撤销其代理身份（UUID 留存等同保留代理访问权）。
+func deleteXrayClientsByOwner(owner string) (int, error) {
+	xrayClientsMu.Lock()
+	defer xrayClientsMu.Unlock()
+
+	clients, err := readXrayClientsNoLock()
+	if err != nil {
+		return 0, err
+	}
+	var kept []xrayClientEntry
+	removed := 0
+	for _, c := range clients {
+		if c.Owner == owner {
+			removed++
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	return removed, writeXrayClientsNoLock(kept)
+}
+
 // ensureXrayClients initializes the data file on first run.
 func ensureXrayClients() error {
 	xrayClientsMu.Lock()

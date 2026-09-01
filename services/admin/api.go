@@ -268,6 +268,10 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 
 		// Admin: full system dashboard
 		info, err := cli.Info(r.Context())
+		if err != nil {
+			// 降级为全 0 stats,但留日志:Docker 故障不该表现为"无声的零值"。
+			log.Printf("dashboard: docker info: %v", err)
+		}
 		stats := map[string]string{
 			"services": "0", "running": "0", "dockerVersion": "-",
 			"cpu": "0", "memory": "-", "os": "-", "arch": "-",
@@ -420,6 +424,8 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 		Filters: composeProjectFilters(),
 	})
 	if err != nil {
+		// 前端会拿到空列表;无日志的话 daemon 故障无法与"没有服务"区分。
+		log.Printf("list services: %v", err)
 		return nil
 	}
 	var services []svcJSON
@@ -558,10 +564,15 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		// 避免 "550e8400-…" 与 "550E8400-…" 作为两个条目写入配置导致 Xray
 		// 加载重复 user 失败。
 		body.UUID = strings.ToLower(body.UUID)
-		if _, err := getOrCreateProxyPassword(username); err != nil {
-			log.Printf("Failed to create proxy password for %s: %v", username, err)
-			writeInternalError(w, err)
-			return
+		// internal 伪用户(X-Internal-Token 调用)不建 proxy 密码:否则
+		// users.json 出现 role 为空的 "internal" 条目,并在 .htpasswd-proxy
+		// 留下有效凭证行(与 proxyAuthForUser 的排除逻辑对齐)。
+		if username != "internal" {
+			if _, err := getOrCreateProxyPassword(username); err != nil {
+				log.Printf("Failed to create proxy password for %s: %v", username, err)
+				writeInternalError(w, err)
+				return
+			}
 		}
 
 		// requireRole 保证 userInfo 非 nil(死分支不复存在)
@@ -1051,6 +1062,35 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		if err := htpasswdRemoveUser(body.Username); err != nil {
 			writeInternalError(w, err)
 			return
+		}
+
+		// 撤销代理凭证：.htpasswd-proxy 从 users.json 重建，被删用户自动剔除。
+		// 此前只在启动/首次创建 proxy 密码时重建，被删用户的 bcrypt 行会
+		// 无限期残留，nginx /proxy/query 仍接受其密码。
+		if err := genProxyHtpasswd(); err != nil {
+			// 不作为整体失败：面板登录已删除，残留行在下次重建时失效。
+			log.Printf("ERROR: revoke proxy credentials for %s: %v", body.Username, err)
+		}
+
+		// 联动删除该用户的 Xray 客户端：UUID 不随用户删除失效，留存等同
+		// 保留完整代理访问权。有删除才重新生成配置并重启 xray。
+		removed, err := deleteXrayClientsByOwner(body.Username)
+		if err != nil {
+			log.Printf("ERROR: delete xray clients for %s: %v", body.Username, err)
+			writeJSON(w, map[string]string{"status": "ok"})
+			return
+		}
+		if removed > 0 {
+			if err := genXrayConfig(); err != nil {
+				log.Printf("ERROR: regenerate xray config after user delete: %v", err)
+				writeJSON(w, map[string]string{"status": "ok"})
+				return
+			}
+			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+			defer cancel()
+			if err := restartXray(restartCtx, cli); err != nil {
+				log.Printf("ERROR: restart xray after user delete: %v", err)
+			}
 		}
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
@@ -1883,7 +1923,13 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
-		if err != nil || len(containers) == 0 {
+		if err != nil {
+			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
+			log.Printf("list containers for logs (%s): %v", name, err)
+			writeInternalError(w, err)
+			return
+		}
+		if len(containers) == 0 {
 			writeError(w, "Service not found", 404)
 			return
 		}
@@ -1945,7 +1991,13 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
-		if err != nil || len(containers) == 0 {
+		if err != nil {
+			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
+			log.Printf("list containers for logs (%s): %v", name, err)
+			writeInternalError(w, err)
+			return
+		}
+		if len(containers) == 0 {
 			writeError(w, "Service not found", 404)
 			return
 		}
