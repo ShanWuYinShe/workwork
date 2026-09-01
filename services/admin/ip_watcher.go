@@ -76,7 +76,12 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 							log.Printf("[ip-watcher] panic restoring %s IP: %v", service, r)
 						}
 					}()
-					restoreServiceRotatingIP(ctx, cli, containerID, service)
+					// 显式 deadline:继承的是 Background ctx,docker.sock
+					// 挂起时无此超时会永久卡住事件处理(后续 start 事件
+					// 全部漏处理)。
+					restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+					defer cancel()
+					restoreServiceRotatingIP(restoreCtx, cli, containerID, service)
 				}()
 
 				// 成功处理事件后重置退避
