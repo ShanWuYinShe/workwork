@@ -247,6 +247,32 @@ func apiTransferUpload() http.HandlerFunc {
 			}
 		}
 
+		// Phase 0: 配额预检——在把整个文件写入磁盘之前,按 multipart 已知的
+		// header.Size 快照检查全局/per-user 配额。没有这层,并发发起 N 个大上传
+		// 可以先把磁盘塞满再在 Phase 2 逐一失败,配额形同虚设。Phase 2 仍保留
+		// 基于实际写入量的精确检查(预检只是快速失败,不追求精确)。
+		transferMu.Lock()
+		snapshot := loadTransferManifestLocked()
+		if snapshot.TotalSize+header.Size > transferMaxTotal {
+			transferMu.Unlock()
+			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(snapshot.TotalSize)), 400)
+			return
+		}
+		if quota := transferMaxPerUserBytes(); quota > 0 {
+			var used int64
+			for _, f := range snapshot.Files {
+				if f.Uploader == username {
+					used += f.Size
+				}
+			}
+			if used+header.Size > quota {
+				transferMu.Unlock()
+				writeError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
+				return
+			}
+		}
+		transferMu.Unlock()
+
 		// Phase 1: 文件写入磁盘（在锁外进行，避免阻塞其他 transfer 操作）
 		if err := os.MkdirAll(transferDir, 0755); err != nil {
 			writeInternalError(w, err)
@@ -495,10 +521,9 @@ func apiTransferPublicDownload() http.HandlerFunc {
 			return
 		}
 
-		// 首段请求（无 Range 或 Range 从 0 开始）计入下载计数；
-		// 后续分段（如 bytes=1048576-）不计，避免下载管理器耗尽限额。
-		rangeHeader := r.Header.Get("Range")
-		if rangeHeader == "" || strings.HasPrefix(rangeHeader, "bytes=0") {
+		// 计入下载计数：见 rangeCountsAsDownload——任何完整下载（无论是否分段）
+		// 必然取到文件末字节，按"覆盖末字节才计数"每文件恰好计 1 次。
+		if rangeCountsAsDownload(r.Header.Get("Range"), target.Size) {
 			target.Downloads++
 			if err := saveTransferManifestLocked(m); err != nil {
 				// 下载计数持久化失败：不阻断下载本身（文件可读），仅记录。
@@ -541,6 +566,49 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeContent(w, r, filename, info.ModTime(), f)
 	}
+}
+
+// rangeCountsAsDownload 判断一次（可能带 Range 的）请求是否计入下载次数。
+//
+// 任何完整下载——单连接无 Range、或多连接下载管理器的某个分段——都必然取到
+// 文件的最后一个字节。因此只有"覆盖文件末字节"的请求计数：完整下载恰好计 1
+// （取末字节的那个分段），中间续传分段（bytes=1048576-2097151）不计。这同时
+// 堵住了两个绕过：后缀范围 bytes=-N（N≥文件大小即取到全文末字节，必须计数）
+// 与 bytes=1-（跳过首字节的开放范围，覆盖末字节，必须计数）。任何解析不了或
+// 越界的范围保守计数（fail-closed），交给 http.ServeContent 决定 416/正常响应。
+func rangeCountsAsDownload(rangeHeader string, size int64) bool {
+	if rangeHeader == "" {
+		return true
+	}
+	trimmed := strings.TrimSpace(rangeHeader)
+	lower := strings.ToLower(trimmed)
+	spec := strings.TrimPrefix(lower, "bytes=")
+	if spec == lower {
+		return true // 缺 bytes= 前缀的非法头：保守计数
+	}
+	if strings.ContainsRune(spec, ',') {
+		return true // 多段范围：保守计数
+	}
+	dash := strings.IndexByte(spec, '-')
+	if dash < 0 {
+		return true // 非法格式：保守计数
+	}
+	start, end := strings.TrimSpace(spec[:dash]), strings.TrimSpace(spec[dash+1:])
+	if start == "" {
+		return true // 后缀范围 bytes=-N：覆盖末字节
+	}
+	s, err := strconv.ParseInt(start, 10, 64)
+	if err != nil || s < 0 || s >= size {
+		return true // 非法/越界起始：保守计数
+	}
+	if end == "" {
+		return true // 开放范围 bytes=S-：覆盖末字节
+	}
+	e, err := strconv.ParseInt(end, 10, 64)
+	if err != nil {
+		return true // 非法结束值：保守计数
+	}
+	return e >= size-1 // 封闭分段：仅当覆盖末字节时计数
 }
 
 // formatBytes 格式化字节大小
