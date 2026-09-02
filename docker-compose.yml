@@ -290,6 +290,11 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
+    # 以 uid 1001(workuser)运行:曲库音频(admin 1001 上传/手动投放,0600)与
+    # admin 写入的网易云 cookie 文件(0600)仅属主可读;镜像默认 appuser(10001)
+    # 读两者都会 permission denied——表现为曲库能列出但播放 404、扫码登录
+    # 不生效。二进制 0755 任意用户可执行,/tmp 为 tmpfs,无其他 uid 依赖。
+    user: "1001:1001"
     deploy:
       resources:
         limits:
