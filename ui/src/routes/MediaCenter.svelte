@@ -1432,7 +1432,8 @@
     background: rgba(6, 10, 19, 0.86);
     backdrop-filter: blur(12px);
     margin-bottom: 1rem;
-    overflow-x: auto;
+    /* 窄屏放不下时换行，而不是出横向滚动条 */
+    flex-wrap: wrap;
     position: sticky;
     top: 0;
     z-index: 5;
