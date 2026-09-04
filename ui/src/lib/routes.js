@@ -14,7 +14,7 @@ export const routes = [
   { path: '/', component: Dashboard },
   { path: '/services', component: Services, adminOnly: true },
   { path: '/clients', component: Clients },
-  { path: '/users', component: Users, adminOnly: true },
+  { path: '/users', component: Users },
   { path: '/security', component: Security, adminOnly: true },
   { path: '/settings', component: Settings, adminOnly: true },
   { path: '/media-center', component: MediaCenter, adminOnly: true },

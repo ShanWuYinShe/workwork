@@ -4,6 +4,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { formatDateTime } from '../lib/format.js';
 
   let entries = $state([]);
   let loading = $state(true);
@@ -160,10 +161,10 @@
               <tr>
                 <td class="td-mono">{e.ip}</td>
                 <td class="td-muted">{e.reason || '—'}</td>
-                <td class="td-muted">{e.blocked_at?.slice(0, 16) || '—'}</td>
+                <td class="td-muted">{e.blocked_at ? formatDateTime(e.blocked_at) : '—'}</td>
                 <td>
                   {#if e.expires_at}
-                    <span class="td-muted">{e.expires_at.slice(0, 16)}</span>
+                    <span class="td-muted">{formatDateTime(e.expires_at)}</span>
                   {:else}
                     <span class="badge badge-red">{t('permanent')}</span>
                   {/if}

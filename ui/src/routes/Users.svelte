@@ -11,6 +11,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { eyeIcon } from '../lib/eye-icon.js';
 
   let adminUsers = $state([]);
   let loading = $state(true);
@@ -100,10 +101,6 @@
       toast(e.message, 'error');
     }
   }
-
-  function EyeIcon({ open }) {
-    return `<svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${open ? '<line x1="1" y1="1" x2="23" y2="23"/>' : ''}</svg>`;
-  }
 </script>
 
 <div class="page">
@@ -111,116 +108,120 @@
     <h1 class="page-title">{t('users')}</h1>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">
-        {t('adminUsers')}
-        {#if adminUsers.length}<span class="card-title-count">{adminUsers.length}</span>{/if}
-      </div>
-    </div>
-    {#if loading}
-      <div class="loading-skeleton" style="height:120px;"></div>
-    {:else if adminUsers.length}
-      <div class="table-wrap">
-        <table>
-          <thead
-            ><tr
-              ><th>{t('username')}</th><th>{t('role')}</th><th>{t('created')}</th><th
-                >{t('actions')}</th
-              ></tr
-            ></thead
-          >
-          <tbody>
-            {#each adminUsers as u}
-              <tr>
-                <td>
-                  <div class="user-line">
-                    <div
-                      class={u.role === 'admin'
-                        ? 'table-avatar table-avatar-admin'
-                        : 'table-avatar'}
-                    >
-                      {u.username[0].toUpperCase()}
-                    </div>
-                    <span class="cell-strong">{u.username}</span>
-                  </div>
-                </td>
-                <td>
-                  <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}">{u.role === 'admin' ? t('Admin') : t('Viewer')}</span>
-                </td>
-                <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
-                <td>
-                  <div class="td-actions">
-                    {#if u.username === currentUsername}
-                      <span class="badge badge-gray">{t('currentUser')}</span>
-                    {:else if u.role !== 'admin'}
-                      <button
-                        class="btn btn-primary btn-sm"
-                        onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
-                      >
-                      <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                        >{t('delete')}</button
-                      >
-                    {:else}
-                      <button
-                        class="btn btn-ghost btn-sm"
-                        onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
-                      >
-                      <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
-                        >{t('delete')}</button
-                      >
-                    {/if}
-                  </div>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {:else}
-      <div class="empty-state">{t('noUsers')}</div>
-    {/if}
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">{t('addUser')}</div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label for="add-user">{t('username')}</label>
-        <input id="add-user" type="text" bind:value={newUser} class="input-w-sm" />
-      </div>
-      <div class="form-group password-field">
-        <label for="add-pass">{t('newPassword')}</label>
-        <div class="password-input">
-          <input
-            id="add-pass"
-            type={showNewPass ? 'text' : 'password'}
-            bind:value={newPass}
-            class="input-w-sm"
-          />
-          <button
-            class="eye-btn"
-            onclick={() => (showNewPass = !showNewPass)}
-            aria-label={showNewPass ? t('hidePassword') : t('showPassword')}
-          >
-            {@html EyeIcon({ open: showNewPass })}
-          </button>
+  {#if isAdmin}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          {t('adminUsers')}
+          {#if adminUsers.length}<span class="card-title-count">{adminUsers.length}</span>{/if}
         </div>
       </div>
-      <div class="form-group">
-        <label for="add-role">{t('role')}</label>
-        <select id="add-role" bind:value={newRole}>
-          <option value="viewer">{t('Viewer')}</option>
-          <option value="admin">{t('Admin')}</option>
-        </select>
-      </div>
-      <button class="btn btn-success" onclick={addUser} disabled={addingUser}
-    >{addingUser ? t('saving') : t('add')}</button
-  >
+      {#if loading}
+        <div class="loading-skeleton" style="height:120px;"></div>
+      {:else if adminUsers.length}
+        <div class="table-wrap">
+          <table>
+            <thead
+              ><tr
+                ><th>{t('username')}</th><th>{t('role')}</th><th>{t('created')}</th><th
+                  >{t('actions')}</th
+                ></tr
+              ></thead
+            >
+            <tbody>
+              {#each adminUsers as u}
+                <tr>
+                  <td>
+                    <div class="user-line">
+                      <div
+                        class={u.role === 'admin'
+                          ? 'table-avatar table-avatar-admin'
+                          : 'table-avatar'}
+                      >
+                        {u.username[0].toUpperCase()}
+                      </div>
+                      <span class="cell-strong">{u.username}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge badge-{u.role === 'admin' ? 'blue' : 'gray'}"
+                      >{u.role === 'admin' ? t('Admin') : t('Viewer')}</span
+                    >
+                  </td>
+                  <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+                  <td>
+                    <div class="td-actions">
+                      {#if u.username === currentUsername}
+                        <span class="badge badge-gray">{t('currentUser')}</span>
+                      {:else if u.role !== 'admin'}
+                        <button
+                          class="btn btn-primary btn-sm"
+                          onclick={() => changeRole(u.username, 'admin')}>{t('setAdmin')}</button
+                        >
+                        <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                          >{t('delete')}</button
+                        >
+                      {:else}
+                        <button
+                          class="btn btn-ghost btn-sm"
+                          onclick={() => changeRole(u.username, 'viewer')}>{t('setViewer')}</button
+                        >
+                        <button class="btn btn-danger btn-sm" onclick={() => deleteUser(u.username)}
+                          >{t('delete')}</button
+                        >
+                      {/if}
+                    </div>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <div class="empty-state">{t('noUsers')}</div>
+      {/if}
     </div>
-  </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">{t('addUser')}</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="add-user">{t('username')}</label>
+          <input id="add-user" type="text" bind:value={newUser} class="input-w-sm" />
+        </div>
+        <div class="form-group password-field">
+          <label for="add-pass">{t('newPassword')}</label>
+          <div class="password-input">
+            <input
+              id="add-pass"
+              type={showNewPass ? 'text' : 'password'}
+              bind:value={newPass}
+              class="input-w-sm"
+            />
+            <button
+              class="eye-btn"
+              onclick={() => (showNewPass = !showNewPass)}
+              aria-label={showNewPass ? t('hidePassword') : t('showPassword')}
+            >
+              {@html eyeIcon(showNewPass)}
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="add-role">{t('role')}</label>
+          <select id="add-role" bind:value={newRole}>
+            <option value="viewer">{t('Viewer')}</option>
+            <option value="admin">{t('Admin')}</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick={addUser} disabled={addingUser}
+          >{addingUser ? t('saving') : t('add')}</button
+        >
+      </div>
+    </div>
+  {/if}
 
   <div class="card">
     <div class="card-header">
@@ -246,7 +247,7 @@
               onclick={() => (showOldPass = !showOldPass)}
               aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
             >
-              {@html EyeIcon({ open: showOldPass })}
+              {@html eyeIcon(showOldPass)}
             </button>
           </div>
         </div>
@@ -265,13 +266,13 @@
             onclick={() => (showPwPass = !showPwPass)}
             aria-label={showPwPass ? t('hidePassword') : t('showPassword')}
           >
-            {@html EyeIcon({ open: showPwPass })}
+            {@html eyeIcon(showPwPass)}
           </button>
         </div>
       </div>
       <button class="btn btn-primary" onclick={changePw} disabled={changingPw}
-    >{changingPw ? t('saving') : t('change')}</button
-  >
+        >{changingPw ? t('saving') : t('change')}</button
+      >
     </div>
   </div>
 </div>

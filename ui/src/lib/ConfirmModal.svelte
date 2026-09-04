@@ -34,11 +34,7 @@
   <div class="modal-overlay">
     <!-- 背景点击关闭用非焦点元素：Esc 已有取消路径，可聚焦的全屏按钮会干扰 Tab 序 -->
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div
-      class="modal-backdrop"
-      aria-hidden="true"
-      onclick={() => confirmResponse(false)}
-    ></div>
+    <div class="modal-backdrop" aria-hidden="true" onclick={() => confirmResponse(false)}></div>
     <div
       class="modal"
       bind:this={dialog}

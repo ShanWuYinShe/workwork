@@ -24,6 +24,7 @@
   let itemsLoadingMore = $state(false);
   let hasMore = $state(false);
   let rankDraft = $state({});
+  let itemQuery = $state('');
 
   let importText = $state('');
   let importApproved = $state(false);
@@ -112,7 +113,19 @@
   function closeReview() {
     activeCategory = null;
     items = [];
+    itemQuery = '';
   }
+
+  // 标题/创作者本地过滤（仅影响当前已加载条目的显示，不改分页）
+  let visibleItems = $derived.by(() => {
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (it) =>
+        it.title?.toLowerCase().includes(q) ||
+        it.creators?.some((c) => c.toLowerCase().includes(q)),
+    );
+  });
 
   async function changeStatusFilter(s) {
     statusFilter = s;
@@ -394,22 +407,34 @@
           <div class="review-title">{t('catalogItemsFor', { title: activeTitle })}</div>
           <button class="btn btn-xs btn-ghost" onclick={closeReview}>{t('catalogClose')}</button>
         </div>
-        <div class="status-tabs">
-          {#each statusOptions as s}
-            <button
-              class="chip"
-              class:chip-on={statusFilter === s}
-              onclick={() => changeStatusFilter(s)}>{statusFilterLabel(s)}</button
-            >
-          {/each}
+        <div class="review-toolbar">
+          <div class="status-tabs">
+            {#each statusOptions as s}
+              <button
+                class="chip"
+                class:chip-on={statusFilter === s}
+                aria-pressed={statusFilter === s}
+                onclick={() => changeStatusFilter(s)}>{statusFilterLabel(s)}</button
+              >
+            {/each}
+          </div>
+          <input
+            class="item-search input-compact"
+            type="search"
+            placeholder={t('catalogItemSearchPlaceholder')}
+            aria-label={t('catalogItemSearchPlaceholder')}
+            bind:value={itemQuery}
+          />
         </div>
         {#if itemsLoading}
           <div class="loading-skeleton" style="height:120px;"></div>
         {:else if items.length === 0}
           <div class="empty-state">{t('catalogNoItems')}</div>
+        {:else if visibleItems.length === 0}
+          <div class="empty-state">{t('catalogNoMatch')}</div>
         {:else}
           <div class="item-list">
-            {#each items as it (itemKey(it))}
+            {#each visibleItems as it (itemKey(it))}
               <div class="item-row">
                 <div class="item-main">
                   <div class="item-title-line">
@@ -608,11 +633,21 @@
     color: var(--c-text-heading);
     font-weight: 600;
   }
+  .review-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.8rem;
+  }
   .status-tabs {
     display: flex;
     gap: 0.4rem;
     flex-wrap: wrap;
-    margin-bottom: 0.8rem;
+  }
+  .item-search {
+    width: 180px;
+    margin-left: auto;
   }
   .chip {
     padding: 0.25rem 0.7rem;
@@ -699,16 +734,6 @@
     color: var(--c-text);
     font-size: 0.78rem;
   }
-  .item-actions :global(.btn-danger-outline) {
-    background: transparent;
-    color: var(--c-danger);
-    border: 1px solid var(--c-danger);
-  }
-  .item-actions :global(.btn-danger-outline:hover) {
-    background: var(--c-danger);
-    color: #fff;
-  }
-
   .curation-block {
     margin-top: 1rem;
     border-top: 1px solid var(--c-border);
