@@ -40,13 +40,37 @@
 
 <aside class="sidebar" class:collapsed={sidebarCollapsed} class:mobile-open={mobileMenuOpen}>
   <div class="sidebar-header">
-    <div class="brand-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-        ><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path
-          d="M2 12l10 5 10-5"
-        /></svg
-      >
-    </div>
+    <!-- 折叠态 logo 即「展开」入口：hover 浮现箭头覆盖层，2 合 1；
+         展开态退化为纯 logo（点击无操作）。 -->
+    <button
+      class="brand-launcher"
+      class:clickable={sidebarCollapsed}
+      onclick={() => {
+        if (sidebarCollapsed) sidebarCollapsed = false;
+      }}
+      title={sidebarCollapsed ? t('expandSidebar') : 'WorkWork'}
+      aria-label={sidebarCollapsed ? t('expandSidebar') : 'WorkWork'}
+    >
+      <span class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+          ><path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path
+            d="M2 12l10 5 10-5"
+          /></svg
+        >
+      </span>
+      <span class="brand-launcher-hover" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </span>
+    </button>
     <div class="brand-text">
       <span class="brand-title">WorkWork</span>
       <span class="brand-sub">{t('adminPanel')}</span>
@@ -59,8 +83,8 @@
     ><button
       class="sidebar-toggle"
       onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
-      title={sidebarCollapsed ? 'Expand' : 'Collapse'}
-      aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      title={sidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}
+      aria-label={sidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}
     >
       <svg
         viewBox="0 0 24 24"
@@ -117,9 +141,33 @@
   <div class="sidebar-footer">
     {#if userInfo}
       <div class="user-card">
-        <div class="user-avatar" class:admin-avatar={userInfo.role === 'admin'}>
-          {(userInfo.username || '?')[0].toUpperCase()}
-        </div>
+        <!-- 头像即「退出」入口：hover 浮现红色覆盖按钮，2 合 1 -->
+        <span class="avatar-wrap">
+          <span class="user-avatar" class:admin-avatar={userInfo.role === 'admin'}>
+            {(userInfo.username || '?')[0].toUpperCase()}
+          </span>
+          <button
+            class="logout-overlay"
+            onclick={() =>
+              (window.location.href = 'https://logout:logout@' + window.location.host + '/admin/')}
+            title={t('logout')}
+            aria-label={t('logout')}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="15"
+              height="15"
+              ><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline
+                points="16 17 21 12 16 7"
+              /><line x1="21" y1="12" x2="9" y2="12" /></svg
+            >
+          </button>
+        </span>
         {#if !sidebarCollapsed}
           <div class="user-info">
             <div class="user-name">{userInfo.username}</div>
@@ -128,27 +176,6 @@
             >
           </div>
         {/if}
-        <button
-          class="logout-btn"
-          onclick={() =>
-            (window.location.href = 'https://logout:logout@' + window.location.host + '/admin/')}
-          title={t('logout')}
-          aria-label={t('logout')}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            width="14"
-            height="14"
-            ><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline
-              points="16 17 21 12 16 7"
-            /><line x1="21" y1="12" x2="9" y2="12" /></svg
-          >
-        </button>
       </div>
     {/if}
   </div>
