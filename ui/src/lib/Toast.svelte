@@ -18,13 +18,15 @@
   };
 </script>
 
-<!-- live region 常驻挂载：包在 {#if} 里会让容器与首条内容同帧出现，读屏器可能漏报零→一变化 -->
-<div class="toast-container" role="status" aria-live="polite">
+<!-- live region 常驻挂载：包在 {#if} 里会让容器与首条内容同帧出现，读屏器可能漏报零→一变化。
+     error 走 role=alert（assertive），其余 status（polite）。 -->
+<div class="toast-container">
   {#if toasts.length}
     {#each toasts as t (t.id)}
       <button
         class="toast toast-{t.type}"
         type="button"
+        role={t.type === 'error' ? 'alert' : 'status'}
         onclick={() => dismiss(t.id)}
         onanimationend={(e) => handleAnimationEnd(e, t.id)}
         style="animation: toastIn 0.25s ease{t.duration > 0

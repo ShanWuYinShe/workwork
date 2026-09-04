@@ -193,7 +193,9 @@
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
                     <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                      <span class="badge-dot"></span>{s.state === 'running' ? t('stateRunning') : t('stateStopped')}
+                      <span class="badge-dot"></span>{s.state === 'running'
+                        ? t('stateRunning')
+                        : t('stateStopped')}
                     </span>
                   </td>
                   <td class="td-muted">{s.image}</td>

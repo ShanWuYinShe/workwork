@@ -14,6 +14,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { formatDateTime, formatSize } from '../lib/format.js';
 
   let loading = $state(true);
   let loadError = $state('');
@@ -81,6 +82,10 @@
     } catch {
       account = null;
     }
+  }
+
+  function onQrKeydown(e) {
+    if (qr && e.key === 'Escape') closeQr();
   }
 
   function stopPolling() {
@@ -405,13 +410,10 @@
       toast(e.message, 'error');
     }
   }
-
-  function fmtSize(bytes) {
-    if (bytes >= 1 << 20) return (bytes / (1 << 20)).toFixed(1) + ' MB';
-    if (bytes >= 1 << 10) return (bytes / (1 << 10)).toFixed(0) + ' KB';
-    return bytes + ' B';
-  }
 </script>
+
+<!-- Esc 关闭扫码弹层（svelte:window 必须位于组件顶层） -->
+<svelte:window onkeydown={onQrKeydown} />
 
 <div class="page">
   <!-- 网易云账号（扫码登录，解锁完整音频） -->
@@ -530,7 +532,9 @@
     {#if picked.length > 0}
       <div class="queue">
         <div class="queue-head">
-          <span>{t('musicQueueCount', { n: picked.length, size: fmtSize(pickedTotalBytes) })}</span>
+          <span
+            >{t('musicQueueCount', { n: picked.length, size: formatSize(pickedTotalBytes) })}</span
+          >
           <div class="queue-head-actions">
             <button class="btn btn-sm btn-primary" onclick={upload} disabled={uploading}>
               {#if uploading}
@@ -565,8 +569,8 @@
             </div>
             <div class="progress-caption">
               {phaseLabel ? phaseLabel + ' · ' : ''}
-              {fmtSize(uploadProgress.bytes)} / {uploadProgress.total
-                ? fmtSize(uploadProgress.total)
+              {formatSize(uploadProgress.bytes)} / {uploadProgress.total
+                ? formatSize(uploadProgress.total)
                 : '?'}
             </div>
           </div>
@@ -575,7 +579,7 @@
           {#each picked as f, idx (f.name + '-' + f.size)}
             <li class="queue-item">
               <span class="queue-name" title={f.name}>{f.name}</span>
-              <span class="queue-size">{fmtSize(f.size)}</span>
+              <span class="queue-size">{formatSize(f.size)}</span>
               {#if !uploading}
                 <button
                   class="btn btn-sm btn-ghost queue-remove"
@@ -640,15 +644,21 @@
         <table class="table">
           <thead>
             <tr>
-              <th class="th-sortable" onclick={() => toggleSort('name')}
-                >{t('musicColFile')}{sortIndicator('name')}</th
-              >
-              <th class="th-sortable" onclick={() => toggleSort('size')}
-                >{t('musicColSize')}{sortIndicator('size')}</th
-              >
-              <th class="th-sortable" onclick={() => toggleSort('time')}
-                >{t('musicColTime')}{sortIndicator('time')}</th
-              >
+              <th>
+                <button class="th-sort-btn" onclick={() => toggleSort('name')}>
+                  {t('musicColFile')}{sortIndicator('name')}
+                </button>
+              </th>
+              <th>
+                <button class="th-sort-btn" onclick={() => toggleSort('size')}>
+                  {t('musicColSize')}{sortIndicator('size')}
+                </button>
+              </th>
+              <th>
+                <button class="th-sort-btn" onclick={() => toggleSort('time')}>
+                  {t('musicColTime')}{sortIndicator('time')}
+                </button>
+              </th>
               <th></th>
             </tr>
           </thead>
@@ -656,8 +666,8 @@
             {#each filtered as f (f.name)}
               <tr>
                 <td class="name-cell" title={f.name}>{f.name}</td>
-                <td>{fmtSize(f.sizeBytes)}</td>
-                <td>{new Date(f.modTime).toLocaleString()}</td>
+                <td>{formatSize(f.sizeBytes)}</td>
+                <td>{formatDateTime(f.modTime)}</td>
                 <td class="actions-cell">
                   <button class="btn btn-sm btn-danger" onclick={() => remove(f.name)}
                     >{t('remove')}</button
@@ -688,11 +698,11 @@
     font-size: 13px;
   }
   .account-state .ok {
-    color: var(--success, #16a34a);
+    color: var(--c-text-success);
     font-weight: 600;
   }
   .account-state .muted {
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
   }
   .qr-overlay {
     position: fixed;
@@ -704,20 +714,22 @@
     z-index: 100;
   }
   .qr-modal {
-    background: var(--bg-card, #fff);
-    border-radius: 12px;
+    background: var(--c-bg-elevated);
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg);
     padding: 24px;
     text-align: center;
     max-width: 320px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   }
   .qr-title {
+    color: var(--c-text-heading);
     font-weight: 600;
     margin-bottom: 4px;
   }
   .qr-hint {
     font-size: 12px;
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
     margin-bottom: 12px;
   }
   .qr-img {
@@ -728,14 +740,14 @@
   }
   .qr-status {
     font-size: 13px;
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
     margin-bottom: 8px;
   }
   .qr-status.ok {
-    color: var(--success, #16a34a);
+    color: var(--c-text-success);
   }
   .qr-status.err {
-    color: var(--danger, #dc2626);
+    color: var(--c-text-danger);
   }
   .queue {
     margin-top: 12px;
@@ -761,8 +773,8 @@
     padding: 0;
     max-height: 220px;
     overflow-y: auto;
-    border: 1px solid var(--border, #e5e7eb);
-    border-radius: 8px;
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
   }
   .queue-item {
     display: flex;
@@ -770,7 +782,7 @@
     gap: 10px;
     padding: 6px 10px;
     font-size: 13px;
-    border-bottom: 1px solid var(--border, #f0f0f0);
+    border-bottom: 1px solid var(--c-border);
   }
   .queue-item:last-child {
     border-bottom: none;
@@ -783,7 +795,7 @@
     white-space: nowrap;
   }
   .queue-size {
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
     white-space: nowrap;
   }
   .queue-remove {
@@ -793,14 +805,14 @@
   .skip-box {
     margin-top: 12px;
     padding: 10px 12px;
-    border: 1px solid var(--danger, #dc2626);
-    border-radius: 8px;
+    border: 1px solid var(--c-danger);
+    border-radius: var(--radius);
     font-size: 13px;
   }
   .skip-title {
     font-weight: 600;
     margin-bottom: 6px;
-    color: var(--danger, #dc2626);
+    color: var(--c-text-danger);
   }
   .skip-list {
     list-style: none;
@@ -813,18 +825,29 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
   }
   .search-input {
     min-width: 0;
   }
-  .th-sortable {
+  .th-sort-btn {
+    background: none;
+    border: none;
+    padding: 0;
     cursor: pointer;
     user-select: none;
     white-space: nowrap;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
   }
-  .th-sortable:hover {
-    color: var(--accent, #2563eb);
+  .th-sort-btn:hover {
+    color: var(--c-accent);
+  }
+  .th-sort-btn:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
   }
   .name-cell {
     max-width: 420px;
@@ -837,7 +860,7 @@
   }
   .no-match {
     text-align: center;
-    color: var(--text-secondary, #888);
+    color: var(--c-text-secondary);
     padding: 18px 0;
   }
 </style>

@@ -19,6 +19,9 @@
   let logContainer = $state(null);
 
   onMount(() => {
+    // Services 页「日志」直达入口带 ?service=<name>，优先选中该服务
+    const qs = new URLSearchParams(window.location.search).get('service');
+    if (qs) selectedService = qs;
     refresh();
     return () => {
       closeStream();
@@ -163,10 +166,20 @@
       <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}>
         {t('refresh')}
       </button>
-      <button class="btn btn-sm btn-ghost" onclick={copyLogs} disabled={!logLines.length}>
+      <button
+        class="btn btn-sm btn-ghost"
+        onclick={copyLogs}
+        disabled={!logLines.length}
+        title={t('bufferedLinesOnly', { count: logLines.length })}
+      >
         {t('copy')}
       </button>
-      <button class="btn btn-sm btn-ghost" onclick={downloadLogs} disabled={!logLines.length}>
+      <button
+        class="btn btn-sm btn-ghost"
+        onclick={downloadLogs}
+        disabled={!logLines.length}
+        title={t('bufferedLinesOnly', { count: logLines.length })}
+      >
         {t('download')}
       </button>
     </div>
@@ -187,7 +200,9 @@
             >
               {serviceDisplayName(s.name)}
               <span class="badge badge-{s.state === 'running' ? 'green' : 'red'} badge-inline">
-                <span class="badge-dot"></span>{s.state === 'running' ? t('stateRunning') : t('stateStopped')}
+                <span class="badge-dot"></span>{s.state === 'running'
+                  ? t('stateRunning')
+                  : t('stateStopped')}
               </span>
             </button>
           {/each}

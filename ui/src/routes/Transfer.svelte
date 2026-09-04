@@ -10,6 +10,7 @@
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { formatDateTime, formatSize } from '../lib/format.js';
 
   let files = $state([]);
   let loading = $state(true);
@@ -17,6 +18,7 @@
   let uploadProgress = $state(null);
   let deletingCode = $state('');
   let isAdmin = $state(false);
+  let currentUsername = $state('');
   let totalSize = $state(0);
   let maxTotal = $state(20 * 1024 * 1024 * 1024);
   let fileInput = $state(null);
@@ -31,6 +33,7 @@
     try {
       const user = await getCurrentUser();
       isAdmin = user.role === 'admin';
+      currentUsername = user.username || '';
       await loadFiles();
     } catch (e) {
       toast(e.message, 'error');
@@ -143,10 +146,9 @@
   async function doDelete(code) {
     const target = files.find((f) => f.code === code);
     if (
-      !(await showConfirm(
-        t('confirmDeleteTransferFile', { filename: target?.filename || code }),
-        { danger: true },
-      ))
+      !(await showConfirm(t('confirmDeleteTransferFile', { filename: target?.filename || code }), {
+        danger: true,
+      }))
     )
       return;
     deletingCode = code;
@@ -179,19 +181,6 @@
     } else {
       toast(t('copyFailed'), 'error');
     }
-  }
-
-  function formatSize(bytes) {
-    if (bytes == null) return '? MB';
-    if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
-    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(0) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
-    return bytes + ' B';
-  }
-
-  function formatDate(s) {
-    if (!s) return '';
-    return s.slice(0, 16).replace('T', ' ');
   }
 
   function isExpired(f) {
@@ -398,7 +387,7 @@
                 <td class="td-muted">{formatSize(f.size)}</td>
                 {#if isAdmin}<td class="td-muted">{f.uploader}</td>{/if}
                 <td class={isExpired(f) ? 'td-muted text-danger' : 'td-muted'}
-                  >{formatDate(f.expires_at)}</td
+                  >{formatDateTime(f.expires_at)}</td
                 >
                 <td class="td-muted">{downloadCount(f)}</td>
                 <td>
@@ -411,12 +400,14 @@
                   </button>
                 </td>
                 <td>
-                  {#if deletingCode === f.code}
-                    <span class="spinner"></span>
-                  {:else}
-                    <button class="btn btn-danger btn-sm" onclick={() => doDelete(f.code)}
-                      >{t('delete')}</button
-                    >
+                  {#if isAdmin || f.uploader === currentUsername}
+                    {#if deletingCode === f.code}
+                      <span class="spinner"></span>
+                    {:else}
+                      <button class="btn btn-danger btn-sm" onclick={() => doDelete(f.code)}
+                        >{t('delete')}</button
+                      >
+                    {/if}
                   {/if}
                 </td>
               </tr>
