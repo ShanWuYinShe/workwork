@@ -293,7 +293,28 @@
     min-height: 60px;
     position: relative;
   }
-  :global(.brand-icon) {
+  :global(.brand-launcher) {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: var(--radius);
+    flex-shrink: 0;
+    cursor: default;
+  }
+  :global(.brand-launcher.clickable) {
+    cursor: pointer;
+  }
+  :global(.brand-launcher:focus-visible) {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  :global(.brand-launcher .brand-icon) {
     width: 34px;
     height: 34px;
     display: flex;
@@ -304,6 +325,32 @@
     color: #fff;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  }
+  /* 折叠态 hover 浮现的「展开」箭头：与 logo 同渐变，回弹缩放入场 */
+  :global(.brand-launcher-hover) {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    background: var(--gradient-accent);
+    color: #fff;
+    opacity: 0;
+    transform: scale(0.7);
+    transition:
+      opacity 0.18s ease,
+      transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.45);
+  }
+  :global(.brand-launcher-hover svg) {
+    width: 18px;
+    height: 18px;
+  }
+  :global(.sidebar.collapsed .brand-launcher:hover .brand-launcher-hover),
+  :global(.sidebar.collapsed .brand-launcher:focus-visible .brand-launcher-hover) {
+    opacity: 1;
+    transform: scale(1);
   }
   :global(.brand-icon svg) {
     width: 18px;
@@ -385,8 +432,7 @@
     display: none;
   }
   :global(.sidebar.collapsed .sidebar-toggle) {
-    position: static;
-    transform: none;
+    display: none;
   }
   :global(.sidebar-nav) {
     flex: 1;
@@ -535,37 +581,41 @@
     justify-content: center;
     padding: 0.4rem;
   }
-  :global(.logout-btn) {
-    background: none;
+  :global(.avatar-wrap) {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+  }
+  /* hover 头像浮现的退出按钮：红色渐变覆盖层，回弹缩放入场；
+     键盘 Tab 聚焦时同样浮现（focus-visible），不牺牲可达性 */
+  :global(.logout-overlay) {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border: none;
     cursor: pointer;
-    padding: 4px;
-    color: var(--c-text-muted);
-    border-radius: 4px;
-    display: flex;
-    margin-left: auto;
-    /* 常显弱化而非 hover 才出现：键盘 Tab / 触屏用户也需要能看到并点到退出入口 */
-    opacity: 0.6;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, #dc2626, #b91c1c);
+    color: #fff;
+    opacity: 0;
+    transform: scale(0.7);
     transition:
-      opacity 0.15s,
-      color var(--transition),
-      background var(--transition);
+      opacity 0.18s ease,
+      transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
   }
-  :global(.user-card:hover .logout-btn),
-  :global(.logout-btn:focus-visible) {
+  :global(.user-card:hover .logout-overlay),
+  :global(.logout-overlay:focus-visible) {
     opacity: 1;
+    transform: scale(1);
   }
-  :global(.logout-btn:hover) {
-    color: var(--c-danger);
-    background: var(--c-danger-bg);
+  :global(.logout-overlay:focus-visible) {
+    outline: none;
   }
-  /* 折叠态保留退出入口(图标竖排在头像下) */
   :global(.sidebar.collapsed .user-card) {
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-  :global(.sidebar.collapsed .logout-btn) {
-    margin-left: 0;
+    justify-content: center;
   }
 
   /* ── Main content ── */

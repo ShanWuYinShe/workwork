@@ -25,6 +25,8 @@ const zh = {
   retry: '重试',
   authFailedTitle: '认证失败',
   menu: '菜单',
+  expandSidebar: '展开侧边栏',
+  collapseSidebar: '收起侧边栏',
   closeMenu: '关闭菜单',
   // Clients
   generateClient: '生成客户端',
@@ -540,6 +542,8 @@ const en = {
   retry: 'Retry',
   authFailedTitle: 'Authentication failed',
   menu: 'Menu',
+  expandSidebar: 'Expand sidebar',
+  collapseSidebar: 'Collapse sidebar',
   closeMenu: 'Close menu',
   // Clients
   generateClient: 'Generate Client',
