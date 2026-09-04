@@ -18,6 +18,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { formatDate, formatSize } from '../lib/format.js';
 
   let tab = $state('claude');
   let releases = $state([]);
@@ -169,17 +170,6 @@
     }
   }
 
-  function formatSize(bytes) {
-    if (!bytes) return '? MB';
-    if (bytes > 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
-    return (bytes / 1024 / 1024).toFixed(0) + ' MB';
-  }
-
-  function formatDate(s) {
-    if (!s) return '';
-    return s.slice(0, 10);
-  }
-
   function downloadUrl(filename) {
     const prefix = tab === 'claude' ? 'claude-code' : 'xray';
     return `/api/admin/${prefix}/downloads/${filename}`;
@@ -203,10 +193,20 @@
   </div>
 
   <div class="tab-bar">
-    <button class="tab-btn" class:active={tab === 'claude'} onclick={() => switchTab('claude')}>
+    <button
+      class="tab-btn"
+      class:active={tab === 'claude'}
+      aria-current={tab === 'claude' ? 'page' : undefined}
+      onclick={() => switchTab('claude')}
+    >
       {t('downloadsClaude')}
     </button>
-    <button class="tab-btn" class:active={tab === 'xray'} onclick={() => switchTab('xray')}>
+    <button
+      class="tab-btn"
+      class:active={tab === 'xray'}
+      aria-current={tab === 'xray' ? 'page' : undefined}
+      onclick={() => switchTab('xray')}
+    >
       {t('downloadsXray')}
     </button>
   </div>
@@ -304,9 +304,13 @@
       <div class="card-header">
         <div class="card-title">
           {t('availableVersions')}
-          <span class="card-title-count">{latestReleases.length}</span>
+          <span class="card-title-count">{releases.length}</span>
         </div>
-        <div class="card-subtitle">{t('fromGH')}</div>
+        <div class="card-subtitle">
+          {t('fromGH')}{latestReleases.length < releases.length
+            ? ` · ${t('latestOnly', { count: latestReleases.length })}`
+            : ''}
+        </div>
       </div>
       {#if loading}
         <div class="loading-skeleton" style="height:200px;"></div>

@@ -13,6 +13,8 @@
     triggerMediaAppReleaseDownload,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { formatDateTime, formatSize } from '../lib/format.js';
+  import { eyeIcon } from '../lib/eye-icon.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import MediaCatalog from './MediaCatalog.svelte';
@@ -71,6 +73,12 @@
   // 添加视频源的内联表单状态(替代浏览器原生 prompt,与全站表单风格一致)。
   let addingProvider = $state(false);
   let newProviderId = $state('');
+  // 凭证字段明文展示状态（field.id → bool），与 Users 页密码眼睛一致。
+  let credShow = $state({});
+
+  function toggleCredShow(id) {
+    credShow[id] = !credShow[id];
+  }
 
   const mediaTabs = [
     { id: 'runtime', labelKey: 'mediaTabRuntime' },
@@ -177,10 +185,9 @@
     if (historyBusyCode !== null) return;
     const label = rec.versionName || String(rec.versionCode);
     if (
-      !(await showConfirm(
-        t('appReleaseDeleteConfirm', { version: label, code: rec.versionCode }),
-        { danger: true },
-      ))
+      !(await showConfirm(t('appReleaseDeleteConfirm', { version: label, code: rec.versionCode }), {
+        danger: true,
+      }))
     )
       return;
     if (historyBusyCode !== null) return;
@@ -194,13 +201,6 @@
     } finally {
       historyBusyCode = null;
     }
-  }
-
-  function formatDateTime(value) {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString();
   }
 
   function onVariantChange(e) {
@@ -220,9 +220,7 @@
             Number(appReleaseForm.versionCode) > 0
               ? ''
               : t('appReleaseVersionCodeInvalid'),
-          versionName: appReleaseForm.versionName.trim()
-            ? ''
-            : t('appReleaseVersionNameRequired'),
+          versionName: appReleaseForm.versionName.trim() ? '' : t('appReleaseVersionNameRequired'),
         }
       : { apk: '', versionCode: '', versionName: '' },
   );
@@ -291,6 +289,16 @@
     }
   }
 
+  async function removeProvider(ci) {
+    if (
+      !(await showConfirm(t('mediaCredRemoveProvider', { provider: credentials[ci]?.provider }), {
+        danger: true,
+      }))
+    )
+      return;
+    credentials.splice(ci, 1);
+  }
+
   function addProvider() {
     const id = newProviderId.trim();
     if (!id) return;
@@ -308,14 +316,6 @@
     ];
     newProviderId = '';
     addingProvider = false;
-  }
-
-  function formatBytes(bytes) {
-    const n = Number(bytes || 0);
-    if (!Number.isFinite(n) || n <= 0) return '0 B';
-    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
-    if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`;
-    return `${n} B`;
   }
 
   async function save() {
@@ -845,7 +845,7 @@
               <span class="badge badge-green">{t('appReleasePublished')}</span>
               <strong>{manifest.versionName}</strong>
               <span>versionCode {manifest.versionCode}</span>
-              <span>{formatBytes(manifest.sizeBytes)}</span>
+              <span>{formatSize(manifest.sizeBytes)}</span>
               {#if manifest.publishedAt}<span>{formatDateTime(manifest.publishedAt)}</span>{/if}
               <button
                 class="btn btn-sm btn-ghost release-download-btn"
@@ -997,10 +997,11 @@
                         >
                       {/if}
                       {#if !rec.apkExists}
-                        <span class="badge badge-red badge-inline">{t('appReleaseApkMissing')}</span>
+                        <span class="badge badge-red badge-inline">{t('appReleaseApkMissing')}</span
+                        >
                       {/if}
                     </td>
-                    <td class="td-muted">{formatBytes(rec.sizeBytes)}</td>
+                    <td class="td-muted">{formatSize(rec.sizeBytes)}</td>
                     <td class="td-mono muted-text" title={rec.sha256}>
                       {rec.sha256 ? rec.sha256.slice(0, 12) + '…' : '—'}
                     </td>
@@ -1020,7 +1021,9 @@
                           <button
                             class="btn btn-sm btn-ghost"
                             disabled={!rec.apkExists || rec.current}
-                            title={rec.current ? t('appReleaseCurrentBadge') : t('appReleaseRollback')}
+                            title={rec.current
+                              ? t('appReleaseCurrentBadge')
+                              : t('appReleaseRollback')}
                             onclick={() => rollbackAppRelease(rec)}
                           >
                             {t('appReleaseRollback')}
@@ -1028,7 +1031,9 @@
                           <button
                             class="btn btn-sm btn-danger"
                             disabled={rec.current}
-                            title={rec.current ? t('appReleaseCurrentBadge') : t('appReleaseDelete')}
+                            title={rec.current
+                              ? t('appReleaseCurrentBadge')
+                              : t('appReleaseDelete')}
                             onclick={() => deleteAppReleaseVersion(rec)}
                           >
                             {t('appReleaseDelete')}
@@ -1132,7 +1137,7 @@
             >
               {t('resetDefaults')}
             </button>
-            <button class="btn btn-sm btn-success" onclick={addCategory}>{t('addCategory')}</button>
+            <button class="btn btn-sm btn-primary" onclick={addCategory}>{t('addCategory')}</button>
           </div>
         </div>
 
@@ -1303,7 +1308,7 @@
               <div class="credential-card">
                 <div class="credential-header">
                   <span class="tag">{cred.provider}</span>
-                  <button class="btn btn-sm btn-ghost" onclick={() => credentials.splice(ci, 1)}>
+                  <button class="btn btn-sm btn-ghost" onclick={() => removeProvider(ci)}>
                     {t('remove')}
                   </button>
                 </div>
@@ -1311,8 +1316,7 @@
                   {#each cred.fields as f, fi (f.id)}
                     <div class="field-row">
                       <input
-                        class="input"
-                        style="width:160px;flex-shrink:0"
+                        class="field-key"
                         value={f.key}
                         oninput={(e) => {
                           f.key = e.target.value;
@@ -1320,16 +1324,24 @@
                         placeholder={t('mediaCredFieldName')}
                         aria-label={t('mediaCredFieldName')}
                       />
-                      <input
-                        class="input"
-                        type="password"
-                        value={f.value}
-                        oninput={(e) => {
-                          f.value = e.target.value;
-                        }}
-                        placeholder={t('mediaCredFieldValue')}
-                        aria-label={t('mediaCredFieldValue')}
-                      />
+                      <div class="password-input field-value">
+                        <input
+                          type={credShow[f.id] ? 'text' : 'password'}
+                          value={f.value}
+                          oninput={(e) => {
+                            f.value = e.target.value;
+                          }}
+                          placeholder={t('mediaCredFieldValue')}
+                          aria-label={t('mediaCredFieldValue')}
+                        />
+                        <button
+                          class="eye-btn"
+                          onclick={() => toggleCredShow(f.id)}
+                          aria-label={credShow[f.id] ? t('hidePassword') : t('showPassword')}
+                        >
+                          {@html eyeIcon(credShow[f.id])}
+                        </button>
+                      </div>
                       <button
                         class="btn btn-sm btn-ghost"
                         onclick={() => {
@@ -1366,7 +1378,7 @@
                   placeholder={t('mediaCredProviderId')}
                   aria-label={t('mediaCredProviderId')}
                 />
-                <button class="btn btn-sm btn-success" onclick={addProvider}>{t('add')}</button>
+                <button class="btn btn-sm btn-primary" onclick={addProvider}>{t('add')}</button>
                 <button
                   class="btn btn-sm btn-ghost"
                   onclick={() => {
@@ -1931,6 +1943,14 @@
     gap: 0.5rem;
     /* 窄屏下字段+删除按钮允许换行，避免横向溢出 */
     flex-wrap: wrap;
+  }
+  .credential-fields .field-key {
+    width: 160px;
+    flex-shrink: 0;
+  }
+  .credential-fields .field-value {
+    flex: 1 1 220px;
+    min-width: 0;
   }
   .add-provider-form {
     display: flex;

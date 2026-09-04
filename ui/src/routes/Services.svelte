@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { navigate } from '../lib/nav.svelte.js';
   import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName } from '../lib/services.js';
@@ -13,10 +14,15 @@
 
   onMount(() => {
     refresh();
+    // 服务状态轮询：页面隐藏时跳过请求，避免后台标签页持续打 API。
+    const timer = setInterval(() => {
+      if (!document.hidden && !actingService) poll();
+    }, 15000);
+    return () => clearInterval(timer);
   });
 
-  async function refresh() {
-    loading = true;
+  async function refresh(silent = false) {
+    if (!silent) loading = true;
     try {
       const [d, user] = await Promise.all([getServices(), getCurrentUser()]);
       services = d.services || [];
@@ -26,6 +32,11 @@
     } finally {
       loading = false;
     }
+  }
+
+  // 轮询用的静默刷新：不闪骨架屏，仅更新数据。
+  async function poll() {
+    await refresh(true);
   }
 
   function confirmKey(act) {
@@ -59,7 +70,7 @@
   <div class="page-header">
     <h1 class="page-title">{t('services')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh} disabled={loading}
+      <button class="btn btn-sm btn-ghost" onclick={() => refresh()} disabled={loading}
         >{t('refresh')}</button
       >
     </div>
@@ -128,7 +139,9 @@
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
                     <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                      <span class="badge-dot"></span>{s.state === 'running' ? t('stateRunning') : t('stateStopped')}
+                      <span class="badge-dot"></span>{s.state === 'running'
+                        ? t('stateRunning')
+                        : t('stateStopped')}
                     </span>
                   </td>
                   <td class="td-mono">{s.ports || '—'}</td>
@@ -136,6 +149,13 @@
                   {#if isAdmin}
                     <td>
                       <div class="td-actions">
+                        <button
+                          class="btn btn-ghost btn-sm"
+                          title={t('logsActionDesc')}
+                          onclick={() => navigate(`/logs?service=${encodeURIComponent(s.name)}`)}
+                        >
+                          {t('logs')}
+                        </button>
                         {#if actingService === s.name}
                           <span class="spinner"></span>
                         {:else}

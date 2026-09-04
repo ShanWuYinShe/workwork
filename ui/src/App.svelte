@@ -774,6 +774,17 @@
     text-decoration: none;
     transition: color var(--transition);
   }
+  /* 可点击文本按钮（如表格里的 UUID 链接）：去掉按钮默认样式，只留 link 外观 */
+  :global(.link-btn) {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  :global(.link-btn:focus-visible) {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+  }
   :global(.link:hover) {
     color: #bfdbfe;
     text-decoration: underline;
@@ -939,6 +950,16 @@
     box-shadow:
       0 2px 8px rgba(239, 68, 68, 0.3),
       inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  /* 危险操作的描边变体（删除/重置）：比实心红更弱的视觉权重 */
+  :global(.btn-danger-outline) {
+    background: transparent;
+    color: var(--c-danger);
+    border: 1px solid var(--c-danger);
+  }
+  :global(.btn-danger-outline:hover) {
+    background: var(--c-danger);
+    color: #fff;
   }
   :global(.btn-success) {
     background: #15803d; /* 白字对比度 5.0:1 */
