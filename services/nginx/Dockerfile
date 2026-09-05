@@ -20,6 +20,7 @@ RUN chmod +x /usr/local/bin/fetch-cloudflare-ips.sh /usr/local/bin/refresh-cloud
 
 COPY config/nginx-main.conf /etc/nginx/nginx.conf
 COPY config/logrotate.conf /etc/logrotate.d/nginx
+COPY config/fail2ban/fail2ban.local /etc/fail2ban/fail2ban.local
 COPY config/fail2ban/jail.local /etc/fail2ban/jail.local
 COPY config/fail2ban/filter.d/nginx-auth.conf /etc/fail2ban/filter.d/nginx-auth.conf
 COPY config/fail2ban/action.d/admin-api.conf /etc/fail2ban/action.d/admin-api.conf

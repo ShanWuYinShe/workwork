@@ -1,7 +1,10 @@
+# uri= 记录 nginx 解码+规范化后的路径，供 fail2ban 匹配——$request 是客户端
+# 原始请求行，/%61dmin/、/./admin/ 等变体在 location/auth 层与 /admin/ 等价
+# （同样 401），但原始行不匹配旧 failregex，撞库计数被完全绕过。
 log_format auth_log '$remote_addr - $remote_user [$time_local] '
                     '"$request" $status $body_bytes_sent '
                     '"$http_referer" "$http_user_agent" '
-                    'upstream: $upstream_addr';
+                    'upstream: $upstream_addr uri="$uri"';
 
 include /etc/nginx/cloudflare-ips.conf;
 

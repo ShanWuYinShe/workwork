@@ -305,6 +305,11 @@ func trustedProxyHosts() []string {
 	return hosts
 }
 
+// trustedProxyHostIPs 返回信任代理主机名解析出的 IP 集合。
+// DNS 解析在锁外进行（与 cloudflare.go cfResolveZoneID 同款模式）：此前解析
+// 持有全局锁，每个经 requireRole 的请求都要过这把锁——缓存过期或 DNS 故障
+// （失败只缓存 5s）期间所有请求串行排队，各付最长 200ms 解析超时，面板整体
+// 延迟被放大。锁外解析 + 锁内回写（允许并发重复解析，结果幂等）消除该瓶颈。
 func trustedProxyHostIPs() []net.IP {
 	hosts := trustedProxyHosts()
 	if len(hosts) == 0 {
@@ -312,10 +317,12 @@ func trustedProxyHostIPs() []net.IP {
 	}
 	now := time.Now()
 	trustedProxyHostCache.Lock()
-	defer trustedProxyHostCache.Unlock()
 	if now.Before(trustedProxyHostCache.expires) {
-		return cloneIPs(trustedProxyHostCache.ips)
+		ips := cloneIPs(trustedProxyHostCache.ips)
+		trustedProxyHostCache.Unlock()
+		return ips
 	}
+	trustedProxyHostCache.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -337,8 +344,10 @@ func trustedProxyHostIPs() []net.IP {
 	if len(ips) == 0 {
 		ttl = trustedProxyHostFailureCache
 	}
+	trustedProxyHostCache.Lock()
 	trustedProxyHostCache.ips = ips
 	trustedProxyHostCache.expires = now.Add(ttl)
+	trustedProxyHostCache.Unlock()
 	return cloneIPs(ips)
 }
 

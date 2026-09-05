@@ -931,6 +931,18 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Forbidden", 403)
 			return
 		}
+		// 受保护账号(AUTH_USER)已存在时禁止经此端点覆盖密码：updateUsersMeta 的
+		// 守卫只在"降级已有 admin"时触发，role 保持 admin 的重置密码路径会绕过
+		// 它直达 htpasswdAddUser——与 apiChangePassword 对同一攻击的阻断对齐
+		// (防止任意 admin 重置超管密码接管账号，也让 UI 误填超管用户名时明确报错)。
+		if body.Username == getEnv("AUTH_USER") {
+			if doc, err := readUsersMeta(); err == nil {
+				if _, exists := doc.Users[body.Username]; exists {
+					writeError(w, "Cannot modify the default admin account; use change-password instead", 403)
+					return
+				}
+			}
+		}
 
 		// This handler doubles as the edit path for an existing username, so it
 		// must enforce the same lockout guards as apiSetRole when demoting an
@@ -998,6 +1010,9 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			writeInternalError(w, err)
 			return
 		}
+		_, actor := getUserFromContext(r)
+		log.Printf("[security] user upsert user=%s role=%s created=%t by=%s",
+			body.Username, body.Role, !hadPrevious, actor)
 		writeJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -1192,11 +1207,20 @@ func readHtpasswdUsers() []string {
 
 // -- Network / IPv6 rotation APIs --
 
-// loadCurrentIPs returns the current IPv6 for each container, queried from
-// Cloudflare DNS. Falls back to env var static IPs.
+// loadCurrentIPs 是 loadCurrentIPsWithRecords 的兼容包装（不需要记录明细的
+// 调用方继续用两返回值签名）。
 func loadCurrentIPs() (xrayIP, nginxIP string) {
+	x, n, _ := loadCurrentIPsWithRecords()
+	return x, n
+}
+
+// loadCurrentIPsWithRecords 除返回各容器当前 IPv6 外，还带出本次轮询查到的
+// AAAA 记录明细，供 apiNetworkStatus 的 DNS 表格复用——同一请求内不再对
+// 同一批域名发起第二轮全量 CF 查询（此前单次页面刷新 = 域数 × 2 轮串行 CF API）。
+func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
 	xrayIP = getEnv("XRAY_IPV6")
 	nginxIP = getEnv("NGINX_IPV6")
+	records = map[string]*cfDNSRecord{}
 	if getEnv("CF_API_TOKEN") == "" {
 		return
 	}
@@ -1205,6 +1229,7 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 		if err != nil || rec == nil {
 			continue
 		}
+		records[di.Domain] = rec
 		if di.Container == "xray" {
 			xrayIP = normalizeIPv6(rec.Content)
 		} else {
@@ -1216,11 +1241,17 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 
 func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 整体收敛 deadline：此 handler 串行发起多轮 CF API + docker exec，
+		// 全部挂在 r.Context() 上（客户端不断开就不取消），CF 慢时页面可挂起
+		// 数分钟。20s 足够正常路径完成，异常时快速失败。
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
 		cfOK := getEnv("CF_API_TOKEN") != ""
 		subnet := getEnv("IPV6_SUBNET")
 		nginxStatic := getEnv("NGINX_IPV6")
 		xrayStatic := getEnv("XRAY_IPV6")
-		dnsXrayIP, dnsNginxIP := loadCurrentIPs()
+		dnsXrayIP, dnsNginxIP, dnsRecords := loadCurrentIPsWithRecords()
 		xrayIP, nxIP := dnsXrayIP, dnsNginxIP
 		if xrayID, err := findContainer(r.Context(), cli, "xray"); err == nil {
 			xrayIP = selectContainerDNSIP(r.Context(), cli, xrayID, xrayStatic, dnsXrayIP)
@@ -1264,19 +1295,16 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 					expectedIP = xrayIP
 				}
 				info := dnsInfo{Domain: di.Domain, Container: di.Container, ExpectedIP: expectedIP}
-				rec, err := cfFindAAAARecord(di.Domain)
-				if err != nil {
-					// CF 错误消息可能含 zone/记录内部细节,只向客户端返回通用文案,
-					// 完整错误进日志(符合 writeInternalError 约定)。
-					log.Printf("network status: cfFindAAAARecord %s: %v", di.Domain, err)
-					info.Error = "DNS 查询失败"
-				} else {
-					info.Record = rec
-					if rec != nil {
-						// 两端都归一化后再比较：CF 返回的 IPv6 压缩形式可能与
-						// 预期值不同，直接字符串比较会误报 mismatch。
-						info.Synced = normalizeIPv6(rec.Content) == normalizeIPv6(expectedIP)
-					}
+				// 复用 loadCurrentIPsWithRecords 本轮已查到的记录：不再对同一
+				// 批域名发起第二轮串行 CF 查询。查不到 = 记录缺失（rec=nil，
+				// 展示为 mismatch），仅当本轮完全没查过（map 无键且非失败缓存）
+				// 时才兜底补查。
+				rec := dnsRecords[di.Domain]
+				info.Record = rec
+				if rec != nil {
+					// 两端都归一化后再比较：CF 返回的 IPv6 压缩形式可能与
+					// 预期值不同，直接字符串比较会误报 mismatch。
+					info.Synced = normalizeIPv6(rec.Content) == normalizeIPv6(expectedIP)
 				}
 				dnsResults = append(dnsResults, info)
 			}

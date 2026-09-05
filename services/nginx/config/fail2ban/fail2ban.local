@@ -1,0 +1,5 @@
+# 封禁库持久化：compose 已挂载 /var/lib/fail2ban/data，但 alpine 默认
+# dbfile 在 /var/lib/fail2ban/fail2ban.sqlite3（卷外）——容器重建即丢全部
+# 封禁状态与撞库计数。显式指入挂载卷。
+[Definition]
+dbfile = /var/lib/fail2ban/data/fail2ban.sqlite3
