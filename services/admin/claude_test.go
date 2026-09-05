@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func TestKeepNewestDownloads(t *testing.T) {
-	mk := func(versions ...string) []claudeStoredDownload {
-		out := make([]claudeStoredDownload, 0, len(versions))
+func TestKeepNewestDownloadsClaudeFilenames(t *testing.T) {
+	mk := func(versions ...string) []storedDownload {
+		out := make([]storedDownload, 0, len(versions))
 		for _, v := range versions {
-			out = append(out, claudeStoredDownload{Version: v, Filename: "claude-" + v + "-linux-x64.tar.gz"})
+			out = append(out, storedDownload{Version: v, Filename: "claude-" + v + "-linux-x64.tar.gz"})
 		}
 		return out
 	}
