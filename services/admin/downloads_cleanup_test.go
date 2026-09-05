@@ -12,9 +12,9 @@ import (
 // 保持一致——改名会导致残留文件既不可下载也不可删除。
 func TestPurgeStaleDownloadTemps(t *testing.T) {
 	dir := t.TempDir()
-	origC, origX := claudeDownloadsDir, xrayDownloadsDir
-	claudeDownloadsDir, xrayDownloadsDir = dir, dir
-	defer func() { claudeDownloadsDir, xrayDownloadsDir = origC, origX }()
+	origC, origX := claudeDownloads.dir, xrayDownloads.dir
+	claudeDownloads.dir, xrayDownloads.dir = dir, dir
+	defer func() { claudeDownloads.dir, xrayDownloads.dir = origC, origX }()
 
 	keep := []string{"claude-1.0.0-linux-x64.tar.gz", "Xray-1.2.3-linux-64.zip"}
 	drop := []string{
