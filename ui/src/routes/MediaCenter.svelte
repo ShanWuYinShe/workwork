@@ -439,8 +439,11 @@
     return expandedIds.includes(uid);
   }
 
+  // 手风琴语义：同一时间只展开一个分类——多个分类的编辑表单同时铺开
+  // 会让页面变成无层级的长列（用户反馈的"混乱"根源）。
+  // 「全部展开」按钮仍是显式例外，允许批量编辑。
   function toggleExpanded(uid) {
-    expandedIds = isExpanded(uid) ? expandedIds.filter((id) => id !== uid) : [...expandedIds, uid];
+    expandedIds = isExpanded(uid) ? [] : [uid];
   }
 
   function setAllExpanded(open) {
@@ -1243,20 +1246,17 @@
                     />
                   </div>
 
-                  {#if config.sources?.length}
+                  {#if config.sources?.some((source) => source.enabled)}
                     <details class="field-section advanced-panel">
                       <summary>{t('sourceSpecificQueries')}</summary>
                       <div class="helper-text source-query-help">
                         {t('sourceSpecificQueriesDesc')}
                       </div>
                       <div class="source-query-grid advanced-panel-body">
-                        {#each config.sources as source}
+                        {#each config.sources.filter((source) => source.enabled) as source}
                           <div class="form-group">
                             <label for={`category-${category._uid}-source-${source.id}`}>
                               {t('sourceSearchQuery', { source: source.title || source.id })}
-                              {#if !source.enabled}
-                                <span class="inline-muted">({t('disabledLabel')})</span>
-                              {/if}
                             </label>
                             <input
                               id={`category-${category._uid}-source-${source.id}`}
@@ -1274,11 +1274,16 @@
                   <div class="textarea-grid">
                     <div class="form-group">
                       <label for={`category-${category._uid}-keywords`}
-                        >{t('keywordsOnePerLine')}</label
+                        >{t('keywordsOnePerLine')}
+                        <span class="keywords-count"
+                          >{t('categoryKeywordsCount', {
+                            count: categoryKeywordCount(category),
+                          })}</span
+                        ></label
                       >
                       <textarea
                         id={`category-${category._uid}-keywords`}
-                        rows="6"
+                        rows="12"
                         value={(category.keywords || []).join('\n')}
                         oninput={(e) =>
                           updateCategoryList(index, 'keywords', e.currentTarget.value)}
@@ -1571,9 +1576,15 @@
   .source-query-help {
     margin-top: 0.45rem;
   }
-  .inline-muted {
-    color: var(--c-text-muted);
-    font-weight: 500;
+  .keywords-count {
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: var(--c-bg-surface);
+    border: 1px solid var(--c-border);
+    color: var(--c-text-secondary);
+    font-size: 0.62rem;
+    letter-spacing: 0;
     text-transform: none;
   }
 
