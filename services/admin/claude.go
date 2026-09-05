@@ -364,7 +364,22 @@ func apiClaudeCodeDeleteDownload() http.HandlerFunc {
 	}
 }
 
+// claudeFetchMu 合并缓存过期时的并发回源（singleflight）：不加锁时所有并发
+// 请求都直击 GitHub API（匿名限额 60/h，打爆后所有用户报错）。
+var claudeFetchMu sync.Mutex
+
 func fetchClaudeCodeVersions() ([]claudeRelease, error) {
+	claudeCacheMu.Lock()
+	if time.Since(claudeCache.checkedAt) < 30*time.Minute && len(claudeCache.releases) > 0 {
+		releases := claudeCache.releases
+		claudeCacheMu.Unlock()
+		return releases, nil
+	}
+	claudeCacheMu.Unlock()
+
+	// 持锁获取 + double-check：只有一个请求回源，其余等锁后命中新缓存。
+	claudeFetchMu.Lock()
+	defer claudeFetchMu.Unlock()
 	claudeCacheMu.Lock()
 	if time.Since(claudeCache.checkedAt) < 30*time.Minute && len(claudeCache.releases) > 0 {
 		releases := claudeCache.releases

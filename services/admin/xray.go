@@ -350,7 +350,21 @@ func apiXrayDeleteDownload() http.HandlerFunc {
 	}
 }
 
+// xrayFetchMu 合并缓存过期时的并发回源（与 claudeFetchMu 同款 singleflight）：
+// 避免并发请求全部直击 GitHub API 打爆匿名限额。
+var xrayFetchMu sync.Mutex
+
 func fetchXrayVersions() ([]xrayRelease, error) {
+	xrayCacheMu.Lock()
+	if time.Since(xrayCache.checkedAt) < 30*time.Minute && len(xrayCache.releases) > 0 {
+		releases := xrayCache.releases
+		xrayCacheMu.Unlock()
+		return releases, nil
+	}
+	xrayCacheMu.Unlock()
+
+	xrayFetchMu.Lock()
+	defer xrayFetchMu.Unlock()
 	xrayCacheMu.Lock()
 	if time.Since(xrayCache.checkedAt) < 30*time.Minute && len(xrayCache.releases) > 0 {
 		releases := xrayCache.releases

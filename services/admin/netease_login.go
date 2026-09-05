@@ -106,7 +106,7 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 			return
 		}
 		qrBody, err := neteaseUpstreamGet(
-			fmt.Sprintf("/login/qr/create?key=%s&qrimg=true&timestamp=%d", keyResp.Data.Unikey, ts), 8*time.Second)
+			fmt.Sprintf("/login/qr/create?key=%s&qrimg=true&timestamp=%d", url.QueryEscape(keyResp.Data.Unikey), ts), 8*time.Second)
 		if err != nil {
 			writeInternalError(w, err)
 			return
@@ -155,7 +155,7 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 		}
 
 		body, err := neteaseUpstreamGet(
-			fmt.Sprintf("/login/qr/check?key=%s&timestamp=%d", key, time.Now().UnixMilli()), 8*time.Second)
+			fmt.Sprintf("/login/qr/check?key=%s&timestamp=%d", url.QueryEscape(key), time.Now().UnixMilli()), 8*time.Second)
 		if err != nil {
 			writeInternalError(w, err)
 			return
