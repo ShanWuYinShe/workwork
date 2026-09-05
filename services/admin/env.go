@@ -41,6 +41,11 @@ func loadEnv() {
 	})
 }
 
+// getEnv 查询合并后的环境视图。双源读取是有意为之，并非冗余：loadEnv 的
+// sync.Once 只在进程首次调用时快照 os.Environ()，之后 t.Setenv（测试）或
+// 运行期对进程环境的修改只能经 os.LookupEnv 看到——直接查 envMap 会让
+// 依赖 Setenv 的测试全部失效（曾实测破坏 media_catalog_test）。.env 文件
+// 值仍在 envMap 中兜底。
 func getEnv(key string) string {
 	loadEnv()
 	if v, ok := os.LookupEnv(key); ok {

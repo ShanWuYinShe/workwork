@@ -312,7 +312,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		// 容器操作不随客户端断开而取消:restart 请求发出后若客户端断连,
 		// 请求 context 取消可能只完成 stop 未完成 start,服务停在 down 状态。
 		// 与 IPv6 轮转/DNS 同步一致,用不受取消影响的 context + 超时。
-		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
 		defer cancel()
 		containers, err := cli.ContainerList(opCtx, container.ListOptions{
 			All: true,
@@ -335,10 +335,10 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		case "stop":
-			t := 10
+			t := dockerStopTimeoutSeconds
 			err = cli.ContainerStop(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 		case "restart":
-			t := 10
+			t := dockerStopTimeoutSeconds
 			err = cli.ContainerRestart(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
 			if name == "xray" || name == "nginx" {
@@ -484,17 +484,22 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		// Proxy auth: use first client's owner, not the viewing user。
-		// 只读：GET 端点不创建 proxy 密码（避免写副作用）。用户尚无密码时
-		// proxyAuth 为空，生成的 config 里 XHTTPProxyAuth 留空——首次添加
-		// Xray 客户端时由 apiAddXray 懒创建。
-		proxyUser := username
-		if len(filtered) > 0 && filtered[0]["owner"] != "" {
-			proxyUser = filtered[0]["owner"]
-		}
+		// 只读：GET 端点不创建 proxy 密码（避免写副作用）。
+		// proxyAuth 仅当列表里全部客户端都属于当前用户时才填充——admin 视角
+		// 的 filtered 含其他用户的客户端，取"第一个 owner"会把他人明文凭证
+		// 嵌进返回的 generatedJSON，admin 转发配置即泄露他人凭证。
 		proxyAuth := ""
 		if len(filtered) > 0 {
-			proxyAuth = proxyAuthForUserRead(proxyUser)
+			allOwned := true
+			for _, c := range filtered {
+				if c["owner"] != username {
+					allOwned = false
+					break
+				}
+			}
+			if allOwned {
+				proxyAuth = proxyAuthForUserRead(username)
+			}
 		}
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
 			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
@@ -608,7 +613,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		}
 		// 重启不随客户端断开而取消：与 apiServiceAction 一致，避免 add 请求断连后
 		// 只完成配置落盘、Xray 停在未加载状态。
-		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
 		if err := restartXray(restartCtx, cli); err != nil {
 			cancel()
 			// 配置已落盘但 xray 未加载:必须明确报错,否则用户看到"成功"而代理
@@ -675,7 +680,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		// 重启不随客户端断开而取消（与 apiAddXray 一致）。
-		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
 		if err := restartXray(restartCtx, cli); err != nil {
 			cancel()
 			log.Printf("ERROR: failed to restart xray after delete: %v", err)
@@ -742,6 +747,13 @@ func apiXrayClientConfig() http.HandlerFunc {
 // ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转。
 // 写锁：startupRotateIPv6 / apiRotateIPv6（分配新 IP、更新 DNS）。
 // 读锁：restoreServiceRotatingIP（恢复当前 IP，不修改 DNS）。
+// docker 容器 stop 的宽限期（秒）：超时后 SIGKILL。service action / 部署
+// 重启路径共用。
+const dockerStopTimeoutSeconds = 10
+
+// restart/轮转类长流程（stop+start+健康等待）的整体收敛时限。
+const restartTimeout = 2 * time.Minute
+
 var ipv6RotateMu sync.RWMutex
 var htpasswdMu sync.Mutex
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
@@ -755,6 +767,26 @@ var validServiceName = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 func isValidUsername(username string) bool {
 	return username != "" && validUsername.MatchString(username) && len(username) <= 64
+}
+
+// verifyHtpasswdPasswordLocked 在 htpasswdMu 保护下读取并校验 (username, password)。
+// apiChangePassword 此前在校验与 htpasswdAddUser 重写之间不持锁——并发两次改密
+// 都能通过旧密码校验后互相覆盖（last-writer-wins）。校验与重写共用一把锁后，
+// 该窗口消失。
+func verifyHtpasswdPasswordLocked(username, password string) bool {
+	htpasswdMu.Lock()
+	defer htpasswdMu.Unlock()
+	data, err := os.ReadFile(htpasswdFile)
+	if err != nil {
+		return false
+	}
+	prefix := username + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) && verifyHtpasswdLine(username, password, line) {
+			return true
+		}
+	}
+	return false
 }
 
 func htpasswdAddUser(username, password string) error {
@@ -867,26 +899,14 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			writeError(w, "Cannot change the default admin account password", 403)
 			return
 		}
-		// Verify old password for non-admin users
+		// Verify old password for non-admin users（持锁校验，见
+		// verifyHtpasswdPasswordLocked 注释——与后续重写共用 htpasswdMu）
 		if userInfo == nil || userInfo.Role != "admin" {
 			if body.OldPassword == "" {
 				writeError(w, "Old password required", 400)
 				return
 			}
-			data, err := os.ReadFile(htpasswdFile)
-			if err != nil {
-				writeError(w, "Invalid old password", 401)
-				return
-			}
-			prefix := body.Username + ":"
-			verified := false
-			for _, line := range strings.Split(string(data), "\n") {
-				if strings.HasPrefix(line, prefix) && verifyHtpasswdLine(body.Username, body.OldPassword, line) {
-					verified = true
-					break
-				}
-			}
-			if !verified {
+			if !verifyHtpasswdPasswordLocked(body.Username, body.OldPassword) {
 				writeError(w, "Invalid old password", 401)
 				return
 			}
@@ -1075,7 +1095,11 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 
 		if err := htpasswdRemoveUser(body.Username); err != nil {
-			writeInternalError(w, err)
+			// users.json 已删、nginx 凭证未清：面板登录已不可用（requireRole
+			// 会以 "User not provisioned" 拒绝），但 htpasswd 行残留。如实
+			// 上报部分成功，提示重试自愈，而非笼统 500。
+			log.Printf("ERROR: remove htpasswd entry for %s: %v", body.Username, err)
+			writeError(w, "用户已删除，但清理登录凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
 			return
 		}
 
@@ -1101,7 +1125,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				writeJSON(w, map[string]string{"status": "ok"})
 				return
 			}
-			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
 			defer cancel()
 			if err := restartXray(restartCtx, cli); err != nil {
 				log.Printf("ERROR: restart xray after user delete: %v", err)
@@ -1218,8 +1242,11 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 // AAAA 记录明细，供 apiNetworkStatus 的 DNS 表格复用——同一请求内不再对
 // 同一批域名发起第二轮全量 CF 查询（此前单次页面刷新 = 域数 × 2 轮串行 CF API）。
 func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
-	xrayIP = getEnv("XRAY_IPV6")
-	nginxIP = getEnv("NGINX_IPV6")
+	// env 回退值过 normalizeIPv6：CF 路径与 getContainerIPs 返回的都是压缩
+	// 规范形，env 若填了全展开形式，ip_consistency 的字符串比较会永假，
+	// 每 3 分钟误报一次 "missing rotating IP"（日志噪音 + no-op add）。
+	xrayIP = normalizeIPv6(getEnv("XRAY_IPV6"))
+	nginxIP = normalizeIPv6(getEnv("NGINX_IPV6"))
 	records = map[string]*cfDNSRecord{}
 	if getEnv("CF_API_TOKEN") == "" {
 		return
@@ -1589,7 +1616,11 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		xrayID, err := findContainer(ctx, cli, "xray")
 		if err != nil {
-			writeError(w, "Xray container not found", 500)
+			// 服务暂时不可用（容器缺失/查询失败）而非内部错误：与 apiSyncDNS
+			// 同场景的写法对齐（writeInternalError 记日志 + 通用文案），503
+			// 让客户端明确这是环境态而非代码 bug。
+			log.Printf("rotate ipv6: find xray container: %v", err)
+			writeError(w, "Xray container not available", http.StatusServiceUnavailable)
 			return
 		}
 		nginxID, err := findContainer(ctx, cli, "nginx")
@@ -1795,10 +1826,12 @@ func getContainerIPs(ctx context.Context, cli *client.Client, containerID string
 	}
 	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
+		log.Printf("getContainerIPs: exec create %s: %v", containerID[:12], err)
 		return nil
 	}
 	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
+		log.Printf("getContainerIPs: exec attach %s: %v", containerID[:12], err)
 		return nil
 	}
 	defer attachResp.Close()
@@ -1863,7 +1896,7 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	}
 	id := containers[0].ID
 
-	t := 10
+	t := dockerStopTimeoutSeconds
 	restartErr := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t})
 
 	// 始终尝试恢复轮换 IP。Docker restart 超时/cancel 时容器可能已完成重启，

@@ -693,6 +693,8 @@ func normalizeMediaCenterSource(input mediaCenterSource, defaults map[string]med
 	homeURL := strings.TrimSpace(input.HomeURL)
 	if homeURL == "" {
 		homeURL = defaultSource.HomeURL
+	} else if !strings.HasPrefix(homeURL, "https://") && !strings.HasPrefix(homeURL, "http://") {
+		return mediaCenterSource{}, fmt.Errorf("homeUrl must be an http(s) URL, got: %s", homeURL)
 	}
 	riskLevel := strings.TrimSpace(input.RiskLevel)
 	if riskLevel == "" {
@@ -810,6 +812,14 @@ func normalizeMediaCenterPublicPath(path string) (string, error) {
 	}
 	if strings.Contains(path, "//") || !mediaCenterPathPattern.MatchString(path) {
 		return "", errors.New("media center public path contains invalid characters")
+	}
+	// 逐段拒绝 ".."：字符白名单挡住了空格/分号/换行（nginx 指令注入不可能），
+	// 但 /foo/../admin 这类点段会造成 location 语义混淆、绕过保留路由的
+	// 字面前缀匹配。前端已同步实现同一校验。
+	for _, seg := range strings.Split(path, "/") {
+		if seg == ".." {
+			return "", errors.New("media center public path must not contain '..'")
+		}
 	}
 	if isReservedMediaCenterPublicPath(path) {
 		return "", fmt.Errorf("media center public path conflicts with reserved route: %s", path)
