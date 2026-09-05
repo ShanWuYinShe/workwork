@@ -37,6 +37,10 @@ type mediaAppReleaseManifest struct {
 
 func apiMediaAppReleaseGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 与发布/回滚/删除同锁：并发发布时避免返回"新 manifest + 旧 APK 未就位"
+		// 的混合视图（仅影响展示，但读侧一致性与写侧统一更可预期）。
+		mediaAppReleaseMu.Lock()
+		defer mediaAppReleaseMu.Unlock()
 		variant := strings.TrimSpace(r.URL.Query().Get("variant"))
 		manifest, exists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
@@ -342,6 +346,22 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 		defer file.Close()
 		if !strings.EqualFold(filepath.Ext(header.Filename), ".apk") {
 			writeError(w, "只允许上传 .apk 文件", http.StatusBadRequest)
+			return
+		}
+		// 内容校验：APK 是 ZIP 包，必须以本地文件头 PK\x03\x04 开头——
+		// 仅查扩展名时任意内容改名 .apk 即可混入下载分发通道。
+		var magic [4]byte
+		if _, err := io.ReadFull(file, magic[:]); err != nil {
+			writeError(w, "APK 文件无效（无法读取）", http.StatusBadRequest)
+			return
+		}
+		if string(magic[:]) != "PK\x03\x04" {
+			writeError(w, "只允许上传有效的 APK（ZIP）文件", http.StatusBadRequest)
+			return
+		}
+		// 读回文件头后把偏移复位，后续按整个文件哈希/落盘。
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			writeInternalError(w, err)
 			return
 		}
 

@@ -147,9 +147,14 @@ server {
         send_timeout 600s;
     }
 
-    # Transfer public download — no authentication required
+    # Transfer public download — no authentication required.
+    # 显式清空身份头：$remote_user 在客户端自带 Authorization 时即被 nginx 解析
+    # （无需 auth_basic），server 级的 X-Forwarded-User $remote_user 会把它带给
+    # admin——当前公开路由只用 code 无实害，但未来任何 /api/transfer 路由挂上
+    # requireRole 即成越权。与 X-Internal-Token 的清空先例对齐。
     location /api/transfer/ {
         proxy_pass http://$admin_upstream;
+        proxy_set_header X-Forwarded-User "";
         proxy_buffering off;
         proxy_read_timeout 600s;
         send_timeout 600s;
