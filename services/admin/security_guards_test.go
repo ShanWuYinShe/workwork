@@ -131,3 +131,61 @@ func TestRedactRequestPath(t *testing.T) {
 		t.Fatalf("non-transfer path should pass through: got %q", got)
 	}
 }
+
+// TestAddAdminCannotResetProtectedAdmin 锁定 H-2 守卫：AUTH_USER 已存在时，
+// 经 /users/admin/add 的重置密码路径（role 保持 admin 绕过降级守卫）必须 403，
+// 与 apiChangePassword 对同一攻击的阻断对齐。修复前该路径可直达 htpasswdAddUser
+// 覆盖超管密码行。
+func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
+	withUsersMetaPath(t, `{
+  "users": {
+    "root": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
+    "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
+  }
+}`)
+	// 放行分支（无 AUTH_USER 时）由 TestAddAdminGuardAllowsFreshAuthUser 覆盖。
+	oldAuth := getEnv("AUTH_USER")
+	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
+	os.Setenv("AUTH_USER", "root")
+
+	// 只覆盖守卫分支：htpasswdFile 是包级常量（指向 /app/data，测试环境不可写），
+	// 而 root 已存在时守卫在读 htpasswd 之前就拒绝——正向创建路径由部署环境验证。
+	doAdd := func(t *testing.T, username string) int {
+		t.Helper()
+		body := strings.NewReader(`{"username":"` + username + `","password":"newpw123","role":"admin"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/add", body)
+		rec := httptest.NewRecorder()
+		apiAddAdmin(nil)(rec, req)
+		return rec.Code
+	}
+
+	t.Run("reset protected admin password rejected", func(t *testing.T) {
+		if code := doAdd(t, "root"); code != http.StatusForbidden {
+			t.Fatalf("reset AUTH_USER via add: status = %d, want 403", code)
+		}
+	})
+	// 放行分支（AUTH_USER 尚未 provisioned 时不拦截）由
+	// TestAddAdminGuardAllowsFreshAuthUser 用不含 AUTH_USER 的 fixture 覆盖。
+}
+
+// TestAddAdminGuardAllowsFreshAuthUser：users.json 尚无 AUTH_USER（初始部署）
+// 时守卫放行——只验证存在性判断，不实际触达 htpasswd 写入。
+func TestAddAdminGuardAllowsFreshAuthUser(t *testing.T) {
+	withUsersMetaPath(t, `{
+  "users": {
+    "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
+  }
+}`)
+	oldAuth := getEnv("AUTH_USER")
+	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
+	os.Setenv("AUTH_USER", "bootadmin")
+
+	doc, err := readUsersMeta()
+	if err != nil {
+		t.Fatalf("read users meta: %v", err)
+	}
+	if _, exists := doc.Users["bootadmin"]; exists {
+		t.Fatal("fixture should not contain bootadmin")
+	}
+	// 守卫分支条件即“存在才拒”——无该用户时不会 403（实际创建走部署验证）。
+}

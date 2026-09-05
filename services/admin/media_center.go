@@ -360,7 +360,9 @@ func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterConfigPath, data, 0644)
+	// 0600：config.json 内嵌 provider 凭证（SESSDATA 等）且无任何容器消费
+	// （下游只读 categories/credentials 两个派生文件），不应全局可读。
+	return atomicWriteFile(mediaCenterConfigPath, data, 0600)
 }
 
 func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
