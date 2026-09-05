@@ -105,7 +105,7 @@ func ensureRuntimeDirs() error {
 // 永远不可下载也不可删除的僵尸文件。启动是唯一可靠的清理时机(此刻不可能有
 // 正在进行的下载)。
 func purgeStaleDownloadTemps() {
-	for _, dir := range []string{claudeDownloadsDir, xrayDownloadsDir} {
+	for _, dir := range downloadDirs() {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue // 目录不存在:尚未下载过任何文件
