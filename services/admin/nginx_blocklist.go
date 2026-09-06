@@ -24,8 +24,10 @@ var blocklistSyncCli *client.Client
 
 // nginx 封禁同步的节流状态:封禁列表变更后最多每 2s 合并一次写入 + reload。
 var (
-	blocklistSyncMu    sync.Mutex
-	blocklistSyncTimer *time.Timer
+	blocklistSyncMu      sync.Mutex
+	blocklistSyncTimer   *time.Timer
+	blocklistSyncRunning bool // 一轮 sync 正在执行(timer 已到期、回调未返回)
+	blocklistSyncPending bool // sync 执行期间又有新变更,需合并重跑一轮
 )
 
 // scheduleBlocklistSync 在封禁列表变更后调度一次 nginx 同步(去抖):
@@ -38,17 +40,41 @@ func scheduleBlocklistSync() {
 	if blocklistSyncTimer != nil {
 		return
 	}
+	if blocklistSyncRunning {
+		// 上一轮 sync 仍在执行:只标记 pending,由其回调尾部合并重跑。
+		// 不另起 timer——旧回调开头已把 timer 置 nil,新 timer 会与仍在
+		// 执行的 sync 并发重叠,产生冗余写配置 + 冗余 nginx reload。
+		blocklistSyncPending = true
+		return
+	}
 	blocklistSyncTimer = time.AfterFunc(2*time.Second, func() {
 		blocklistSyncMu.Lock()
 		blocklistSyncTimer = nil
+		blocklistSyncRunning = true
 		cli := blocklistSyncCli
 		blocklistSyncMu.Unlock()
-		if cli == nil {
-			return
+		for cli != nil {
+			if err := syncBlockedIPsToNginx(cli); err != nil {
+				log.Printf("WARNING: sync blocked IPs to nginx: %v", err)
+			}
+			// 退出与清 running 必须在同一临界区:若先 unlock 再清,
+			// 新变更会看到 running==true 只置 pending,而本回调已返回,
+			// pending 无人消费,该变更直到下次任意封禁变更才会同步。
+			blocklistSyncMu.Lock()
+			if !blocklistSyncPending {
+				blocklistSyncRunning = false
+				blocklistSyncMu.Unlock()
+				return
+			}
+			blocklistSyncPending = false
+			blocklistSyncMu.Unlock()
+			// 立即重跑而非再等 2s:pending 表示重跑期间有真实变更,
+			// 重跑读的是最新快照,天然合并窗口内的全部变更。
 		}
-		if err := syncBlockedIPsToNginx(cli); err != nil {
-			log.Printf("WARNING: sync blocked IPs to nginx: %v", err)
-		}
+		// cli == nil(docker client 尚未注入):放弃本次,等下次变更重新调度。
+		blocklistSyncMu.Lock()
+		blocklistSyncRunning = false
+		blocklistSyncMu.Unlock()
 	})
 }
 
