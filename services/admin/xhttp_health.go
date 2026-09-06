@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"io"
@@ -104,8 +103,6 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 		Since:      checkWindow,
 		// 时间过滤优先于行数：packet-up 模式每包一个 POST，2 分钟窗口内
 		// 高流量可能远超固定 Tail 行数，固定行数会截断窗口早期、漏检故障。
-		// 去掉 Tail 后窗口内日志全量返回，5 分钟低频检查的 stdout buffer
-		// 开销可接受（正确性优先）。
 	})
 	if err != nil {
 		return 0, 0
@@ -114,26 +111,53 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 
 	// Docker 容器在 tty=false 时返回 multiplexed 流（8 字节帧头），必须用
 	// stdcopy.StdCopy 解码。直接 bufio.NewScanner 会读到二进制帧头，正则无法匹配。
-	var stdout bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, io.Discard, logs); err != nil {
-		return 0, 0
-	}
-
-	scanner := bufio.NewScanner(&stdout)
-	scanner.Buffer(make([]byte, 64*1024), 256*1024) // 放大行长上限，避免超长 URL/UA 截断
-	for scanner.Scan() {
-		line := scanner.Text()
+	// 解码结果经 lineWriter 流式逐行处理：nginx 容器 stdout 是全部请求的
+	// access log（不只 /proxy/query），高流量下 2 分钟窗口可达数十 MB，
+	// 不整窗缓冲进内存再扫描。
+	w := &lineWriter{process: func(line string) {
 		if !strings.Contains(line, "POST /proxy/query/") {
-			continue
+			return
 		}
 		m := xhttpPostRE.FindStringSubmatch(line)
 		if m == nil {
-			continue
+			return
 		}
 		total++
 		if m[1] == "400" {
 			bad++
 		}
+	}}
+	if _, err := stdcopy.StdCopy(w, io.Discard, logs); err != nil {
+		return 0, 0
 	}
 	return total, bad
+}
+
+// lineWriter 把写入的字节流按行拆分后回调,用于流式消费日志——内存占用
+// 与最长单行同阶,而非整个日志窗口。超过 maxLineLen 仍未出现换行的数据
+// 视为异常超长行直接丢弃(nginx access log 行长受 large_client_header_buffers
+// 约束,正常远达不到该上限),避免恶意/损坏数据无限撑大缓冲。
+const lineWriterMaxLine = 256 * 1024
+
+type lineWriter struct {
+	process func(line string)
+	buf     []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			if len(w.buf) > lineWriterMaxLine {
+				w.buf = w.buf[:0]
+			}
+			return len(p), nil
+		}
+		line := string(w.buf[:i])
+		// 消费已处理前缀。src/dst 重叠且 src 在前,memmove 语义安全,
+		// 底层数组复用,摊销 O(1)。
+		w.buf = append(w.buf[:0], w.buf[i+1:]...)
+		w.process(line)
+	}
 }
