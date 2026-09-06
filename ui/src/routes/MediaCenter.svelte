@@ -548,7 +548,11 @@
     const trimmedPath = normalizedPath.replace(/\/+$/, '');
     if (!publicPath || trimmedPath === '' || trimmedPath === '/') {
       errors.push(t('invalidPublicPath'));
-    } else if (normalizedPath.includes('//') || !publicPathPattern.test(normalizedPath)) {
+    } else if (
+      normalizedPath.includes('//') ||
+      !publicPathPattern.test(normalizedPath) ||
+      hasDotDotSegment(normalizedPath)
+    ) {
       errors.push(t('invalidPublicPath'));
     } else if (isReservedPublicPath(trimmedPath)) {
       errors.push(t('reservedPublicPath', { path: trimmedPath }));
@@ -642,6 +646,7 @@
       trimmedPath === '/' ||
       normalizedPath.includes('//') ||
       !publicPathPattern.test(normalizedPath) ||
+      hasDotDotSegment(normalizedPath) ||
       isReservedPublicPath(trimmedPath) ||
       !upstreamPattern.test(upstream) ||
       !Number.isInteger(upstreamPort) ||
@@ -651,6 +656,13 @@
       return 'runtime';
     }
     return 'rules';
+  }
+
+  // 逐段拒绝 ".."：publicPathPattern 的字符白名单允许 '.'，但 /foo/../admin
+  // 这类点段会造成 nginx location 语义混淆、绕过保留路由的字面前缀匹配。
+  // 与后端 normalizeMediaCenterPublicPath 的同一校验保持同步。
+  function hasDotDotSegment(path) {
+    return path.split('/').some((segment) => segment === '..');
   }
 
   function isReservedPublicPath(path) {
