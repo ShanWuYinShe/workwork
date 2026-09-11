@@ -85,6 +85,11 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #     # 页面选变体后上传（admin 自动写 manifest + APK）。
 # - services/media_center/media_server/**（git submodule）:
 #     docker compose build media_server && docker compose up -d --no-deps media_server
+# - services/media_center/vod_extractor/**（git submodule；YouTube yt-dlp 解析。
+#     播放硬前提：宿主机 .wework/vod_extractor/youtube-cookies.txt 必须存在
+#     （Netscape 格式 cookies，过期需重新导出），否则解析全被 bot 检测拦截）:
+#     docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
+#     （搜索还需 .env 配 YOUTUBE_API_KEY；解析服务自身一般无需改动）
 # - services/music_player/music_server/**（git submodule；曲库在宿主机
 #     .wework/music-library/，管理面板「音乐曲库」页上传或手动投放，扫描
 #     TTL 内生效；网络源上游失败自动降级仅本地）:
@@ -128,11 +133,12 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/media_center/media_server/ — Media Center 目录服务（git submodule）
 
-纯目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。不做上游 API 调用、不做播放地址解析、不做 asset 代理。播放完全由 App 端按 provider 自行处理（bilibili 用 WBI 签名本地解析）。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
+目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。播放按 provider 分发：bilibili 由 App 端 WBI 签名本地解析；youtube 由 server 端两个受控实时端点处理（`/api/providers/youtube/search` 走 Data API 搜索、`/api/providers/youtube/resolve` 代理 `vod_extractor` 解析播放直链，均要求 X-App-Token + 独立限流，见 `media_server/youtube.go`）。不做 asset 代理。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
 
 ### docker-compose.yml
 
-5 服务: admin, xray, xray-forward, nginx, media_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
+6 服务: admin, xray, xray-forward, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/vod_extractor 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
+vod_extractor 仅内网（媒体中心 YouTube 解析）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 解析全被 bot 检测拦截；实时搜索需 `.env` 配 `YOUTUBE_API_KEY`。
 
 ## Security — 多层防御
 
