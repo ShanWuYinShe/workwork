@@ -89,7 +89,7 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #     播放硬前提：宿主机 .wework/vod_extractor/youtube-cookies.txt 必须存在
 #     （Netscape 格式 cookies，过期需重新导出），否则解析全被 bot 检测拦截）:
 #     docker compose build vod_extractor && docker compose up -d --no-deps vod_extractor
-#     （搜索还需 .env 配 YOUTUBE_API_KEY；解析服务自身一般无需改动）
+#     （搜索与解析都走它，无 Data API 配额；解析服务自身一般无需改动）
 # - services/music_player/music_server/**（git submodule；曲库在宿主机
 #     .wework/music-library/，管理面板「音乐曲库」页上传或手动投放，扫描
 #     TTL 内生效；网络源上游失败自动降级仅本地）:
@@ -138,7 +138,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 ### docker-compose.yml
 
 6 服务: admin, xray, xray-forward, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/vod_extractor 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
-vod_extractor 仅内网（媒体中心 YouTube 解析）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 解析全被 bot 检测拦截；实时搜索需 `.env` 配 `YOUTUBE_API_KEY`。
+vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data API 配额）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 搜索/解析全被 bot 检测拦截。
 
 ## Security — 多层防御
 

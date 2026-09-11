@@ -236,9 +236,8 @@ services:
       # App 端凭证接口令牌:与 App 构建时注入的 APP_API_TOKEN 一致;为空则凭证
       # 接口一律 401(App 降级无凭证模式)。
       - MEDIA_SERVER_APP_API_TOKEN=${MEDIA_SERVER_APP_API_TOKEN:-}
-      # youtube provider 实时通道:Data API 搜索 key(为空则搜索端点 503)与
-      # vod_extractor 内网基址(为空则解析端点 503),见 media_server/youtube.go。
-      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      # youtube provider 实时通道:搜索与播放解析均经 vod_extractor(yt-dlp),
+      # 无 Data API 配额;基址为空则两个端点都返回 503,见 media_server/youtube.go。
       - MEDIA_SERVER_VOD_EXTRACTOR_URL=${MEDIA_SERVER_VOD_EXTRACTOR_URL:-http://vod_extractor:8790}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
