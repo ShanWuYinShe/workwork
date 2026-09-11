@@ -236,6 +236,10 @@ services:
       # App 端凭证接口令牌:与 App 构建时注入的 APP_API_TOKEN 一致;为空则凭证
       # 接口一律 401(App 降级无凭证模式)。
       - MEDIA_SERVER_APP_API_TOKEN=${MEDIA_SERVER_APP_API_TOKEN:-}
+      # youtube provider 实时通道:Data API 搜索 key(为空则搜索端点 503)与
+      # vod_extractor 内网基址(为空则解析端点 503),见 media_server/youtube.go。
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - MEDIA_SERVER_VOD_EXTRACTOR_URL=${MEDIA_SERVER_VOD_EXTRACTOR_URL:-http://vod_extractor:8790}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - ./.wework/generated/media_center:/config:ro
@@ -249,6 +253,59 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # YouTube 点播解析(yt-dlp 的 HTTP 封装):供 media_server 的
+  # /api/providers/youtube/resolve 解析播放直链;仅容器内网,不对外暴露端口。
+  # 播放硬前提:YouTube 对数据中心 IP 一律 bot 检测,必须在宿主机放置 cookies:
+  #   .wework/vod_extractor/youtube-cookies.txt (Netscape 格式,只读挂载为 /config)
+  vod_extractor:
+    build:
+      context: ./services/media_center/vod_extractor
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    security_opt:
+      - "no-new-privileges:true"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal_docker
+    cap_drop:
+      - ALL
+    environment:
+      - TZ=Asia/Shanghai
+      - HOST=0.0.0.0
+      - PORT=8790
+      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
+      - VOD_EXTRACTOR_MAX_OUTPUT_BYTES=${VOD_EXTRACTOR_MAX_OUTPUT_BYTES:-20971520}
+      - VOD_EXTRACTOR_MAX_CONCURRENT=${VOD_EXTRACTOR_MAX_CONCURRENT:-2}
+      # 如 youtube:player_client=tv;留空走 yt-dlp 默认
+      - VOD_EXTRACTOR_EXTRACTOR_ARGS=${VOD_EXTRACTOR_EXTRACTOR_ARGS:-}
+      # 显式置空(默认自动用 /config/youtube-cookies.txt,存在即生效)
+      - VOD_EXTRACTOR_COOKIES_FILE=${VOD_EXTRACTOR_COOKIES_FILE:-}
+    volumes:
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+      - ./.wework/vod_extractor:/config:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=2).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # 网易云 API 上游(NeteaseCloudMusicApi Enhanced,非官方接口仅限个人使用):
   # 仅容器内网,供 music_server 聚合搜索与流解析;不对外暴露端口。
