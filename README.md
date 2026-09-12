@@ -213,7 +213,7 @@ git commit -m "描述"
 git push origin main
 
 # 2. 服务器拉取并查看变更
-ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
 
 # 3. 按变更选择最小部署命令，例如：
 # services/admin/** 或 ui/**
