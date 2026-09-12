@@ -8,6 +8,11 @@ logs
 .idea
 .vscode
 node_modules
+# AI 工作目录与本地 worktree（完整源码副本树），不参与镜像构建
+.workwork
+.workbuddy
+.worktrees
+.v2c
 # admin 镜像的 build context 是项目根，用不到这两个子模块源码
 #（media_app/music_app 由各自子仓库构建），排除可显著减小 context 传输体积。
 services/media_center

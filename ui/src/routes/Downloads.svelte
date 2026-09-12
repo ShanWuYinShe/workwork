@@ -45,17 +45,24 @@
     }
   });
 
+  // 竞态守卫：快速切换 tab 时，旧 tab 的响应后到会覆盖新 tab 数据
+  // （统计/表格/删除目标错位）。响应回来时丢弃已过期的结果。
+  let tabLoadSeq = 0;
+
   async function loadTabData() {
+    const seq = ++tabLoadSeq;
     loading = true;
     try {
       if (tab === 'claude') {
         if (isAdmin) {
           const d = await getClaudeReleases();
+          if (seq !== tabLoadSeq) return;
           releases = d.releases || [];
           platforms = d.platforms || [];
           stored = d.stored || [];
         } else {
           const s = await getClaudeStored();
+          if (seq !== tabLoadSeq) return;
           stored = s.stored || [];
           releases = [];
           platforms = [];
@@ -63,21 +70,27 @@
       } else {
         if (isAdmin) {
           const d = await getXrayReleases();
+          if (seq !== tabLoadSeq) return;
           releases = d.releases || [];
           platforms = d.platforms || [];
           stored = d.stored || [];
         } else {
           const s = await getXrayStored();
+          if (seq !== tabLoadSeq) return;
           stored = s.stored || [];
           releases = [];
           platforms = [];
         }
       }
+      if (seq !== tabLoadSeq) return;
       versionPlatforms = {};
     } catch (e) {
+      if (seq !== tabLoadSeq) return;
       toast(e.message, 'error');
     } finally {
-      loading = false;
+      if (seq === tabLoadSeq) {
+        loading = false;
+      }
     }
   }
 

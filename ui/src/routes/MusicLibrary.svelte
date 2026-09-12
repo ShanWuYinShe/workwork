@@ -60,6 +60,8 @@
   onMount(() => {
     load();
     loadAccount();
+    // 组件销毁时停掉网易扫码轮询，否则离开页面后仍每 2s 打 poll 接口。
+    return stopPolling;
   });
 
   async function load() {
@@ -232,6 +234,12 @@
       xhr.onerror = () => {
         uploadXhr = null;
         reject(new Error('Network error'));
+      };
+      // xhr.abort() 只触发 abort 事件（不走 onerror），必须单独 reject，
+      // 否则取消上传后 Promise 永不 settle，上传状态永久卡死。
+      xhr.onabort = () => {
+        uploadXhr = null;
+        reject(new DOMException('aborted', 'AbortError'));
       };
       xhr.send(form);
     });

@@ -173,19 +173,20 @@ func deleteXrayClientsByOwner(owner string) (int, error) {
 }
 
 // ensureXrayClients initializes the data file on first run.
+// 以「数据文件是否存在」判断首次运行，而非集合是否为空：管理员把客户端
+// 全部删除（吊销）后文件是空集，若按空集判断会在重启时重新播下 env/
+// legacy 配置里的 UUID，被吊销的代理身份悄悄恢复。
 func ensureXrayClients() error {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
 
-	clients, err := readXrayClientsNoLock()
-	if err != nil {
+	if _, err := os.Stat(xrayClientsPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if len(clients) > 0 {
-		return nil
-	}
 
-	clients = migrateXrayClientsFromConfig()
+	clients := migrateXrayClientsFromConfig()
 	if len(clients) == 0 {
 		ids := getEnv("XRAY_CLIENT_IDS")
 		owner := getEnv("AUTH_USER")

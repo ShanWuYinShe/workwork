@@ -124,6 +124,13 @@ type downloadService struct {
 func (s *downloadService) loadManifest() storedManifest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.loadManifestLocked()
+}
+
+// loadManifestLocked 供已持有 s.mu 的调用方使用（downloadArchive/cleanupOld/
+// deleteStored）：sync.Mutex 不可重入，持锁后再调 loadManifest 会自死锁，
+// 且死锁期间 s.mu 永久被占，整个下载子系统全部端点挂起。
+func (s *downloadService) loadManifestLocked() storedManifest {
 	var m storedManifest
 	loadJSONFile(s.manifestPath, &m)
 	return m
@@ -317,7 +324,7 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 	}
 
 	s.mu.Lock()
-	m := s.loadManifest()
+	m := s.loadManifestLocked()
 	// 防止并发下载同一 version+plat 导致 manifest 重复条目（文件因 rename 已覆盖一致）。
 	dup := false
 	for _, d := range m.Downloads {
@@ -350,7 +357,7 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 func (s *downloadService) cleanupOld() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m := s.loadManifest()
+	m := s.loadManifestLocked()
 	if len(m.Downloads) <= s.maxKeep {
 		return
 	}
@@ -374,7 +381,7 @@ func (s *downloadService) deleteStored(filename string) error {
 		return err
 	}
 	s.mu.Lock()
-	m := s.loadManifest()
+	m := s.loadManifestLocked()
 	var kept []storedDownload
 	for _, d := range m.Downloads {
 		if d.Filename != filename {

@@ -121,10 +121,16 @@
     }
   }
 
+  // 变体切换竞态守卫：快速从 normal 换到 legacy 时，慢的旧响应后到会把
+  // legacy 的输入框回填成 normal 的 manifest。响应回来时丢弃过期结果。
+  let appReleaseLoadSeq = 0;
+
   async function loadAppRelease() {
+    const seq = ++appReleaseLoadSeq;
     appReleaseLoading = true;
     try {
       appRelease = await getMediaAppRelease(appReleaseVariant);
+      if (seq !== appReleaseLoadSeq) return;
       const manifest = appRelease?.manifest || null;
       if (manifest?.versionCode) {
         appReleaseForm = {
@@ -135,9 +141,12 @@
       }
       await loadAppReleaseHistory();
     } catch (e) {
+      if (seq !== appReleaseLoadSeq) return;
       toast(e.message, 'error');
     } finally {
-      appReleaseLoading = false;
+      if (seq === appReleaseLoadSeq) {
+        appReleaseLoading = false;
+      }
     }
   }
 

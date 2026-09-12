@@ -82,8 +82,9 @@
       const result = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         uploadXhr = xhr;
-        // 上传没有默认超时会永久卡在"上传中"；给一个宽松的整体超时（2 小时），
-        // 并允许用户手动取消（xhr.abort() 会走 onerror 分支）。
+        // 上传没有默认超时会永久卡在"上传中"；给一个宽松的整体超时（2 小时）。
+        // xhr.abort() 只触发 abort 事件（不走 onerror），必须单独 reject，
+        // 否则取消上传后 Promise 永不 settle，uploading 卡在 true。
         xhr.timeout = 2 * 60 * 60 * 1000;
         xhr.ontimeout = () => reject(new Error(t('uploadTimeout')));
         xhr.open('POST', transferUploadUrl);
@@ -120,6 +121,7 @@
           }
         };
         xhr.onerror = () => reject(new Error('Network error'));
+        xhr.onabort = () => reject(new DOMException('aborted', 'AbortError'));
         xhr.send(formData);
       });
 
@@ -131,7 +133,11 @@
       if (fileInput) fileInput.value = '';
       await loadFiles();
     } catch (e) {
-      toast(e.message, 'error');
+      if (e?.name === 'AbortError') {
+        toast(t('uploadCancelled'), 'info');
+      } else {
+        toast(e.message, 'error');
+      }
     } finally {
       uploading = false;
       uploadProgress = null;

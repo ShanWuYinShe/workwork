@@ -239,10 +239,16 @@ func apiBlockIP() http.HandlerFunc {
 
 		// 回读生效条目：add 对已封禁 IP 是覆盖（更新 reason/时长），
 		// 用回读结果构造响应，保证展示的封禁状态与持久化一致。
+		// find 与 add 是两个独立临界区，并发 unblock 同一 IP（fail2ban 到期
+		// 解封）时 find 可能返回 nil，不能直接解引用。
 		entry := ipBlocker.find(body.IP)
 		kind := "permanent"
-		if entry != nil && entry.ExpiresAt != "" {
-			kind = "temporary"
+		blockedAt, expiresAt := "", ""
+		if entry != nil {
+			blockedAt, expiresAt = entry.BlockedAt, entry.ExpiresAt
+			if entry.ExpiresAt != "" {
+				kind = "temporary"
+			}
 		}
 		_, actor := getUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
 		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
@@ -253,8 +259,8 @@ func apiBlockIP() http.HandlerFunc {
 			"block": map[string]any{
 				"ip":         body.IP,
 				"reason":     body.Reason,
-				"blocked_at": entry.BlockedAt,
-				"expires_at": entry.ExpiresAt, // 空串 = 永久
+				"blocked_at": blockedAt,
+				"expires_at": expiresAt, // 空串 = 永久
 				"kind":       kind,
 				"duration":   body.Duration,
 			},
