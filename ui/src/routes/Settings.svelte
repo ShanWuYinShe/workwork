@@ -99,10 +99,10 @@
               <td class="td-muted">{t('webGateway')}</td>
             </tr>
             <tr>
-              <td class="cell-strong">xray (reality)</td>
+              <td class="cell-strong">xray (xhttp)</td>
               <td class="td-mono">{net.xray_static || '—'}</td>
               <td class="td-mono text-accent">{net.xray_ip}</td>
-              <td class="td-muted">{t('realityDesc')}</td>
+              <td class="td-muted">{t('xrayEgressDesc')}</td>
             </tr>
           </tbody>
         </table>
