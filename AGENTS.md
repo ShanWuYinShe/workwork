@@ -57,7 +57,7 @@ go test -C services/music_player/music_server ./...
 #   但 logs/nginx/ 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
 #   首次部署或权限异常时：
 #     sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/
-ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
 
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
 # - 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md
@@ -74,12 +74,12 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
 #       services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleRelease --no-daemon && \
 #     scp services/media_center/media_app/app/build/outputs/apk/release/app-release.apk \
-#       workwork-server:service/.wework/generated/media_center/media-center-app-v<vc>-<sha12>.apk
+#       workwork-server:workwork/.wework/generated/media_center/media-center-app-v<vc>-<sha12>.apk
 #     # legacy 变体（Android 4.4.2 / API 19）:
 #     JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
 #       services/media_center/media_app_legacy/gradlew -p services/media_center/media_app_legacy :app:assembleRelease --no-daemon && \
 #     scp services/media_center/media_app_legacy/app/build/outputs/apk/release/app-release.apk \
-#       workwork-server:service/.wework/generated/media_center/media-center-app-legacy-v<vc>-<sha12>.apk
+#       workwork-server:workwork/.wework/generated/media_center/media-center-app-legacy-v<vc>-<sha12>.apk
 #     # 上传后手写 app-update.json / app-update-legacy.json（含 versionCode/versionName/
 #     # apkFilename/sizeBytes/sha256/releaseNotes），或在管理面板“Android TV App 更新发布”
 #     # 页面选变体后上传（admin 自动写 manifest + APK）。
