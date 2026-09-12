@@ -197,6 +197,13 @@ func apiTransferUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, username := getUserFromContext(r)
 
+		// 请求体硬上限（单文件 2GB + multipart 开销）。ParseMultipartForm 会把
+		// 全部 file part 先无上限 spool 到磁盘才返回，header.Size 预检与配额
+		// 检查都发生在其后——没有这层，超大请求体先把磁盘写满。nginx 侧的
+		// client_max_body_size 只保护经 nginx 的路径，直连 admin 的内部调用
+		// 不经过它。
+		r.Body = http.MaxBytesReader(w, r.Body, transferMaxFile+64<<20)
+
 		// 限制 multipart 内存缓冲为 32MB；更大的部分自动落盘为临时文件，
 		// 避免单次上传占用 2GB 堆内存导致 OOM。单文件上限在下方强制执行。
 		if err := r.ParseMultipartForm(transferUploadMemory); err != nil {

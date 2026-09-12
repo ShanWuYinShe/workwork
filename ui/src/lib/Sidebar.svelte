@@ -2,7 +2,17 @@
   import { navSections } from './routes.js';
   import { t, toggleLang, getLang } from './i18n.svelte.js';
 
-  let { currentPath, navigate, sidebarCollapsed, userInfo, isAdmin, mobileMenuOpen } = $props();
+  // sidebarCollapsed / mobileMenuOpen 由本组件写回父级（折叠切换、移动端
+  // 导航后收起），必须 $bindable：普通 prop 的本地赋值不会同步到 App.svelte，
+  // 导致布局 collapsed 类与全屏遮罩残留。
+  let {
+    currentPath,
+    navigate,
+    sidebarCollapsed = $bindable(false),
+    userInfo,
+    isAdmin,
+    mobileMenuOpen = $bindable(false),
+  } = $props();
 
   function handleNav(path) {
     navigate(path);
@@ -149,7 +159,8 @@
           <button
             class="logout-overlay"
             onclick={() =>
-              (window.location.href = 'https://logout:logout@' + window.location.host + '/admin/')}
+              (window.location.href =
+                `${window.location.protocol}//logout:logout@` + window.location.host + '/admin/')}
             title={t('logout')}
             aria-label={t('logout')}
           >

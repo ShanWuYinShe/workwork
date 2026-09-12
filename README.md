@@ -19,7 +19,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 │           ┌────────▼────────┐  ┌──▼────────┐  ┌──▼────────┐     │
 │           │     Admin       │  │   Xray    │  │  Xray     │     │
 │           │  (Go + Svelte)  │  │  XHTTP    │  │  Reality  │     │
-│           │    :8318        │  │   :8447   │  │   :443    │     │
+│           │    :8318        │  │unix socket│  │   :443    │     │
 │           └─────────────────┘  └───────────┘  └───────────┘     │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -29,7 +29,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | 组件 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
-| **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
+| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
 | **music_server** | Go | 8790 | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
@@ -83,7 +83,7 @@ docker compose ps
 | 协议 | 端口 | 用途 | 目标域名 |
 |------|------|------|----------|
 | **Reality** | 443 | 直接连接（抗审查） | `xray.yinghuoren.com` |
-| **XHTTP** | 8447 | 通过 Cloudflare 连接 | `yinghuoren.com` |
+| **XHTTP** | 无独立端口（nginx `/proxy/query` 经 Unix socket 转发） | 通过 Cloudflare 连接 | `yinghuoren.com` |
 
 客户端配置包含 Reality + XHTTP 两种出站协议，observatory 探测 + leastLoad 均衡自动选择延迟最低的线路；另内置并行 DNS 段加速代理域名解析。
 

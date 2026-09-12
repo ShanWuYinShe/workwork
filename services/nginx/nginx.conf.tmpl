@@ -152,9 +152,21 @@ server {
     # （无需 auth_basic），server 级的 X-Forwarded-User $remote_user 会把它带给
     # admin——当前公开路由只用 code 无实害，但未来任何 /api/transfer 路由挂上
     # requireRole 即成越权。与 X-Internal-Token 的清空先例对齐。
+    # 注意：location 内只要定义了任一 proxy_set_header，server 级的全部
+    # proxy_set_header 都不再继承。因此这里必须完整重申 server 级头集合
+    # （Host/X-Real-IP/X-Forwarded-For/Proto/Prefix + 两个内部 token 清空），
+    # 否则此公开路由上 X-Real-IP 不被覆写——客户端可伪造限流键对任意 IP
+    # 投毒 30 分钟全站封禁，X-Internal-Token 清空防线也同时失效。
     location /api/transfer/ {
         proxy_pass http://$admin_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix $proxy_forwarded_prefix;
         proxy_set_header X-Forwarded-User "";
+        proxy_set_header X-Internal-Token "";
+        proxy_set_header X-Fail2Ban-Token "";
         proxy_buffering off;
         proxy_read_timeout 600s;
         send_timeout 600s;
@@ -238,6 +250,7 @@ server {
         add_header Cache-Control "public, max-age=2592000, immutable";
         # add_header in a location block does NOT inherit server-level add_header
         # directives in nginx; security headers must be repeated here.
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-Frame-Options "DENY" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;

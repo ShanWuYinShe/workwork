@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -213,7 +214,7 @@ func apiMusicChunkUpload() http.HandlerFunc {
 		resp := map[string]any{"received": rc, "total": total, "complete": false}
 		if len(rc) == total {
 			// 收齐:合并入库(同名覆盖语义与一次性上传一致)。
-			finalName, err := mergeChunks(uploadID, total)
+			finalName, err := mergeChunkOnce(uploadID, total)
 			if err != nil {
 				respondChunkErr(w, err)
 				return
@@ -279,6 +280,34 @@ func saveChunk(uploadID string, index int, chunkSHA string, header *multipart.Fi
 		return false, err
 	}
 	return true, nil
+}
+
+// chunk 合并的一次性守卫：重传最后一片（如超时重试）会让多个请求同时看到
+// "收齐"并各自执行 mergeChunks，先完成者清理分片目录后，其余请求对已删除
+// 目录拷贝报错——文件实际已入库却向客户端返回失败。serialize + 结果缓存保证
+// 同一 uploadId 只合并一次。条目由延迟删除兜底回收（uploadId 会话级唯一，
+// 条目极小，TTL 只需覆盖并发重传窗口）。
+var (
+	chunkMergeMu     sync.Mutex
+	chunkMergedNames = map[string]string{}
+)
+
+func mergeChunkOnce(uploadID string, total int) (string, error) {
+	chunkMergeMu.Lock()
+	defer chunkMergeMu.Unlock()
+	if name, ok := chunkMergedNames[uploadID]; ok {
+		return name, nil
+	}
+	name, err := mergeChunks(uploadID, total)
+	if err == nil {
+		chunkMergedNames[uploadID] = name
+		time.AfterFunc(10*time.Minute, func() {
+			chunkMergeMu.Lock()
+			delete(chunkMergedNames, uploadID)
+			chunkMergeMu.Unlock()
+		})
+	}
+	return name, err
 }
 
 // mergeChunks 按序拼接全部分片,校验总大小后原子入库,清理分片目录。

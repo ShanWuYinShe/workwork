@@ -64,7 +64,18 @@
     return `${it.provider}:${it.nativeId}`;
   }
 
+  // 竞态守卫：快速切换分类/状态筛选时，慢的旧响应后到会覆盖新数据
+  // （标题显示 B、列表却是 A）。响应回来时丢弃已过期的结果。
+  let itemsLoadSeq = 0;
+
+  // sourceUrl 来自导入的第三方 JSON（半可信），Svelte 不会给 href 消毒；
+  // 仅放行 http(s) 链接，阻断 javascript: 等危险 scheme 的存储型注入。
+  function safeSourceUrl(url) {
+    return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null;
+  }
+
   async function loadItems(categoryId, title, append = false) {
+    const seq = ++itemsLoadSeq;
     activeCategory = categoryId;
     activeTitle = title;
     if (append) {
@@ -75,6 +86,7 @@
     try {
       const offset = append ? items.length : 0;
       const data = await getMediaCatalogItems(categoryId, statusFilter, CATALOG_PAGE_SIZE, offset);
+      if (seq !== itemsLoadSeq) return;
       const incoming = data.items || [];
       hasMore = incoming.length >= CATALOG_PAGE_SIZE;
       if (append) {
@@ -96,12 +108,15 @@
         rankDraft = drafts;
       }
     } catch (e) {
+      if (seq !== itemsLoadSeq) return;
       toast(e?.message || String(e), 'error');
       if (!append) items = [];
       hasMore = false;
     } finally {
-      itemsLoading = false;
-      itemsLoadingMore = false;
+      if (seq === itemsLoadSeq) {
+        itemsLoading = false;
+        itemsLoadingMore = false;
+      }
     }
   }
 
@@ -450,8 +465,8 @@
                     {#if it.reason}<span class="item-reason" title={it.reason}
                         >{t('catalogReason')}：{it.reason}</span
                       >{/if}
-                    {#if it.sourceUrl}<a
-                        href={it.sourceUrl}
+                    {#if safeSourceUrl(it.sourceUrl)}<a
+                        href={safeSourceUrl(it.sourceUrl)}
                         target="_blank"
                         rel="noopener noreferrer">{t('catalogOpenSource')}</a
                       >{/if}

@@ -769,6 +769,14 @@ func isValidUsername(username string) bool {
 	return username != "" && validUsername.MatchString(username) && len(username) <= 64
 }
 
+// isReservedUsername 内部伪身份名：X-Internal-Token / X-Fail2Ban-Token 请求在
+// 审计与上下文中以此名字出现（middleware requireRole）。创建同名真实用户会
+// 与其冲突——该用户永远拿不到 XHTTP proxy 密码（proxyAuthForUser 硬编码排除），
+// 且审计日志无法区分内部请求与真人操作。
+func isReservedUsername(username string) bool {
+	return username == "internal" || username == "fail2ban"
+}
+
 // verifyHtpasswdPasswordLocked 在 htpasswdMu 保护下读取并校验 (username, password)。
 // apiChangePassword 此前在校验与 htpasswdAddUser 重写之间不持锁——并发两次改密
 // 都能通过旧密码校验后互相覆盖（last-writer-wins）。校验与重写共用一把锁后，
@@ -936,6 +944,10 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		if !isValidUsername(body.Username) {
 			writeError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			return
+		}
+		if isReservedUsername(body.Username) {
+			writeError(w, "This username is reserved", 400)
 			return
 		}
 		if body.Role == "" {
