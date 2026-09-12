@@ -140,10 +140,6 @@ func genXrayConfig() error {
 	if err != nil {
 		return err
 	}
-	shortIDsJSON, err := xrayShortIDsJSON()
-	if err != nil {
-		return err
-	}
 
 	xrayClientsMu.Lock()
 	clients, err := readXrayClientsNoLock()
@@ -156,7 +152,7 @@ func genXrayConfig() error {
 	copy(clientsCopy, clients)
 	xrayClientsMu.Unlock()
 
-	var xhttpClients, realityClients bytes.Buffer
+	var xhttpClients bytes.Buffer
 	enc := json.NewEncoder(&xhttpClients)
 	enc.SetEscapeHTML(false)
 	for _, c := range clientsCopy {
@@ -169,47 +165,13 @@ func genXrayConfig() error {
 		xhttpClients.Truncate(xhttpClients.Len() - 1)
 		xhttpClients.WriteByte(',')
 	}
-	enc = json.NewEncoder(&realityClients)
-	enc.SetEscapeHTML(false)
-	for _, c := range clientsCopy {
-		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner}); err != nil {
-			return fmt.Errorf("encode reality client %s: %w", c.ID, err)
-		}
-		realityClients.Truncate(realityClients.Len() - 1)
-		realityClients.WriteByte(',')
-	}
-
 	xhttpJSON := "[]"
 	if xhttpClients.Len() > 0 {
 		xhttpJSON = "[" + strings.TrimSuffix(xhttpClients.String(), ",") + "]"
 	}
-	realityJSON := "[]"
-	if realityClients.Len() > 0 {
-		realityJSON = "[" + strings.TrimSuffix(realityClients.String(), ",") + "]"
-	}
 
 	out := string(tmpl)
 	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", xhttpJSON)
-	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityJSON)
-	out = strings.ReplaceAll(out, "__XRAY_SHORT_IDS_JSON__", shortIDsJSON)
-	// 三个占位符都在 JSON 字符串字面量内（config.json.tmpl dest/serverNames/
-	// privateKey），值先经 json.Marshal 再去外层引号替换——裸替换在值含
-	// `"` 或 `\` 时产生非法 JSON / 提前闭合注入任意键。与客户端字段的
-	// json.Encoder 路径对齐同一转义标准。
-	replaceJSONEnv := func(placeholder, key, def string) {
-		v := strings.TrimSpace(getEnv(key))
-		if v == "" {
-			v = def
-		}
-		quoted, err := json.Marshal(v)
-		if err != nil {
-			quoted = []byte(`"` + def + `"`)
-		}
-		out = strings.ReplaceAll(out, placeholder, string(quoted[1:len(quoted)-1]))
-	}
-	replaceJSONEnv("__XRAY_REALITY_DEST__", "XRAY_REALITY_DEST", "addons.mozilla.org")
-	replaceJSONEnv("__XRAY_REALITY_SERVER_NAME__", "XRAY_REALITY_SERVER_NAME", "")
-	replaceJSONEnv("__XRAY_PRIVATE_KEY__", "XRAY_PRIVATE_KEY", "")
 
 	// Always write — content comparison happens inside WriteFile (atomic overwrite).
 	// The file is shared with xray container via bind mount.
@@ -225,12 +187,11 @@ func genXrayConfig() error {
 }
 
 func validateProxyConfigEnv() error {
+	// Reality 已暂时停用：只要求 XHTTP_DOMAIN。XRAY_REALITY_DOMAIN /
+	// XRAY_REALITY_SERVER_NAME / XRAY_REALITY_DEST / XRAY_PRIVATE_KEY /
+	// XRAY_PUBLIC_KEY / XRAY_SHORT_IDS 保留为可选（恢复 reality 时填回
+	// 即可），缺失不再阻断启动。
 	required := []string{
-		"XRAY_REALITY_DOMAIN",
-		"XRAY_REALITY_SERVER_NAME",
-		"XRAY_PRIVATE_KEY",
-		"XRAY_PUBLIC_KEY",
-		"XRAY_SHORT_IDS",
 		"XHTTP_DOMAIN",
 	}
 	var missing []string
@@ -242,11 +203,11 @@ func validateProxyConfigEnv() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
 	}
-	if _, err := xrayShortIDs(); err != nil {
-		return err
-	}
 	return nil
 }
+
+// 以下 reality short ID  helpers 已暂时停用（reality 恢复时重新接回
+// genXrayConfig），保留实现与测试以便恢复。
 
 func xrayShortIDsJSON() (string, error) {
 	ids, err := xrayShortIDs()

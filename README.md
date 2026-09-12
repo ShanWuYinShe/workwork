@@ -17,10 +17,10 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 │            /admin/*          /api/admin/*      /proxy/query      │
 │                    │              │              │                 │
 │           ┌────────▼────────┐  ┌──▼────────┐  ┌──▼────────┐     │
-│           │     Admin       │  │   Xray    │  │  Xray     │     │
-│           │  (Go + Svelte)  │  │  XHTTP    │  │  Reality  │     │
-│           │    :8318        │  │   :8447   │  │   :443    │     │
-│           └─────────────────┘  └───────────┘  └───────────┘     │
+│           │     Admin       │  │   Xray    │     │
+│           │  (Go + Svelte)  │  │  XHTTP    │     │
+│           │    :8318        │  │   :8447   │     │
+│           └─────────────────┘  └───────────┘     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | 组件 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
-| **xray** | teddysun/xray | 443, 8447 | VLESS Reality + XHTTP 代理 |
+| **xray** | teddysun/xray | Unix socket 入站 | VLESS XHTTP 代理（Reality 已暂时停用） |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
 | **music_server** | Go | 8790 | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
@@ -78,14 +78,13 @@ docker compose ps
 
 ### Xray 代理
 
-支持两种入站协议：
+仅保留 XHTTP 入站（经 Cloudflare，经 nginx `/proxy/query` 转发到 xray Unix socket）：
 
 | 协议 | 端口 | 用途 | 目标域名 |
 |------|------|------|----------|
-| **Reality** | 443 | 直接连接（抗审查） | `xray.yinghuoren.com` |
 | **XHTTP** | 8447 | 通过 Cloudflare 连接 | `yinghuoren.com` |
 
-客户端配置包含 Reality + XHTTP 两种出站协议，自动选择延迟最低的线路。
+> Reality（443 直连）已暂时停用：服务端 `reality-in`、客户端 reality 出站、`xray-forward` 转发容器同步停用（compose 中注释保留，恢复时取消注释即可）。客户端配置当前只含 XHTTP 单出站。
 
 ### Admin 管理面板
 
@@ -238,7 +237,7 @@ docker compose build media_server && docker compose up -d --no-deps media_server
 | `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
-| `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
+| `XRAY_REALITY_DOMAIN` | Reality 目标域名（已暂时停用，DNS 同步不再包含，可留空） | `xray.yinghuoren.com` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |

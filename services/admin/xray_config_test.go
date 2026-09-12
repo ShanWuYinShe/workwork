@@ -9,14 +9,10 @@ import (
 	"testing"
 )
 
-func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
+func TestGenerateClientConfigXhttpOnly(t *testing.T) {
 	cfgJSON := handlers.GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, handlers.ClientConfig{
-		RealityDomain:     "xray.example.com",
-		RealityServerName: "addons.mozilla.org",
-		RealityPublicKey:  "public-key",
-		RealityShortID:    "0123456789abcdef",
-		XHTTPDomain:       "example.com",
-		XHTTPProxyAuth:    "viewer:secret",
+		XHTTPDomain:    "example.com",
+		XHTTPProxyAuth: "viewer:secret",
 	})
 
 	var doc map[string]any
@@ -25,14 +21,21 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 
 	outbounds, ok := doc["outbounds"].([]any)
-	if !ok || len(outbounds) < 2 {
-		t.Fatalf("unexpected outbounds: %#v", doc["outbounds"])
+	if !ok || len(outbounds) != 3 {
+		t.Fatalf("expected exactly xhttp/direct/reject outbounds, got %#v", doc["outbounds"])
 	}
 
-	reality := outboundByTag(t, outbounds, "reality")
-	xhttp := outboundByTag(t, outbounds, "xhttp")
+	// Reality 已暂时停用：不得再出现 reality 出站、balancer 与 observatory。
+	for _, ob := range outbounds {
+		if nestedMapFromAny(t, ob)["tag"] == "reality" {
+			t.Fatal("reality outbound must be absent while reality is disabled")
+		}
+	}
+	if _, ok := doc["observatory"]; ok {
+		t.Fatal("observatory must be absent while reality is disabled")
+	}
 
-	assertXHTTPSockopt(t, reality, "UseIP")
+	xhttp := outboundByTag(t, outbounds, "xhttp")
 	assertXHTTPSockopt(t, xhttp, "UseIP")
 
 	xhttpSettings := nestedMap(t, nestedMap(t, xhttp, "streamSettings"), "xhttpSettings")
@@ -42,11 +45,17 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 
 	routing := nestedMap(t, doc, "routing")
+	if _, ok := routing["balancers"]; ok {
+		t.Fatal("routing balancers must be absent while reality is disabled")
+	}
 	rules, ok := routing["rules"].([]any)
 	if !ok || len(rules) < 2 {
 		t.Fatalf("unexpected routing rules: %#v", routing["rules"])
 	}
 	proxyRule := nestedMapFromAny(t, rules[1])
+	if proxyRule["outboundTag"] != "xhttp" {
+		t.Fatalf("expected proxy rule to point at xhttp, got %#v", proxyRule["outboundTag"])
+	}
 	domains, ok := proxyRule["domain"].([]any)
 	if !ok {
 		t.Fatalf("unexpected proxy domains: %#v", proxyRule["domain"])
@@ -55,18 +64,9 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 		t.Fatalf("expected proxy domains to include geosite:youtube, got %#v", domains)
 	}
 
-	observatory := nestedMap(t, doc, "observatory")
-	if observatory["subjectSelector"] == nil {
-		t.Fatalf("expected observatory subjectSelector, got %#v", observatory["subjectSelector"])
-	}
-	if observatory["probeURL"] != "https://cp.cloudflare.com/generate_204" {
-		t.Fatalf("unexpected observatory probeURL: %#v", observatory["probeURL"])
-	}
-	if observatory["probeInterval"] != "30s" {
-		t.Fatalf("unexpected observatory probeInterval: %#v", observatory["probeInterval"])
-	}
-	if observatory["enableConcurrency"] != true {
-		t.Fatalf("unexpected observatory enableConcurrency: %#v", observatory["enableConcurrency"])
+	// XHTTP_DOMAIN 缺失即视为服务端配置不完整。
+	if got := handlers.GenerateClientConfig(nil, handlers.ClientConfig{}); !strings.Contains(got, "incomplete") {
+		t.Fatalf("expected incomplete-config error, got %s", got)
 	}
 }
 
@@ -79,15 +79,13 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 
 	rendered := string(data)
 	replacements := map[string]string{
-		"__XRAY_CLIENTS_JSON__":         `[{"id":"uuid-1","email":"viewer","flow":"","owner":"viewer"}]`,
-		"__XRAY_REALITY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"xtls-rprx-vision","owner":"viewer"}]`,
-		"__XRAY_REALITY_DEST__":         "addons.mozilla.org:443",
-		"__XRAY_REALITY_SERVER_NAME__":  "addons.mozilla.org",
-		"__XRAY_PRIVATE_KEY__":          "private-key",
-		"__XRAY_SHORT_IDS_JSON__":       `["0123456789abcdef","abcdef"]`,
+		"__XRAY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"","owner":"viewer"}]`,
 	}
 	for placeholder, value := range replacements {
 		rendered = strings.ReplaceAll(rendered, placeholder, value)
+	}
+	if strings.Contains(rendered, "__XRAY_") {
+		t.Fatal("rendered template still contains unreplaced __XRAY_* placeholders")
 	}
 
 	var doc map[string]any
@@ -126,13 +124,11 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if !ok || !containsAny(ips, "geoip:private") || !containsAny(ips, "100.64.0.0/10") || !containsAny(ips, "fc00::/7") {
 		t.Fatalf("private routing rule missing expected ranges: %#v", privateRule["ip"])
 	}
-	reality := outboundByTag(t, doc["inbounds"].([]any), "reality-in")
-	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")
-	shortIDs, ok := realitySettings["shortIds"].([]any)
-	if !ok || len(shortIDs) != 2 {
-		t.Fatalf("unexpected reality shortIds: %#v", realitySettings["shortIds"])
+	inbounds, ok := doc["inbounds"].([]any)
+	if !ok || len(inbounds) != 1 {
+		t.Fatalf("expected exactly one inbound (xhttp-in), got %#v", doc["inbounds"])
 	}
-	xhttpIn := outboundByTag(t, doc["inbounds"].([]any), "xhttp-in")
+	xhttpIn := outboundByTag(t, inbounds, "xhttp-in")
 	xhttpSockopt := nestedMap(t, nestedMap(t, xhttpIn, "streamSettings"), "sockopt")
 	trustedXFF, ok := xhttpSockopt["trustedXForwardedFor"].([]any)
 	if !ok || !containsAny(trustedXFF, "X-Real-IP") {

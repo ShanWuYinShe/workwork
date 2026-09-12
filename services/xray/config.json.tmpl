@@ -37,33 +37,6 @@
         "destOverride": ["http", "tls"],
         "routeOnly": true
       }
-    },
-    {
-      "tag": "reality-in",
-      "listen": "::",
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": __XRAY_REALITY_CLIENTS_JSON__,
-        "decryption": "none"
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"],
-        "routeOnly": true
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "__XRAY_REALITY_DEST__",
-          "xver": 0,
-          "serverNames": ["__XRAY_REALITY_SERVER_NAME__"],
-          "privateKey": "__XRAY_PRIVATE_KEY__",
-          "shortIds": __XRAY_SHORT_IDS_JSON__
-        }
-      }
     }
   ],
   "outbounds": [
