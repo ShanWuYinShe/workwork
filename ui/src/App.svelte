@@ -56,10 +56,10 @@
   <Sidebar
     currentPath={nav.path}
     {navigate}
-    {sidebarCollapsed}
+    bind:sidebarCollapsed
     {userInfo}
     {isAdmin}
-    {mobileMenuOpen}
+    bind:mobileMenuOpen
   />
 
   {#if mobileMenuOpen}

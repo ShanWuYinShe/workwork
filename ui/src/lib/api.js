@@ -219,17 +219,22 @@ export async function uploadMediaAppRelease(formData, variant) {
   const ctrl = new AbortController();
   // APK 最大 300MB，90s 的通用保存超时会在慢速网络下掐断上传，单独放宽。
   const timeout = setTimeout(() => ctrl.abort(), APK_UPLOAD_TIMEOUT);
-  if (variant) formData.append('variant', variant);
-  const r = await fetch(BASE + '/media-center/app-release', {
-    credentials: 'same-origin',
-    method: 'POST',
-    body: formData,
-    signal: ctrl.signal,
-  });
-  clearTimeout(timeout);
-  const json = await parseJSONResponse(r);
-  if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
-  return json.data;
+  // clearTimeout 必须在 finally：fetch 抛错（网络/超时/4xx）时定时器若悬挂，
+  // 30 分钟内会一直持有引用并在触发时 abort 一个已失效的 controller。
+  try {
+    if (variant) formData.append('variant', variant);
+    const r = await fetch(BASE + '/media-center/app-release', {
+      credentials: 'same-origin',
+      method: 'POST',
+      body: formData,
+      signal: ctrl.signal,
+    });
+    const json = await parseJSONResponse(r);
+    if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
+    return json.data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ── App 版本管理：历史 / 回滚 / 删除 / 下载 ──
