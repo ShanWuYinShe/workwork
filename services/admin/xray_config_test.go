@@ -9,10 +9,14 @@ import (
 	"testing"
 )
 
-func TestGenerateClientConfigXhttpOnly(t *testing.T) {
+func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	cfgJSON := handlers.GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, handlers.ClientConfig{
-		XHTTPDomain:    "example.com",
-		XHTTPProxyAuth: "viewer:secret",
+		RealityDomain:     "xray.example.com",
+		RealityServerName: "addons.mozilla.org",
+		RealityPublicKey:  "public-key",
+		RealityShortID:    "0123456789abcdef",
+		XHTTPDomain:       "example.com",
+		XHTTPProxyAuth:    "viewer:secret",
 	})
 
 	var doc map[string]any
@@ -21,21 +25,14 @@ func TestGenerateClientConfigXhttpOnly(t *testing.T) {
 	}
 
 	outbounds, ok := doc["outbounds"].([]any)
-	if !ok || len(outbounds) != 3 {
-		t.Fatalf("expected exactly xhttp/direct/reject outbounds, got %#v", doc["outbounds"])
+	if !ok || len(outbounds) != 4 {
+		t.Fatalf("expected reality/xhttp/direct/reject outbounds, got %#v", doc["outbounds"])
 	}
 
-	// Reality 已暂时停用：不得再出现 reality 出站、balancer 与 observatory。
-	for _, ob := range outbounds {
-		if nestedMapFromAny(t, ob)["tag"] == "reality" {
-			t.Fatal("reality outbound must be absent while reality is disabled")
-		}
-	}
-	if _, ok := doc["observatory"]; ok {
-		t.Fatal("observatory must be absent while reality is disabled")
-	}
-
+	reality := outboundByTag(t, outbounds, "reality")
 	xhttp := outboundByTag(t, outbounds, "xhttp")
+
+	assertXHTTPSockopt(t, reality, "UseIP")
 	assertXHTTPSockopt(t, xhttp, "UseIP")
 
 	xhttpSettings := nestedMap(t, nestedMap(t, xhttp, "streamSettings"), "xhttpSettings")
@@ -44,17 +41,36 @@ func TestGenerateClientConfigXhttpOnly(t *testing.T) {
 		t.Fatal("expected xhttp auth header to be present")
 	}
 
+	// 客户端内置 DNS：domainStrategy=UseIP 依赖它解析代理服务器域名。
+	dns := nestedMap(t, doc, "dns")
+	if dns["queryStrategy"] != "UseIP" {
+		t.Fatalf("unexpected client dns query strategy: %#v", dns["queryStrategy"])
+	}
+	servers, ok := dns["servers"].([]any)
+	if !ok || len(servers) == 0 {
+		t.Fatalf("expected client dns servers, got %#v", dns["servers"])
+	}
+	if dns["enableParallelQuery"] != true {
+		t.Fatalf("expected client dns parallel query enabled, got %#v", dns["enableParallelQuery"])
+	}
+
 	routing := nestedMap(t, doc, "routing")
-	if _, ok := routing["balancers"]; ok {
-		t.Fatal("routing balancers must be absent while reality is disabled")
+	balancers, ok := routing["balancers"].([]any)
+	if !ok || len(balancers) != 1 {
+		t.Fatalf("expected exactly one balancer, got %#v", routing["balancers"])
+	}
+	balancer := nestedMapFromAny(t, balancers[0])
+	selector, ok := balancer["selector"].([]any)
+	if !ok || !containsAny(selector, "reality") || !containsAny(selector, "xhttp") {
+		t.Fatalf("expected balancer selector [reality xhttp], got %#v", balancer["selector"])
 	}
 	rules, ok := routing["rules"].([]any)
 	if !ok || len(rules) < 2 {
 		t.Fatalf("unexpected routing rules: %#v", routing["rules"])
 	}
 	proxyRule := nestedMapFromAny(t, rules[1])
-	if proxyRule["outboundTag"] != "xhttp" {
-		t.Fatalf("expected proxy rule to point at xhttp, got %#v", proxyRule["outboundTag"])
+	if proxyRule["balancerTag"] != "proxy" {
+		t.Fatalf("expected proxy rule to point at balancer, got %#v", proxyRule)
 	}
 	domains, ok := proxyRule["domain"].([]any)
 	if !ok {
@@ -64,8 +80,22 @@ func TestGenerateClientConfigXhttpOnly(t *testing.T) {
 		t.Fatalf("expected proxy domains to include geosite:youtube, got %#v", domains)
 	}
 
-	// XHTTP_DOMAIN 缺失即视为服务端配置不完整。
-	if got := handlers.GenerateClientConfig(nil, handlers.ClientConfig{}); !strings.Contains(got, "incomplete") {
+	observatory := nestedMap(t, doc, "observatory")
+	if observatory["subjectSelector"] == nil {
+		t.Fatalf("expected observatory subjectSelector, got %#v", observatory["subjectSelector"])
+	}
+	if observatory["probeURL"] != "https://cp.cloudflare.com/generate_204" {
+		t.Fatalf("unexpected observatory probeURL: %#v", observatory["probeURL"])
+	}
+	if observatory["probeInterval"] != "30s" {
+		t.Fatalf("unexpected observatory probeInterval: %#v", observatory["probeInterval"])
+	}
+	if observatory["enableConcurrency"] != true {
+		t.Fatalf("unexpected observatory enableConcurrency: %#v", observatory["enableConcurrency"])
+	}
+
+	// Reality 字段缺失即视为服务端配置不完整。
+	if got := handlers.GenerateClientConfig(nil, handlers.ClientConfig{XHTTPDomain: "example.com"}); !strings.Contains(got, "incomplete") {
 		t.Fatalf("expected incomplete-config error, got %s", got)
 	}
 }
@@ -79,7 +109,12 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 
 	rendered := string(data)
 	replacements := map[string]string{
-		"__XRAY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"","owner":"viewer"}]`,
+		"__XRAY_CLIENTS_JSON__":         `[{"id":"uuid-1","email":"viewer","flow":"","owner":"viewer"}]`,
+		"__XRAY_REALITY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"xtls-rprx-vision","owner":"viewer"}]`,
+		"__XRAY_REALITY_DEST__":         "addons.mozilla.org:443",
+		"__XRAY_REALITY_SERVER_NAME__":  "addons.mozilla.org",
+		"__XRAY_PRIVATE_KEY__":          "private-key",
+		"__XRAY_SHORT_IDS_JSON__":       `["0123456789abcdef","abcdef"]`,
 	}
 	for placeholder, value := range replacements {
 		rendered = strings.ReplaceAll(rendered, placeholder, value)
@@ -125,8 +160,14 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 		t.Fatalf("private routing rule missing expected ranges: %#v", privateRule["ip"])
 	}
 	inbounds, ok := doc["inbounds"].([]any)
-	if !ok || len(inbounds) != 1 {
-		t.Fatalf("expected exactly one inbound (xhttp-in), got %#v", doc["inbounds"])
+	if !ok || len(inbounds) != 2 {
+		t.Fatalf("expected xhttp-in + reality-in inbounds, got %#v", doc["inbounds"])
+	}
+	reality := outboundByTag(t, inbounds, "reality-in")
+	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")
+	shortIDs, ok := realitySettings["shortIds"].([]any)
+	if !ok || len(shortIDs) != 2 {
+		t.Fatalf("unexpected reality shortIds: %#v", realitySettings["shortIds"])
 	}
 	xhttpIn := outboundByTag(t, inbounds, "xhttp-in")
 	xhttpSockopt := nestedMap(t, nestedMap(t, xhttpIn, "streamSettings"), "sockopt")

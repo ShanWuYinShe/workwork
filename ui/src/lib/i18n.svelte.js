@@ -65,7 +65,7 @@ const zh = {
   openLogs: '查看日志',
   adminDashboardHint: '先看服务健康，再处理网络和安全操作。',
   viewerDashboardHint: '生成客户端后可直接复制配置；文件中转和下载工具在常用操作中。',
-  clientsActionDesc: '生成或复制 XHTTP 配置',
+  clientsActionDesc: '生成或复制 Reality + XHTTP 配置',
   transferActionDesc: '上传临时文件并复制分享链接',
   downloadsActionDesc: '下载 Claude Code / Xray 工具包',
   servicesActionDesc: '重启、启动或停止容器服务',
@@ -116,9 +116,7 @@ const zh = {
   mismatch: '不一致',
   noDNS: '无 DNS',
   webGateway: 'Web 网关 (80/443)',
-  // realityDesc 保留：reality 暂时停用，恢复时 Settings 页直接改回引用。
   realityDesc: 'VLESS Reality (443)',
-  xrayEgressDesc: 'XHTTP 入站 + 出站（reality 已停用）',
   ipv6Allocation: 'IPv6 分配',
   internalServices: '内部服务',
   access: '访问方式',
@@ -585,7 +583,7 @@ const en = {
   adminDashboardHint: 'Check service health first, then handle network and security operations.',
   viewerDashboardHint:
     'Create a client, copy its config, then use transfer and downloads from Daily.',
-  clientsActionDesc: 'Create or copy XHTTP configuration',
+  clientsActionDesc: 'Create or copy Reality + XHTTP configuration',
   transferActionDesc: 'Upload temporary files and copy share links',
   downloadsActionDesc: 'Download Claude Code / Xray bundles',
   servicesActionDesc: 'Restart, start, or stop container services',
@@ -636,9 +634,7 @@ const en = {
   mismatch: 'mismatch',
   noDNS: 'no DNS',
   webGateway: 'Web gateway (80/443)',
-  // realityDesc 保留：reality 暂时停用，恢复时 Settings 页直接改回引用。
   realityDesc: 'VLESS Reality (443)',
-  xrayEgressDesc: 'XHTTP inbound + egress (reality disabled)',
   ipv6Allocation: 'IPv6 Allocation',
   internalServices: 'Internal Services',
   access: 'Access',

@@ -90,14 +90,13 @@ services:
     deploy:
       resources:
         limits:
-          # XHTTP 单入站下 64M 偏紧，OOM 会静默重启代理；
+          # Reality + XHTTP + observatory 并发下 64M 偏紧，OOM 会静默重启代理；
           # 放宽到 128M 留出 TLS 握手与连接缓冲余量。
           memory: 128M
           cpus: "1.0"
     security_opt:
       - "no-new-privileges:true"
-    # Reality 已暂时停用：xray 不再监听 443（只保留 xhttp Unix socket 入站），
-    # 此前 IPv4 443 由 xray-forward 发布(连接 ipvlan 后 Docker 端口映射失效)——同步停用。
+    # IPv4 443 由 xray-forward 发布(连接 ipvlan 后 Docker 端口映射失效)
     ulimits:
       nofile:
         soft: 65535
@@ -123,7 +122,8 @@ services:
       # 1001: read generated xray config after admin tightens it to 0640.
       - "1001"
     networks:
-      # xray_egress 保留为 xray 专用 IPv4 出站 bridge（reality 停用期间仅做 egress）。
+      # Keep the dedicated bridge first so Docker publishes host IPv4 443 to
+      # xray's egress bridge IP without joining the private admin/media network.
       # Public IPv6 reaches xray directly through ipvlan_docker.
       xray_egress: {}
       ipvlan_docker:
@@ -137,67 +137,63 @@ services:
       admin:
         condition: service_healthy
     healthcheck:
-      # Reality 已暂时停用：只探测 xhttp Unix socket 存活。恢复 reality 时加回
-      # `&& nc -z 127.0.0.1 443`（同步取消 xray-forward 段注释）。
-      test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket"]
+      test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket && nc -z 127.0.0.1 443"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-  # Reality 已暂时停用：xhttp 经 nginx /proxy/query 进入，不需要 443 直连发布，
-  # 该转发容器同步停用（保留定义以便恢复 reality 时一键启用）。
   # IPv4 直连发布: 宿主 0.0.0.0:443 → socat → xray_egress 网络内 xray:443。
   # xray 同时连接 ipvlan 时 Docker(29.x) 会把 ipvlan 选为 gwep4,端口映射
   # 整体失效(与连接顺序无关),因此 IPv4 入站由这个纯 bridge 容器发布。
-  # xray-forward:
-  #   build:
-  #     context: ./services/xray
-  #     dockerfile: Dockerfile.forward
-  #     args:
-  #       ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
-  #   restart: unless-stopped
-  #   init: true
-  #   environment:
-  #     - TZ=Asia/Shanghai
-  #   networks:
-  #     - xray_egress
-  #   security_opt:
-  #     - "no-new-privileges:true"
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         # socat fork 每连接一进程(约 1-2MB/进程),32M 在 20-30 并发即 OOM;
-  #         # 128M 支撑 max-children=256 的正常水位,pids 兜底防 fork 洪泛。
-  #         memory: 128M
-  #         cpus: "0.25"
-  #         pids: 300
-  #   ulimits:
-  #     nofile:
-  #       soft: 65535
-  #       hard: 65535
-  #   cap_drop:
-  #     - ALL
-  #   ports:
-  #     - "0.0.0.0:443:443"
-  #   volumes:
-  #     - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   depends_on:
-  #     xray:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     # 转发面只关心本容器 443 是否在监听；xray 本身健康由 xray 的
-  #     # healthcheck 保证，这里不做重复的端到端探测。
-  #     test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 10s
+  xray-forward:
+    build:
+      context: ./services/xray
+      dockerfile: Dockerfile.forward
+      args:
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+    restart: unless-stopped
+    init: true
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - xray_egress
+    security_opt:
+      - "no-new-privileges:true"
+    deploy:
+      resources:
+        limits:
+          # socat fork 每连接一进程(约 1-2MB/进程),32M 在 20-30 并发即 OOM;
+          # 128M 支撑 max-children=256 的正常水位,pids 兜底防 fork 洪泛。
+          memory: 128M
+          cpus: "0.25"
+          pids: 300
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    cap_drop:
+      - ALL
+    ports:
+      - "0.0.0.0:443:443"
+    volumes:
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      xray:
+        condition: service_healthy
+    healthcheck:
+      # 转发面只关心本容器 443 是否在监听；xray 本身健康由 xray 的
+      # healthcheck 保证，这里不做重复的端到端探测。
+      test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   media_server:
     build:
