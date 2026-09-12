@@ -35,8 +35,6 @@ func ReadXrayClients() ([]map[string]string, error) {
 }
 
 type ClientConfig struct {
-	// Reality 字段已暂时停用（只保留 XHTTP）：保留字段以便恢复 reality
-	// 时直接填回，生成逻辑当前忽略它们。
 	RealityDomain     string
 	RealityServerName string
 	RealityPublicKey  string
@@ -73,6 +71,10 @@ func xhttpOutboundSockopt() map[string]any {
 	return sockopt
 }
 
+func realityOutboundSockopt() map[string]any {
+	return xhttpOutboundSockopt()
+}
+
 func autoProxyDomains() []string {
 	return []string{
 		"geosite:google", "geosite:github", "geosite:openai",
@@ -86,11 +88,19 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 	if len(clients) > 0 {
 		uuid = clients[0]["id"]
 	}
-	if cfg.XHTTPDomain == "" {
+	if cfg.RealityDomain == "" || cfg.RealityPublicKey == "" || cfg.XHTTPDomain == "" {
 		return "{\"error\": \"Server configuration incomplete\"}"
 	}
 	return orderedJSON([]jsonField{
 		{"log", map[string]any{"loglevel": "warning"}},
+		// 客户端内置 DNS：sockopt domainStrategy=UseIP 依赖它解析代理服务
+		// 器域名。并行查询取最快，223.5.5.5 照顾国内解析，DoH 兜底。
+		{"dns", map[string]any{
+			"servers":             []string{"https+local://1.1.1.1/dns-query", "8.8.8.8", "223.5.5.5"},
+			"queryStrategy":       "UseIP",
+			"enableParallelQuery": true,
+			"useSystemHosts":      true,
+		}},
 		{"inbounds", []any{
 			map[string]any{
 				"tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks",
@@ -104,6 +114,25 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			},
 		}},
 		{"outbounds", []any{
+			map[string]any{
+				"tag": "reality", "protocol": "vless",
+				"settings": map[string]any{
+					"vnext": []any{map[string]any{
+						"address": cfg.RealityDomain, "port": 443,
+						"users": []any{map[string]any{
+							"id": uuid, "email": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
+						}},
+					}},
+				},
+				"streamSettings": map[string]any{
+					"network": "tcp", "security": "reality",
+					"realitySettings": map[string]any{
+						"serverName": cfg.RealityServerName, "fingerprint": "chrome",
+						"publicKey": cfg.RealityPublicKey, "shortId": cfg.RealityShortID,
+					},
+					"sockopt": realityOutboundSockopt(),
+				},
+			},
 			map[string]any{
 				"tag": "xhttp", "protocol": "vless",
 				"settings": map[string]any{
@@ -126,11 +155,22 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		}},
 		{"routing", map[string]any{
 			"domainStrategy": "AsIs",
+			"balancers": []any{map[string]any{
+				"tag":      "proxy",
+				"selector": []string{"reality", "xhttp"},
+				"strategy": map[string]any{"type": "leastLoad"},
+			}},
 			"rules": []any{
 				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
-				map[string]any{"type": "field", "outboundTag": "xhttp", "domain": autoProxyDomains()},
+				map[string]any{"type": "field", "balancerTag": "proxy", "domain": autoProxyDomains()},
 				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
 			},
+		}},
+		{"observatory", map[string]any{
+			"subjectSelector":   []string{"reality", "xhttp"},
+			"probeURL":          "https://cp.cloudflare.com/generate_204",
+			"probeInterval":     "30s",
+			"enableConcurrency": true,
 		}},
 	})
 }
