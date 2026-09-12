@@ -1,8 +1,6 @@
 # workwork
 
-Docker 代理基础设施：Xray VLESS XHTTP 代理 / Nginx 反代 / Go 管理面板。
-（Reality 已暂时停用：服务端 reality-in、客户端 reality 出站、xray-forward
-均注释/保留，恢复时取消注释并接回对应生成逻辑即可。）
+Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
 
 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/AGENTS.md` 为准（各 AI 工具的全局指令文件均链接到该文件），本文件只做项目特有补充，不得放宽或违背全局约束。
 
@@ -105,9 +103,7 @@ ssh workwork-server "cd service && old=\$(git rev-parse HEAD) && git pull --ff-o
 # - services/nginx/**:
 #     docker compose build nginx && docker compose up -d --no-deps nginx
 # - services/xray/**:
-#     docker compose build xray && docker compose up -d --no-deps xray
-#     （Reality 停用期间不带 xray-forward；恢复 reality 时取消 compose 中
-#     xray-forward 段注释后再加回构建/重启命令。）
+#     docker compose build xray xray-forward && docker compose up -d --no-deps xray xray-forward
 # - docker-compose.yml / 共享网络 / 共享 env 变更:
 #     docker compose up -d <受影响服务...>
 # admin 的 deploy.go / 模板改动可能影响运行时生成的 nginx/xray/media 配置；
@@ -126,9 +122,10 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。xray 本身不声明 ports。Reality 停用前 IPv4 入站 443 由 `xray-forward` 转发容器发布（纯 bridge + socat，`0.0.0.0:443:443` → `xray:443`，原因：xray 容器连接 ipvlan 后 Docker(29.x) 端口映射整体失效，已实测）——该容器已在 compose 中注释停用，恢复 reality 时取消注释即可。不要让 xray 加入 `internal_docker`
-- Inbounds: 仅 `xhttp-in`（经 Cloudflare → nginx `/proxy/query` → Unix socket；reality-in 已暂时去掉，模板/生成逻辑/转发容器同步停用，注释保留恢复路径）
+- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。**IPv4 入站 443 由 `xray-forward` 转发容器发布**（纯 bridge + socat，`0.0.0.0:443:443` → `xray:443`），xray 本身不声明 ports。原因：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）。不要让 xray 加入 `internal_docker`
+- Inbounds: `xhttp-in`（8447，经 Cloudflare）+ `reality-in`（443，Reality 直连）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
+- 客户端双出站 reality + xhttp，observatory 探测 + leastLoad 均衡自动选路；客户端内置并行 DNS 段加速代理域名解析
 - Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
 
 ### services/nginx/ — Nginx + fail2ban
@@ -141,7 +138,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### docker-compose.yml
 
-6 服务: admin, xray, nginx, media_server, vod_extractor（+ netease_api/music_server；`xray-forward` 已注释停用，不计入）。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/vod_extractor 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连，停用期间仅做 egress + xhttp 入站）；恢复 reality 前不要为 IPv4 加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
+6 服务: admin, xray, xray-forward, nginx, media_server, vod_extractor。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/vod_extractor 内网 bridge，172.20.0.0/16）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
 vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data API 配额）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 搜索/解析全被 bot 检测拦截。
 
 ## Security — 多层防御
@@ -197,8 +194,8 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 - 子网: `/64` from `IPV6_SUBNET` env var
 - 静态范围: `{prefix}:1::/80` — Docker 分配（nginx、xray 主 IP）
 - 轮换范围: `{prefix}:f::/80` — 第 5 个 hextet = `000f`，DNS 指向此处
-- `xray.yinghuoren.com` → reality 停用前指向 xray 轮换 IP；停用期间 DNS 同步不再包含该域名（`allDomainInfos` 已去掉），xray 仍参与 IPv6 轮换、只做 egress
-- 客户端配置：仅 xhttp 出站，用 `yinghuoren.com`（reality 出站已去掉，恢复时接回 balancer + observatory）
+- `xray.yinghuoren.com` → 轮换 IP（reality 用域名，非裸 IP）
+- 客户端配置: reality 出站用 `xray.yinghuoren.com`，xhttp 用 `yinghuoren.com`
 - 不需要宿主机 sysctl 配置：ipvlan L3 模式下容器直接持有公网 IPv6，数据包在内核驱动层直接投递到容器命名空间。无需启用 `net.ipv6.conf.all.forwarding`、`proxy_ndp` 等宿主机网络设置。禁止修改宿主机 sysctl/iptables/网络配置。
 
 ## 关键约定

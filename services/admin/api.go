@@ -250,8 +250,12 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 				}
 			}
 			genJSON := handlers.GenerateClientConfig(myClients, handlers.ClientConfig{
-				XHTTPDomain:    getEnv("XHTTP_DOMAIN"),
-				XHTTPProxyAuth: proxyAuth,
+				RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
+				RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+				RealityShortID:    xrayClientShortID(),
+				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+				XHTTPProxyAuth:    proxyAuth,
 			})
 			writeJSON(w, map[string]any{
 				"role":          userInfo.Role,
@@ -378,7 +382,7 @@ func apiConfig(cli *client.Client) http.HandlerFunc {
 			}
 			if json.Unmarshal(raw, &cfg) == nil {
 				for _, ib := range cfg.Inbounds {
-					if ib.Tag == "xhttp-in" {
+					if ib.Tag == "reality-in" {
 						result["xrayClients"] = len(ib.Settings.Clients)
 					}
 				}
@@ -498,8 +502,12 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		genJSON := handlers.GenerateClientConfig(filtered, handlers.ClientConfig{
-			XHTTPDomain:    getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth: proxyAuth,
+			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
+			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityShortID:    xrayClientShortID(),
+			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+			XHTTPProxyAuth:    proxyAuth,
 		})
 
 		// Build adminUsers with role info
@@ -723,8 +731,12 @@ func apiXrayClientConfig() http.HandlerFunc {
 		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 apiUsers 一致。
 		proxyAuth := proxyAuthForUserRead(client["owner"])
 		genJSON := handlers.GenerateClientConfig([]map[string]string{client}, handlers.ClientConfig{
-			XHTTPDomain:    getEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth: proxyAuth,
+			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
+			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityShortID:    xrayClientShortID(),
+			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+			XHTTPProxyAuth:    proxyAuth,
 		})
 		writeJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],
@@ -1379,10 +1391,12 @@ type domainInfo struct {
 }
 
 // allDomainInfos returns all managed domains and their container assignments.
-// Reality 已暂时停用：XRAY_REALITY_DOMAIN 不再纳入 DNS 同步（xray 仍参与
-// IPv6 轮换，只做 egress）。XHTTP_DOMAIN / NGINX_DOMAINS -> nginx。
+// XRAY_REALITY_DOMAIN -> xray, NGINX_DOMAINS (comma-separated) -> nginx.
 func allDomainInfos() []domainInfo {
 	var infos []domainInfo
+	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
+		infos = append(infos, domainInfo{Domain: d, Container: "xray"})
+	}
 	if d := getEnv("XHTTP_DOMAIN"); d != "" {
 		infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
 	}
