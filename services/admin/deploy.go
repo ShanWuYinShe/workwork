@@ -156,36 +156,13 @@ func genXrayConfig() error {
 	copy(clientsCopy, clients)
 	xrayClientsMu.Unlock()
 
-	var xhttpClients, realityClients bytes.Buffer
-	enc := json.NewEncoder(&xhttpClients)
-	enc.SetEscapeHTML(false)
-	for _, c := range clientsCopy {
-		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "", "owner": c.Owner}); err != nil {
-			return fmt.Errorf("encode xhttp client %s: %w", c.ID, err)
-		}
-		// enc.Encode 追加换行；去掉尾换行再加逗号，拼成 JSON 数组元素。
-		// 编码失败时 buffer 不会增长，Truncate(Len()-1) 在空 buffer 上会 panic，
-		// 因此只在 Encode 成功后才 Truncate。
-		xhttpClients.Truncate(xhttpClients.Len() - 1)
-		xhttpClients.WriteByte(',')
+	xhttpJSON, err := encodeXrayClients(clientsCopy, "")
+	if err != nil {
+		return fmt.Errorf("encode xhttp clients: %w", err)
 	}
-	enc = json.NewEncoder(&realityClients)
-	enc.SetEscapeHTML(false)
-	for _, c := range clientsCopy {
-		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": "xtls-rprx-vision", "owner": c.Owner}); err != nil {
-			return fmt.Errorf("encode reality client %s: %w", c.ID, err)
-		}
-		realityClients.Truncate(realityClients.Len() - 1)
-		realityClients.WriteByte(',')
-	}
-
-	xhttpJSON := "[]"
-	if xhttpClients.Len() > 0 {
-		xhttpJSON = "[" + strings.TrimSuffix(xhttpClients.String(), ",") + "]"
-	}
-	realityJSON := "[]"
-	if realityClients.Len() > 0 {
-		realityJSON = "[" + strings.TrimSuffix(realityClients.String(), ",") + "]"
+	realityJSON, err := encodeXrayClients(clientsCopy, "xtls-rprx-vision")
+	if err != nil {
+		return fmt.Errorf("encode reality clients: %w", err)
 	}
 
 	out := string(tmpl)
@@ -222,6 +199,30 @@ func genXrayConfig() error {
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
 	return atomicWriteFile(xrayConfigPath, []byte(out), 0640)
+}
+
+// encodeXrayClients 将持久化的 client 条目编码为 Xray inbound `clients` JSON 数组。
+// 只保留 Xray 能识别的 id/email/flow：管理面的 owner 归属信息不属于运行时配置，
+// 不应写入（Xray 对未知字段静默忽略所以此前无害，但属于泄漏且未来收紧校验会炸）。
+// 唯一的遗留读者 migrateXrayClientsFromConfig 在 Owner 缺失时已回退为 Owner=ID。
+func encodeXrayClients(clients []xrayClientEntry, flow string) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	for _, c := range clients {
+		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": flow}); err != nil {
+			return "", fmt.Errorf("encode client %s: %w", c.ID, err)
+		}
+		// enc.Encode 追加换行；去掉尾换行再加逗号，拼成 JSON 数组元素。
+		// 编码失败时 buffer 不会增长，Truncate(Len()-1) 在空 buffer 上会 panic，
+		// 因此只在 Encode 成功后才 Truncate。
+		buf.Truncate(buf.Len() - 1)
+		buf.WriteByte(',')
+	}
+	if buf.Len() == 0 {
+		return "[]", nil
+	}
+	return "[" + strings.TrimSuffix(buf.String(), ",") + "]", nil
 }
 
 func validateProxyConfigEnv() error {

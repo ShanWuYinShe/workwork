@@ -79,6 +79,17 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	if !containsAny(domains, "geosite:youtube") {
 		t.Fatalf("expected proxy domains to include geosite:youtube, got %#v", domains)
 	}
+	// 与实际在用的本地客户端分流列表对齐：缺任何一个都会导致面板重下的配置
+	// 把对应流量漏到 direct。
+	for _, want := range []string{
+		"geosite:cloudflare", "geosite:mozilla", "geosite:figma", "geosite:npmjs",
+		"domain:antigravity-unleash.goog", "domain:opencode.ai",
+		"domain:investing.com", "domain:textnow.com", "domain:toutoupa.com",
+	} {
+		if !containsAny(domains, want) {
+			t.Fatalf("expected proxy domains to include %s, got %#v", want, domains)
+		}
+	}
 
 	observatory := nestedMap(t, doc, "observatory")
 	if observatory["subjectSelector"] == nil {
@@ -100,6 +111,37 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 }
 
+func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
+	clients := []xrayClientEntry{{ID: "uuid-1", Owner: "viewer", Email: "viewer"}}
+	for _, flow := range []string{"", "xtls-rprx-vision"} {
+		got, err := encodeXrayClients(clients, flow)
+		if err != nil {
+			t.Fatalf("encodeXrayClients(flow=%q): %v", flow, err)
+		}
+		if strings.Contains(got, "owner") {
+			t.Fatalf("generated xray clients must not contain owner, got %s", got)
+		}
+		var arr []map[string]any
+		if err := json.Unmarshal([]byte(got), &arr); err != nil {
+			t.Fatalf("unmarshal %s: %v", got, err)
+		}
+		if len(arr) != 1 {
+			t.Fatalf("expected 1 client, got %s", got)
+		}
+		for key := range arr[0] {
+			if key != "id" && key != "email" && key != "flow" {
+				t.Fatalf("unexpected client key %q in %s", key, got)
+			}
+		}
+		if arr[0]["flow"] != flow {
+			t.Fatalf("expected flow %q, got %s", flow, got)
+		}
+	}
+	if got, err := encodeXrayClients(nil, ""); err != nil || got != "[]" {
+		t.Fatalf("expected empty clients to encode as [], got %q, err %v", got, err)
+	}
+}
+
 func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	templatePath := filepath.Join("..", "xray", "config.json.tmpl")
 	data, err := os.ReadFile(templatePath)
@@ -109,8 +151,8 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 
 	rendered := string(data)
 	replacements := map[string]string{
-		"__XRAY_CLIENTS_JSON__":         `[{"id":"uuid-1","email":"viewer","flow":"","owner":"viewer"}]`,
-		"__XRAY_REALITY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"xtls-rprx-vision","owner":"viewer"}]`,
+		"__XRAY_CLIENTS_JSON__":         `[{"id":"uuid-1","email":"viewer","flow":""}]`,
+		"__XRAY_REALITY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"xtls-rprx-vision"}]`,
 		"__XRAY_REALITY_DEST__":         "addons.mozilla.org:443",
 		"__XRAY_REALITY_SERVER_NAME__":  "addons.mozilla.org",
 		"__XRAY_PRIVATE_KEY__":          "private-key",
