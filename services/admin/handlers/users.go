@@ -78,8 +78,15 @@ func realityOutboundSockopt() map[string]any {
 func autoProxyDomains() []string {
 	return []string{
 		"geosite:google", "geosite:github", "geosite:openai",
-		"geosite:docker", "geosite:netflix", "geosite:instagram",
-		"geosite:youtube", "geosite:facebook", "geosite:twitter",
+		"geosite:docker", "geosite:netflix", "geosite:cloudflare",
+		"geosite:instagram", "geosite:youtube", "geosite:facebook",
+		"geosite:twitter", "geosite:figma", "geosite:npmjs",
+		"geosite:mozilla",
+		"domain:antigravity-unleash.goog",
+		"domain:opencode.ai",
+		"domain:investing.com",
+		"domain:textnow.com",
+		"domain:toutoupa.com",
 	}
 }
 
