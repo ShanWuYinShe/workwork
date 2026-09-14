@@ -5,9 +5,9 @@ ARG ALPINE_VERSION=3.24.1
 FROM oven/bun:${BUN_VERSION}-alpine AS ui-builder
 
 WORKDIR /ui
-COPY ui/package.json ui/bun.lock ./
+COPY services/admin/ui/package.json services/admin/ui/bun.lock ./
 RUN bun install --frozen-lockfile
-COPY ui/ ./
+COPY services/admin/ui/ ./
 RUN bun run build
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
@@ -41,6 +41,9 @@ RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories
 
 COPY --from=go-builder /build/admin /app/admin
 COPY --from=ui-builder /ui/dist /app/ui
+# 配置模板由 admin 消费(启动时渲染到 .wework/generated/),随镜像分发:
+# 模板版本与二进制版本原子对应,回滚镜像即回滚模板。
+COPY services/admin/configs/ /app/configs/
 
 WORKDIR /app
 USER appuser

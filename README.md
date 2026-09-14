@@ -128,6 +128,8 @@ workwork/
 ├── services/
 │   ├── admin/                # Go 管理面板后端（internal/ 分域包,依赖单向无环）
 │   │   ├── main.go          # 装配:路由注册、中间件链、后台任务启动、body-limit 豁免声明
+│   │   ├── configs/         # nginx/xray 配置模板（唯一读者是 admin,构建期 COPY 进镜像）
+│   │   ├── ui/              # Svelte 5 前端源码（构建产物打进 admin 镜像,非独立部署单元）
 │   │   ├── deploy.go        # 启动引导:调用各域 Ensure* 生成运行时配置
 │   │   ├── main_test.go     # 路由装配契约测试(大上传端点豁免清单)
 │   │   └── internal/
@@ -141,13 +143,11 @@ workwork/
 │   │       ├── downloads/   # Claude Code / Xray 二进制下载
 │   │       └── transfer/    # 文件中转(公开分享下载)
 │   │
-│   ├── xray/                # Xray 代理（config.json.tmpl 由 admin 渲染）
-│   │   ├── config.json.tmpl
+│   ├── xray/                # Xray 代理（运行时配置由 admin 渲染到 .wework/generated/）
 │   │   ├── entrypoint.sh
 │   │   ├── Dockerfile / Dockerfile.forward   # xray 主容器 / IPv4 443 转发容器
 │   │
-│   ├── nginx/               # Nginx 反向代理（nginx.conf.tmpl 由 admin 渲染）
-│   │   ├── nginx.conf.tmpl
+│   ├── nginx/               # Nginx 反向代理（运行时配置由 admin 渲染）
 │   │   ├── config/fail2ban/
 │   │   └── Dockerfile
 │   │
@@ -164,9 +164,6 @@ workwork/
 │   │   └── shader_playground/ # 子仓实验项目
 │   │
 │   └── netease_api/         # 网易云 API 上游(Bun 运行 npm 包)
-│
-├── ui/                      # Svelte 5 管理面板前端（构建产物打进 admin 镜像）
-│   └── src/routes/          # 各页面组件
 │
 ├── cert/                    # TLS 证书（不提交）
 ├── logs/                    # 日志输出
@@ -229,7 +226,7 @@ ssh workwork-server "cd workwork && make deploy-changed"
 ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git submodule update --init --recursive && git diff --name-only \$old HEAD && git submodule status"
 
 # 3. 按变更选择最小部署命令（或直接用 make），例如：
-make build admin && make up admin          # services/admin/** 或 ui/**
+make build admin && make up admin          # services/admin/**（含 ui 与配置模板）
 make build nginx && make up nginx          # services/nginx/**
 make build xray xray-forward && make up xray xray-forward   # services/xray/**
 make build media_server && make up media_server             # services/media_center/media_server/**
