@@ -1,4 +1,4 @@
-package main
+package music
 
 import (
 	"bytes"
@@ -83,7 +83,7 @@ func TestMusicChunkUploadMerge(t *testing.T) {
 	total := 3
 	parts := [][]byte{data[:400], data[400:900], data[900:]}
 
-	upload := apiMusicChunkUpload()
+	upload := ApiMusicChunkUpload()
 	var last map[string]any
 	// 乱序:先传第 2 片再 1、3,验证 received 累计与收齐合并不依赖顺序。
 	for _, idx := range []int{1, 0, 2} {
@@ -133,7 +133,7 @@ func writeTestFile(t *testing.T, path, content string) {
 func TestMusicChunkQuery(t *testing.T) {
 	_, chunksDir := setupChunkDirs(t)
 	uploadID := sha256Hex([]byte("query-test"))
-	query := apiMusicChunkQuery()
+	query := ApiMusicChunkQuery()
 
 	rec := httptest.NewRecorder()
 	query.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/music-library/upload-chunk?uploadId="+uploadID, nil))
@@ -159,7 +159,7 @@ func TestMusicChunkQuery(t *testing.T) {
 // 校验拒绝:非法 uploadId / 越界序号 / 超片数 / 坏文件名 / sha 不符 / 超大分片。
 func TestMusicChunkUploadRejects(t *testing.T) {
 	setupChunkDirs(t)
-	upload := apiMusicChunkUpload()
+	upload := ApiMusicChunkUpload()
 	validID := sha256Hex([]byte("reject-test"))
 	cases := []struct {
 		name    string
@@ -210,7 +210,7 @@ func TestMusicChunkUploadResetsStaleMeta(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "meta.json"), `{"fileName":"旧版.mp3","total":9}`)
 	writeTestFile(t, filepath.Join(dir, "000007.part"), "stale")
 
-	upload := apiMusicChunkUpload()
+	upload := ApiMusicChunkUpload()
 	req := chunkPostRequest(t, uploadID, 0, 2, "新版.mp3", sha256Hex([]byte("v2")), []byte("v2"))
 	rec := httptest.NewRecorder()
 	upload.ServeHTTP(rec, req)
@@ -241,7 +241,7 @@ func TestCleanupExpiredChunkUploads(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(chunksDir, expired), past, past); err != nil {
 		t.Fatal(err)
 	}
-	cleanupExpiredChunkUploads()
+	CleanupExpiredChunkUploads()
 
 	if _, err := os.Stat(filepath.Join(chunksDir, expired)); !os.IsNotExist(err) {
 		t.Fatal("expired session must be removed")

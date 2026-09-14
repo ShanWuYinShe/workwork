@@ -85,3 +85,23 @@ func SanitizeHeaderValue(s string) string {
 	s = strings.ReplaceAll(s, "\r", "")
 	return s
 }
+
+// ---- 全局请求体上限 ----
+
+// bodyLimitExemptPaths 由 main 在路由注册处对大上传端点调用 ExemptBodyLimit
+// 声明(与路由声明同处,杜绝"加路由忘豁免"的双清单漂移);各自 handler 内
+// 用 MaxBytesReader/io.LimitReader 施加自己的上限。
+var bodyLimitExemptPaths = map[string]bool{}
+
+// ExemptBodyLimit 登记大上传端点,豁免全局 1MB 请求体上限。
+func ExemptBodyLimit(path string) { bodyLimitExemptPaths[path] = true }
+
+// BodyLimitExempt 报告路径是否已豁免(供回归测试断言注册契约)。
+func BodyLimitExempt(path string) bool { return bodyLimitExemptPaths[path] }
+
+// ApplyBodyLimit 对未豁免路径施加全局 1MB 请求体上限。
+func ApplyBodyLimit(w http.ResponseWriter, r *http.Request) {
+	if !BodyLimitExempt(r.URL.Path) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
+	}
+}

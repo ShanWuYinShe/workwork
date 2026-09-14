@@ -1,4 +1,4 @@
-package main
+package music
 
 // 音乐曲库管理:管理面板「音乐曲库」页的后端,读写 music_server 的曲库
 // 目录(compose 把宿主机 .wework/music-library 同时挂给 admin(rw,本模块)
@@ -53,7 +53,7 @@ type musicLibraryFile struct {
 	ModTime   string `json:"modTime"`
 }
 
-func apiMusicLibraryList() http.HandlerFunc {
+func ApiMusicLibraryList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		entries, err := os.ReadDir(musicLibraryDir)
 		if err != nil {
@@ -84,7 +84,7 @@ func apiMusicLibraryList() http.HandlerFunc {
 	}
 }
 
-func apiMusicLibraryUpload() http.HandlerFunc {
+func ApiMusicLibraryUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxMusicBodyBytes)
 		if err := r.ParseMultipartForm(8 << 20); err != nil {
@@ -167,7 +167,7 @@ func saveMusicUpload(header *multipart.FileHeader) (string, error) {
 	return name, nil
 }
 
-func apiMusicLibraryDelete() http.HandlerFunc {
+func ApiMusicLibraryDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := filepath.Base(strings.TrimSpace(r.URL.Query().Get("name")))
 		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {

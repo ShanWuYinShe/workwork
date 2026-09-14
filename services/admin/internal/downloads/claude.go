@@ -1,4 +1,4 @@
-package main
+package downloads
 
 // Claude Code 工具下载管理：平台表、资产解析规则与 HTTP handler。
 // 机制（manifest/下载/清理/校验/版本比较）在 downloads.go，本文件只保留
@@ -62,7 +62,7 @@ var claudeDownloads = &downloadService{
 }
 
 // GET /api/admin/claude-code/releases — admin sees full version list from GitHub
-func apiClaudeCodeReleases() http.HandlerFunc {
+func ApiClaudeCodeReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := claudeDownloads.fetchVersions()
 		if err != nil {
@@ -87,7 +87,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 }
 
 // GET /api/admin/claude-code/platforms/{version} — available platforms from release assets
-func apiClaudeCodePlatforms() http.HandlerFunc {
+func ApiClaudeCodePlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
@@ -116,7 +116,7 @@ func apiClaudeCodePlatforms() http.HandlerFunc {
 }
 
 // GET /api/admin/claude-code/stored — viewer+ can see downloaded files
-func apiClaudeCodeStored() http.HandlerFunc {
+func ApiClaudeCodeStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stored := claudeDownloads.listStored()
 		if stored == nil {
@@ -127,7 +127,7 @@ func apiClaudeCodeStored() http.HandlerFunc {
 }
 
 // POST /api/admin/claude-code/refresh — force-refresh version list from GitHub
-func apiClaudeCodeRefresh() http.HandlerFunc {
+func ApiClaudeCodeRefresh() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		claudeDownloads.invalidateCache()
 		releases, err := claudeDownloads.fetchVersions()
@@ -141,17 +141,17 @@ func apiClaudeCodeRefresh() http.HandlerFunc {
 }
 
 // POST /api/admin/claude-code/download — streams NDJSON progress
-func apiClaudeCodeDownload() http.HandlerFunc {
+func ApiClaudeCodeDownload() http.HandlerFunc {
 	return handleToolDownload(claudeDownloads)
 }
 
 // GET /api/admin/claude-code/downloads/{filename}
-func apiClaudeCodeServeDownload() http.HandlerFunc {
+func ApiClaudeCodeServeDownload() http.HandlerFunc {
 	return serveToolDownload(claudeDownloads, "application/octet-stream")
 }
 
 // DELETE /api/admin/claude-code/downloads
-func apiClaudeCodeDeleteDownload() http.HandlerFunc {
+func ApiClaudeCodeDeleteDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		deleteToolDownload(claudeDownloads)(w, r)
 	}
