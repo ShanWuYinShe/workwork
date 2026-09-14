@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,11 +22,11 @@ func TestGetEnvSeesRuntimeSetenv(t *testing.T) {
 	})
 
 	os.Unsetenv(key)
-	if got := getEnv(key); got != "" {
+	if got := platform.GetEnv(key); got != "" {
 		t.Fatalf("expected empty env before runtime set, got %q", got)
 	}
 	os.Setenv(key, "runtime-token")
-	if got := getEnv(key); got != "runtime-token" {
+	if got := platform.GetEnv(key); got != "runtime-token" {
 		t.Fatalf("expected runtime env value, got %q", got)
 	}
 }

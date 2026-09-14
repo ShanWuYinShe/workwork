@@ -5,6 +5,7 @@ package main
 // claude 特有的参数与接口层。
 
 import (
+	"admin/internal/platform"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -66,7 +67,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 		releases, err := claudeDownloads.fetchVersions()
 		if err != nil {
 			log.Printf("Failed to fetch versions: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		type releaseOutput struct {
@@ -77,7 +78,7 @@ func apiClaudeCodeReleases() http.HandlerFunc {
 		for i, r := range releases {
 			out[i] = releaseOutput{Version: r.Version, Date: r.Date}
 		}
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"releases":  out,
 			"platforms": claudePlatforms,
 			"stored":    claudeDownloads.listStored(),
@@ -90,12 +91,12 @@ func apiClaudeCodePlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
-			writeError(w, "Version required", 400)
+			platform.WriteError(w, "Version required", 400)
 			return
 		}
 		release := claudeDownloads.findCachedRelease(version)
 		if release == nil {
-			writeJSON(w, map[string]any{"version": version, "platforms": []string{}})
+			platform.WriteJSON(w, map[string]any{"version": version, "platforms": []string{}})
 			return
 		}
 		assetPlats := map[string]bool{}
@@ -110,7 +111,7 @@ func apiClaudeCodePlatforms() http.HandlerFunc {
 				available = append(available, map[string]string{"label": p.Label, "plat": p.Plat})
 			}
 		}
-		writeJSON(w, map[string]any{"version": version, "platforms": available})
+		platform.WriteJSON(w, map[string]any{"version": version, "platforms": available})
 	}
 }
 
@@ -121,7 +122,7 @@ func apiClaudeCodeStored() http.HandlerFunc {
 		if stored == nil {
 			stored = []storedDownload{}
 		}
-		writeJSON(w, map[string]any{"stored": stored})
+		platform.WriteJSON(w, map[string]any{"stored": stored})
 	}
 }
 
@@ -132,10 +133,10 @@ func apiClaudeCodeRefresh() http.HandlerFunc {
 		releases, err := claudeDownloads.fetchVersions()
 		if err != nil {
 			log.Printf("Failed to refresh: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
+		platform.WriteJSON(w, map[string]any{"status": "ok", "count": len(releases)})
 	}
 }
 
@@ -166,30 +167,30 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			Version string `json:"version"`
 			Plat    string `json:"plat"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Version == "" || body.Plat == "" {
-			writeError(w, "Version and plat required", 400)
+			platform.WriteError(w, "Version and plat required", 400)
 			return
 		}
 
 		if !s.validPlatform(body.Plat) {
-			writeError(w, "Invalid platform: "+body.Plat, 400)
+			platform.WriteError(w, "Invalid platform: "+body.Plat, 400)
 			return
 		}
 
 		// Find the asset for this version+plat from cached GitHub releases
 		release := s.findCachedRelease(body.Version)
 		if release == nil {
-			writeError(w, "Version not found in releases", 404)
+			platform.WriteError(w, "Version not found in releases", 404)
 			return
 		}
 		// tag 会拼进下载文件名直达文件系统路径:拒绝含路径分隔符等字符的 tag
 		// (防御被攻陷的 GitHub 仓库 tag 造成路径穿越)。
 		if !safeVersionTag.MatchString(body.Version) {
-			writeError(w, "Invalid version tag", 400)
+			platform.WriteError(w, "Invalid version tag", 400)
 			return
 		}
 		assetURL := ""
@@ -202,13 +203,13 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			}
 		}
 		if assetURL == "" {
-			writeError(w, "No asset for platform "+body.Plat+" in version "+body.Version, 400)
+			platform.WriteError(w, "No asset for platform "+body.Plat+" in version "+body.Version, 400)
 			return
 		}
 
 		for _, sd := range s.listStored() {
 			if sd.Version == body.Version && sd.Plat == body.Plat {
-				writeJSON(w, map[string]any{"status": "already_exists", "filename": sd.Filename})
+				platform.WriteJSON(w, map[string]any{"status": "already_exists", "filename": sd.Filename})
 				return
 			}
 		}
@@ -218,7 +219,7 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			writeError(w, "Streaming not supported", 500)
+			platform.WriteError(w, "Streaming not supported", 500)
 			return
 		}
 
@@ -275,7 +276,7 @@ func serveToolDownload(s *downloadService, contentType string) http.HandlerFunc 
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
 		if !validStoredFilename(filename, s.filenamePrefixes...) {
-			writeError(w, "Invalid filename", 400)
+			platform.WriteError(w, "Invalid filename", 400)
 			return
 		}
 		w.Header().Set("X-Accel-Buffering", "no")
@@ -293,22 +294,22 @@ func deleteToolDownload(s *downloadService) http.HandlerFunc {
 		var body struct {
 			Filename string `json:"filename"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Filename == "" {
-			writeError(w, "Filename required", 400)
+			platform.WriteError(w, "Filename required", 400)
 			return
 		}
 		if !validStoredFilename(body.Filename, s.filenamePrefixes...) {
-			writeError(w, "Invalid filename", 400)
+			platform.WriteError(w, "Invalid filename", 400)
 			return
 		}
 		if err := s.deleteStored(body.Filename); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]any{"status": "ok"})
+		platform.WriteJSON(w, map[string]any{"status": "ok"})
 	}
 }

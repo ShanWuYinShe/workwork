@@ -6,6 +6,7 @@ package main
 // cookie 不落日志、不返回给前端。
 
 import (
+	"admin/internal/platform"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,7 +66,7 @@ var neteaseLoginMu sync.Mutex
 var neteaseLoginSessions = map[string]neteaseLoginSession{}
 
 func neteaseUpstreamBase() string {
-	return getEnv("NETEASE_API_BASE")
+	return platform.GetEnv("NETEASE_API_BASE")
 }
 
 // neteaseUpstreamGet 请求上游并原样返回 JSON body(只透传,不解析细节)。
@@ -93,7 +94,7 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 		ts := time.Now().UnixMilli()
 		keyBody, err := neteaseUpstreamGet(fmt.Sprintf("/login/qr/key?timestamp=%d", ts), 8*time.Second)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		var keyResp struct {
@@ -102,13 +103,13 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(keyBody, &keyResp); err != nil || keyResp.Data.Unikey == "" {
-			writeError(w, "获取扫码 key 失败", http.StatusBadGateway)
+			platform.WriteError(w, "获取扫码 key 失败", http.StatusBadGateway)
 			return
 		}
 		qrBody, err := neteaseUpstreamGet(
 			fmt.Sprintf("/login/qr/create?key=%s&qrimg=true&timestamp=%d", url.QueryEscape(keyResp.Data.Unikey), ts), 8*time.Second)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		var qrResp struct {
@@ -117,7 +118,7 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(qrBody, &qrResp); err != nil || qrResp.Data.QRImg == "" {
-			writeError(w, "获取二维码失败", http.StatusBadGateway)
+			platform.WriteError(w, "获取二维码失败", http.StatusBadGateway)
 			return
 		}
 
@@ -134,7 +135,7 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 		}
 		neteaseLoginMu.Unlock()
 
-		writeJSON(w, map[string]string{"key": keyResp.Data.Unikey, "qrimg": qrResp.Data.QRImg})
+		platform.WriteJSON(w, map[string]string{"key": keyResp.Data.Unikey, "qrimg": qrResp.Data.QRImg})
 	}
 }
 
@@ -143,21 +144,21 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		if key == "" {
-			writeError(w, "missing key", http.StatusBadRequest)
+			platform.WriteError(w, "missing key", http.StatusBadRequest)
 			return
 		}
 		neteaseLoginMu.Lock()
 		_, known := neteaseLoginSessions[key]
 		neteaseLoginMu.Unlock()
 		if !known {
-			writeError(w, "二维码已过期，请重新生成", http.StatusGone)
+			platform.WriteError(w, "二维码已过期，请重新生成", http.StatusGone)
 			return
 		}
 
 		body, err := neteaseUpstreamGet(
 			fmt.Sprintf("/login/qr/check?key=%s&timestamp=%d", url.QueryEscape(key), time.Now().UnixMilli()), 8*time.Second)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		var check struct {
@@ -169,22 +170,22 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 			} `json:"profile"`
 		}
 		if err := json.Unmarshal(body, &check); err != nil {
-			writeError(w, "上游响应解析失败", http.StatusBadGateway)
+			platform.WriteError(w, "上游响应解析失败", http.StatusBadGateway)
 			return
 		}
 		switch check.Code {
 		case 801, 802:
-			writeJSON(w, map[string]any{"code": check.Code, "message": check.Message})
+			platform.WriteJSON(w, map[string]any{"code": check.Code, "message": check.Message})
 			return
 		case 803:
 			musicU := extractMusicU(check.Cookie)
 			if musicU == "" {
 				log.Printf("netease login 803 without MUSIC_U cookie")
-				writeError(w, "登录成功但未取得凭证，请重试", http.StatusBadGateway)
+				platform.WriteError(w, "登录成功但未取得凭证，请重试", http.StatusBadGateway)
 				return
 			}
 			if err := writeNeteaseCookie("MUSIC_U=" + musicU); err != nil {
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 			// 会话一次性,防 key 复用。
@@ -192,9 +193,9 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 			delete(neteaseLoginSessions, key)
 			neteaseLoginMu.Unlock()
 			log.Printf("netease login ok, nickname=%s", check.Profile.Nickname)
-			writeJSON(w, map[string]any{"code": 803, "nickname": check.Profile.Nickname})
+			platform.WriteJSON(w, map[string]any{"code": 803, "nickname": check.Profile.Nickname})
 		default:
-			writeError(w, fmt.Sprintf("扫码状态异常(%d)", check.Code), http.StatusBadGateway)
+			platform.WriteError(w, fmt.Sprintf("扫码状态异常(%d)", check.Code), http.StatusBadGateway)
 		}
 	}
 }
@@ -206,15 +207,15 @@ func apiNeteaseLoginState() http.HandlerFunc {
 		info, err := os.Stat(neteaseCookiePath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				writeJSON(w, map[string]any{"loggedIn": false})
+				platform.WriteJSON(w, map[string]any{"loggedIn": false})
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		cookie, err := os.ReadFile(neteaseCookiePath)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		resp := map[string]any{
@@ -232,7 +233,7 @@ func apiNeteaseLoginState() http.HandlerFunc {
 				resp["nickname"] = status.Profile.Nickname
 			}
 		}
-		writeJSON(w, resp)
+		platform.WriteJSON(w, resp)
 	}
 }
 
@@ -240,10 +241,10 @@ func apiNeteaseLoginState() http.HandlerFunc {
 func apiNeteaseLoginLogout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := os.Remove(neteaseCookiePath); err != nil && !os.IsNotExist(err) {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]bool{"ok": true})
+		platform.WriteJSON(w, map[string]bool{"ok": true})
 	}
 }
 
@@ -252,7 +253,7 @@ func writeNeteaseCookie(content string) error {
 	if err := os.MkdirAll(filepath.Dir(neteaseCookiePath), 0o755); err != nil {
 		return err
 	}
-	return atomicWriteFile(neteaseCookiePath, []byte(content), 0o600)
+	return platform.AtomicWriteFile(neteaseCookiePath, []byte(content), 0o600)
 }
 
 // neteaseUpstreamGetWithCookie 带 cookie 请求上游(登录态校验用)。

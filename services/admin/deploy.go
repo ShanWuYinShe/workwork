@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
@@ -174,7 +175,7 @@ func genXrayConfig() error {
 	// `"` 或 `\` 时产生非法 JSON / 提前闭合注入任意键。与客户端字段的
 	// json.Encoder 路径对齐同一转义标准。
 	replaceJSONEnv := func(placeholder, key, def string) {
-		v := strings.TrimSpace(getEnv(key))
+		v := strings.TrimSpace(platform.GetEnv(key))
 		if v == "" {
 			v = def
 		}
@@ -198,7 +199,7 @@ func genXrayConfig() error {
 		return ensurePerm(xrayConfigPath, 0640)
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return atomicWriteFile(xrayConfigPath, []byte(out), 0640)
+	return platform.AtomicWriteFile(xrayConfigPath, []byte(out), 0640)
 }
 
 // encodeXrayClients 将持久化的 client 条目编码为 Xray inbound `clients` JSON 数组。
@@ -236,7 +237,7 @@ func validateProxyConfigEnv() error {
 	}
 	var missing []string
 	for _, key := range required {
-		if strings.TrimSpace(getEnv(key)) == "" {
+		if strings.TrimSpace(platform.GetEnv(key)) == "" {
 			missing = append(missing, key)
 		}
 	}
@@ -264,13 +265,13 @@ func xrayShortIDsJSON() (string, error) {
 func xrayClientShortID() string {
 	ids, err := xrayShortIDs()
 	if err != nil || len(ids) == 0 {
-		return strings.TrimSpace(getEnv("XRAY_SHORT_IDS"))
+		return strings.TrimSpace(platform.GetEnv("XRAY_SHORT_IDS"))
 	}
 	return ids[0]
 }
 
 func xrayShortIDs() ([]string, error) {
-	raw := strings.TrimSpace(getEnv("XRAY_SHORT_IDS"))
+	raw := strings.TrimSpace(platform.GetEnv("XRAY_SHORT_IDS"))
 	if raw == "" {
 		return nil, fmt.Errorf("XRAY_SHORT_IDS is required")
 	}
@@ -327,7 +328,7 @@ func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) (bool, error) {
 	if existing, err := os.ReadFile(nginxConfigPath); err == nil && string(existing) == out {
 		return false, ensurePerm(nginxConfigPath, 0644)
 	}
-	if err := atomicWriteFile(nginxConfigPath, []byte(out), 0644); err != nil {
+	if err := platform.AtomicWriteFile(nginxConfigPath, []byte(out), 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -343,10 +344,10 @@ func genHtpasswd() error {
 		}
 	}
 	if data, err := os.ReadFile(legacyHtpasswdPath); err == nil && len(data) > 10 {
-		return atomicWriteFile(htpasswdFile, data, 0644)
+		return platform.AtomicWriteFile(htpasswdFile, data, 0644)
 	}
-	user := getEnv("AUTH_USER")
-	pass := getEnv("AUTH_PASS")
+	user := platform.GetEnv("AUTH_USER")
+	pass := platform.GetEnv("AUTH_PASS")
 	if user == "" || pass == "" {
 		return fmt.Errorf("AUTH_USER and AUTH_PASS are required when no existing htpasswd is available")
 	}
@@ -354,11 +355,11 @@ func genHtpasswd() error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(htpasswdFile, []byte(out), 0644)
+	return platform.AtomicWriteFile(htpasswdFile, []byte(out), 0644)
 }
 
 func seedAdminUser() error {
-	adminUser := getEnv("AUTH_USER")
+	adminUser := platform.GetEnv("AUTH_USER")
 	if adminUser == "" {
 		return nil
 	}
@@ -372,12 +373,12 @@ func seedAdminUser() error {
 }
 
 func genInternalToken() error {
-	if tok := getEnv("INTERNAL_TOKEN"); tok != "" {
+	if tok := platform.GetEnv("INTERNAL_TOKEN"); tok != "" {
 		if existing, err := os.ReadFile(internalTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
 			setInternalToken(tok)
 			return ensurePerm(internalTokenPath, 0640)
 		}
-		if err := atomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
+		if err := platform.AtomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
 			return err
 		}
 		setInternalToken(tok)
@@ -395,7 +396,7 @@ func genInternalToken() error {
 		return err
 	}
 	tok := hex.EncodeToString(b)
-	if err := atomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
+	if err := platform.AtomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
 		return err
 	}
 	setInternalToken(tok)
@@ -404,16 +405,16 @@ func genInternalToken() error {
 
 func genFail2BanToken() error {
 	// 目录挂载路径:确保目录存在(Docker 首次以 root 建目录,admin 以 1001 运行
-	// 时可能尚未创建)。atomicWriteFile 只建临时文件,不建父目录。
+	// 时可能尚未创建)。platform.AtomicWriteFile 只建临时文件,不建父目录。
 	if err := os.MkdirAll(filepath.Dir(fail2banTokenPath), 0755); err != nil {
 		return err
 	}
-	if tok := getEnv("FAIL2BAN_TOKEN"); tok != "" {
+	if tok := platform.GetEnv("FAIL2BAN_TOKEN"); tok != "" {
 		if existing, err := os.ReadFile(fail2banTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
 			setFail2BanToken(tok)
 			return ensurePerm(fail2banTokenPath, 0640)
 		}
-		if err := atomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
+		if err := platform.AtomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
 			return err
 		}
 		setFail2BanToken(tok)
@@ -431,7 +432,7 @@ func genFail2BanToken() error {
 		return err
 	}
 	tok := hex.EncodeToString(b)
-	if err := atomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
+	if err := platform.AtomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
 		return err
 	}
 	setFail2BanToken(tok)
@@ -462,14 +463,14 @@ func genProxyHtpasswd() error {
 	if len(entries) == 0 {
 		data = []byte{}
 	}
-	if err := atomicWriteFile(proxyHtpasswdPath, data, 0644); err != nil {
+	if err := platform.AtomicWriteFile(proxyHtpasswdPath, data, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil
 }
 
 // ensurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
-// atomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
+// platform.AtomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
 func ensurePerm(path string, want os.FileMode) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -489,7 +490,7 @@ func replaceEnv(s string, vars map[string]string, defaults ...map[string]string)
 		def = defaults[0]
 	}
 	for placeholder, key := range vars {
-		v := getEnv(key)
+		v := platform.GetEnv(key)
 		if v == "" {
 			v = def[placeholder]
 		}

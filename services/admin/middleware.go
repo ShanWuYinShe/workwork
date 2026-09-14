@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -48,7 +49,7 @@ var errLastAdmin = errors.New("cannot remove the last admin user")
 var errProtectedAdmin = errors.New("cannot demote the default admin account")
 
 // internalToken/fail2banToken 由 deploy.go 生成并加载。
-// 避免使用 os.Setenv 注入进程环境（并发不安全）以及 getEnv 的双重来源行为。
+// 避免使用 os.Setenv 注入进程环境（并发不安全）以及 platform.GetEnv 的双重来源行为。
 var internalToken atomic.Value // holds string
 var fail2banToken atomic.Value // holds string
 
@@ -140,7 +141,7 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(usersMetaPath, data, 0600)
+	return platform.AtomicWriteFile(usersMetaPath, data, 0600)
 }
 
 func ensureUserMeta(username string) (*UserInfo, error) {
@@ -157,7 +158,7 @@ func ensureUserMeta(username string) (*UserInfo, error) {
 }
 
 func isProtectedAdmin(username string) bool {
-	return username == getEnv("AUTH_USER")
+	return username == platform.GetEnv("AUTH_USER")
 }
 
 func updateUserMeta(username string, info UserInfo) error {
@@ -252,7 +253,7 @@ func proxyPasswordIfExists(username string) string {
 // Default: loopback only. The nginx container is trusted by hostname below.
 func trustedProxyCIDRs() []*net.IPNet {
 	defaults := "127.0.0.0/8,::1/128"
-	raw := getEnv("TRUSTED_PROXY_CIDRS")
+	raw := platform.GetEnv("TRUSTED_PROXY_CIDRS")
 	if raw == "" {
 		raw = defaults
 	}
@@ -288,7 +289,7 @@ func trustedProxyCIDRs() []*net.IPNet {
 }
 
 func trustedProxyHosts() []string {
-	raw := strings.TrimSpace(getEnv("TRUSTED_PROXY_HOSTS"))
+	raw := strings.TrimSpace(platform.GetEnv("TRUSTED_PROXY_HOSTS"))
 	if raw == "" {
 		raw = "nginx"
 	}
@@ -435,25 +436,25 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 				// (nginx on the docker bridge), and the proxy must have set
 				// X-Forwarded-User after authenticating with basic auth.
 				if !isTrustedProxy(r.RemoteAddr) {
-					writeError(w, "Unauthorized", 401)
+					platform.WriteError(w, "Unauthorized", 401)
 					return
 				}
 				username = r.Header.Get("X-Forwarded-User")
 				if username == "" {
-					writeError(w, "Unauthorized", 401)
+					platform.WriteError(w, "Unauthorized", 401)
 					return
 				}
 				var err error
 				info, err = ensureUserMeta(username)
 				if err != nil {
-					writeInternalError(w, err)
+					platform.WriteInternalError(w, err)
 					return
 				}
 				if info == nil {
 					// User authenticated by nginx but not provisioned in
 					// users.json. Refuse to auto-create on first request —
 					// admin must add them via /api/admin/users/admin/add.
-					writeError(w, "User not provisioned", 403)
+					platform.WriteError(w, "User not provisioned", 403)
 					return
 				}
 			}
@@ -461,7 +462,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			requiredLevel, ok := roleLevel[minRole]
 			if !ok {
 				log.Printf("invalid required role %q", minRole)
-				writeError(w, "Internal error", 500)
+				platform.WriteError(w, "Internal error", 500)
 				return
 			}
 			userLevel, ok := roleLevel[info.Role]
@@ -469,7 +470,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 				userLevel = 0
 			}
 			if userLevel < requiredLevel {
-				writeError(w, "Forbidden", 403)
+				platform.WriteError(w, "Forbidden", 403)
 				return
 			}
 

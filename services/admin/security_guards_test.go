@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,7 +37,7 @@ func TestLastAdminGuard(t *testing.T) {
   }
 }`)
 	// 防止 AUTH_USER 干扰(alice/bob 都不是 protected)
-	oldAuth := getEnv("AUTH_USER")
+	oldAuth := platform.GetEnv("AUTH_USER")
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "root")
 
@@ -144,7 +145,7 @@ func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
   }
 }`)
 	// 放行分支（无 AUTH_USER 时）由 TestAddAdminGuardAllowsFreshAuthUser 覆盖。
-	oldAuth := getEnv("AUTH_USER")
+	oldAuth := platform.GetEnv("AUTH_USER")
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "root")
 
@@ -176,7 +177,7 @@ func TestAddAdminGuardAllowsFreshAuthUser(t *testing.T) {
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
   }
 }`)
-	oldAuth := getEnv("AUTH_USER")
+	oldAuth := platform.GetEnv("AUTH_USER")
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "bootadmin")
 

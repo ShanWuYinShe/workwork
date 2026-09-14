@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"fmt"
 	"golang.org/x/crypto/bcrypt"
 	"os"
@@ -120,7 +121,7 @@ func htpasswdAddUser(username, password string) error {
 	}
 	// Atomic write via temp file + rename
 	content := strings.Join(lines, "\n") + "\n"
-	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
+	return platform.AtomicWriteFile(htpasswdFile, []byte(content), 0644)
 }
 
 func htpasswdRemoveUser(username string) error {
@@ -157,7 +158,7 @@ func htpasswdRemoveUser(username string) error {
 	if err := os.MkdirAll(filepath.Dir(htpasswdFile), 0755); err != nil {
 		return err
 	}
-	return atomicWriteFile(htpasswdFile, []byte(content), 0644)
+	return platform.AtomicWriteFile(htpasswdFile, []byte(content), 0644)
 }
 
 func readHtpasswdUsers() []string {

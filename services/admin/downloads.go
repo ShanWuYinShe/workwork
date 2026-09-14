@@ -16,6 +16,7 @@ package main
 // 是各页面接口契约），机制函数统一走本文件。
 
 import (
+	"admin/internal/platform"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -142,12 +143,12 @@ func (s *downloadService) loadManifest() storedManifest {
 // 且死锁期间 s.mu 永久被占，整个下载子系统全部端点挂起。
 func (s *downloadService) loadManifestLocked() storedManifest {
 	var m storedManifest
-	loadJSONFile(s.manifestPath, &m)
+	platform.LoadJSONFile(s.manifestPath, &m)
 	return m
 }
 
 func (s *downloadService) saveManifestLocked(m storedManifest) error {
-	return saveJSONFile(s.manifestPath, m)
+	return platform.SaveJSONFile(s.manifestPath, m)
 }
 
 func (s *downloadService) listStored() []storedDownload {
@@ -385,7 +386,7 @@ func (s *downloadService) cleanupOld() {
 }
 
 // deleteStored 删除文件并从 manifest 移除。返回 persist 错误（供上层
-// writeInternalError）与文件删除错误。
+// platform.WriteInternalError）与文件删除错误。
 func (s *downloadService) deleteStored(filename string) error {
 	if err := os.Remove(filepath.Join(s.dir, filename)); err != nil {
 		return err

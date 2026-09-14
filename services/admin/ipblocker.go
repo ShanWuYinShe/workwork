@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"encoding/json"
 	"log"
 	"net"
@@ -9,6 +10,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+// security block API 业务错误码：前端 Security 页与 fail2ban 按此分支。
+const (
+	errCodeInvalidIP       = "INVALID_IP"
+	errCodeInvalidJSON     = "INVALID_JSON"
+	errCodeInvalidDuration = "INVALID_DURATION"
+	errCodeBlockNotFound   = "BLOCK_NOT_FOUND"
 )
 
 type ipBlockEntry struct {
@@ -49,7 +58,7 @@ func (s *ipBlockStore) save() {
 		log.Printf("ERROR: failed to marshal blocked IPs: %v", err)
 		return
 	}
-	if err := atomicWriteFile(s.path, b, 0600); err != nil {
+	if err := platform.AtomicWriteFile(s.path, b, 0600); err != nil {
 		log.Printf("ERROR: failed to write blocked IPs: %v", err)
 	}
 	// 同步到 nginx 层(去抖 + 异步):让 /proxy/query、媒体 API 等非 admin 面
@@ -199,7 +208,7 @@ func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		ip := clientIP(r)
 		if ip != "" && ipBlocker.isBlocked(ip) {
-			writeError(w, "Access denied", 403)
+			platform.WriteError(w, "Access denied", 403)
 			return
 		}
 		next(w, r)
@@ -213,16 +222,16 @@ func apiBlockIP() http.HandlerFunc {
 			Reason   string `json:"reason"`
 			Duration int    `json:"duration"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			writeErrorCode(w, "IP required", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP required", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			writeErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
 			return
 		}
 		// duration < 0 silently creates a permanent block; reject it explicitly.
@@ -230,7 +239,7 @@ func apiBlockIP() http.HandlerFunc {
 		// time.Duration multiply: values over ~292 years overflow int64 to
 		// negative and would silently turn into a permanent block.
 		if body.Duration < 0 || int64(body.Duration) > int64((10*365*24*time.Hour)/time.Second) {
-			writeErrorCode(w, "Duration must be 0 (permanent) or at most 10 years in seconds", 400, errCodeInvalidDuration)
+			platform.WriteErrorCode(w, "Duration must be 0 (permanent) or at most 10 years in seconds", 400, errCodeInvalidDuration)
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second
@@ -254,7 +263,7 @@ func apiBlockIP() http.HandlerFunc {
 		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
 			body.IP, body.Reason, body.Duration, kind, actor)
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
 			"block": map[string]any{
 				"ip":         body.IP,
@@ -273,36 +282,36 @@ func apiUnblockIP() http.HandlerFunc {
 		var body struct {
 			IP string `json:"ip"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			writeErrorCode(w, "IP required", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP required", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			writeErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
 			return
 		}
 		// 幂等提示分支：目标不在列表 → 404 + 错误码（明确语义而非静默 ok）。
 		// 注意：fail2ban 的 unban 在 bantime 到期后触发，此时条目可能已被
 		// cleanupExpired 清理，404 属预期，action 侧应容忍（见 admin-api.conf）。
 		if prev := ipBlocker.find(body.IP); prev == nil {
-			writeErrorCode(w, "IP is not blocked", http.StatusNotFound, errCodeBlockNotFound)
+			platform.WriteErrorCode(w, "IP is not blocked", http.StatusNotFound, errCodeBlockNotFound)
 			return
 		}
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()
 		_, actor := getUserFromContext(r)
 		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
 func apiBlockedIPs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"entries": ipBlocker.list()})
+		platform.WriteJSON(w, map[string]any{"entries": ipBlocker.list()})
 	}
 }
 

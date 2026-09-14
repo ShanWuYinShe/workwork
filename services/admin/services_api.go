@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,7 +19,7 @@ import (
 func apiServices(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svcs := listServicesJSON(r.Context(), cli)
-		writeJSON(w, map[string]any{"services": svcs})
+		platform.WriteJSON(w, map[string]any{"services": svcs})
 	}
 }
 
@@ -29,7 +30,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 
 		// 校验服务名格式，仅允许小写字母、数字、下划线、连字符
 		if !validServiceName.MatchString(name) {
-			writeError(w, "Invalid service name", 400)
+			platform.WriteError(w, "Invalid service name", 400)
 			return
 		}
 		// 容器操作不随客户端断开而取消:restart 请求发出后若客户端断连,
@@ -39,16 +40,16 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		defer cancel()
 		containers, err := cli.ContainerList(opCtx, container.ListOptions{
 			All: true,
-			Filters: composeProjectFilters(filters.KeyValuePair{
+			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if len(containers) == 0 {
-			writeError(w, "Service not found", 404)
+			platform.WriteError(w, "Service not found", 404)
 			return
 		}
 		switch action {
@@ -58,25 +59,25 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		case "stop":
-			t := dockerStopTimeoutSeconds
+			t := platform.DockerStopTimeoutSeconds
 			err = cli.ContainerStop(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 		case "restart":
-			t := dockerStopTimeoutSeconds
+			t := platform.DockerStopTimeoutSeconds
 			err = cli.ContainerRestart(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
 			if name == "xray" || name == "nginx" {
 				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		default:
-			writeError(w, "Unknown action", 400)
+			platform.WriteError(w, "Unknown action", 400)
 			return
 		}
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		svcs := listServicesJSON(r.Context(), cli)
-		writeJSON(w, map[string]any{"services": svcs})
+		platform.WriteJSON(w, map[string]any{"services": svcs})
 	}
 }
 
@@ -113,7 +114,7 @@ func apiConfig(cli *client.Client) http.HandlerFunc {
 			}
 			result["configStatus"] = "configured"
 		}
-		writeJSON(w, result)
+		platform.WriteJSON(w, result)
 	}
 }
 
@@ -144,7 +145,7 @@ func serviceSortWeight(name string) int {
 func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
-		Filters: composeProjectFilters(),
+		Filters: platform.ComposeProjectFilters(),
 	})
 	if err != nil {
 		// 前端会拿到空列表;无日志的话 daemon 故障无法与"没有服务"区分。

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"log"
 	"time"
@@ -14,7 +15,7 @@ const ipConsistencyInterval = 3 * time.Minute
 // 如果缺失（如 admin 宕机期间容器被重启、Docker daemon 重启导致容器重建等），
 // 自动补上。这是事件监听器之外的兜底机制。
 func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <-chan struct{}) {
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 
@@ -73,13 +74,13 @@ func checkIPConsistency(ctx context.Context, cli *client.Client) {
 			continue
 		}
 
-		id, err := findContainer(checkCtx, cli, svc.name)
+		id, err := platform.FindContainer(checkCtx, cli, svc.name)
 		if err != nil {
 			log.Printf("[ip-consistency] %s container not found: %v", svc.name, err)
 			continue
 		}
 
-		assigned := getContainerIPs(checkCtx, cli, id)
+		assigned := platform.GetContainerIPs(checkCtx, cli, id)
 
 		found := false
 		for _, ip := range assigned {
@@ -91,7 +92,7 @@ func checkIPConsistency(ctx context.Context, cli *client.Client) {
 
 		if !found {
 			log.Printf("[ip-consistency] %s missing rotating IP %s (has %v), restoring", svc.name, svc.wantIP, assigned)
-			if err := addContainerIP(checkCtx, cli, id, svc.wantIP); err != nil {
+			if err := platform.AddContainerIP(checkCtx, cli, id, svc.wantIP); err != nil {
 				log.Printf("[ip-consistency] failed to restore %s IP: %v", svc.name, err)
 			}
 		}

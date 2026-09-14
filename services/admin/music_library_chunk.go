@@ -17,6 +17,7 @@ package main
 // 孤儿分片(上传中断不再继续)由每小时 ticker 清理(>24h)。
 
 import (
+	"admin/internal/platform"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -114,21 +115,21 @@ func apiMusicChunkQuery() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uploadID := r.URL.Query().Get("uploadId")
 		if !validUploadID(uploadID) {
-			writeError(w, "uploadId 不合法", http.StatusBadRequest)
+			platform.WriteError(w, "uploadId 不合法", http.StatusBadRequest)
 			return
 		}
 		resp := map[string]any{"received": []int{}, "total": 0, "fileName": ""}
 		if meta, err := readChunkMeta(uploadID); err == nil {
 			rc, err := receivedChunks(uploadID)
 			if err != nil {
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 			resp["received"] = rc
 			resp["total"] = meta.Total
 			resp["fileName"] = meta.FileName
 		}
-		writeJSON(w, resp)
+		platform.WriteJSON(w, resp)
 	}
 }
 
@@ -137,7 +138,7 @@ func apiMusicChunkUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, musicChunkBodyLimit)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
-			writeError(w, "分片内容过大或格式不正确", http.StatusBadRequest)
+			platform.WriteError(w, "分片内容过大或格式不正确", http.StatusBadRequest)
 			return
 		}
 		defer r.MultipartForm.RemoveAll()
@@ -148,56 +149,56 @@ func apiMusicChunkUpload() http.HandlerFunc {
 		index, _ := strconv.Atoi(r.FormValue("index"))
 		chunkSHA := r.FormValue("sha256")
 		if !validUploadID(uploadID) {
-			writeError(w, "uploadId 不合法", http.StatusBadRequest)
+			platform.WriteError(w, "uploadId 不合法", http.StatusBadRequest)
 			return
 		}
 		if total < 1 || total > musicMaxChunks || index < 0 || index >= total {
-			writeError(w, "分片序号不合法", http.StatusBadRequest)
+			platform.WriteError(w, "分片序号不合法", http.StatusBadRequest)
 			return
 		}
 		// 文件名规则与一次性上传一致(拒绝路径分隔符 + 扩展名白名单)。
 		if fileName == "" || strings.ContainsAny(fileName, `/\`) ||
 			!musicLibraryAllowedExt[strings.ToLower(filepath.Ext(fileName))] {
-			writeError(w, "文件名不合法(仅支持音频文件)", http.StatusBadRequest)
+			platform.WriteError(w, "文件名不合法(仅支持音频文件)", http.StatusBadRequest)
 			return
 		}
 		fileHeader := r.MultipartForm.File["chunk"]
 		if len(fileHeader) != 1 {
-			writeError(w, "缺少分片数据", http.StatusBadRequest)
+			platform.WriteError(w, "缺少分片数据", http.StatusBadRequest)
 			return
 		}
 		if fileHeader[0].Size > musicChunkBytes {
-			writeError(w, "分片超过 8MB 上限", http.StatusBadRequest)
+			platform.WriteError(w, "分片超过 8MB 上限", http.StatusBadRequest)
 			return
 		}
 		if _, err := hex.DecodeString(chunkSHA); err != nil {
-			writeError(w, "分片校验值不合法", http.StatusBadRequest)
+			platform.WriteError(w, "分片校验值不合法", http.StatusBadRequest)
 			return
 		}
 
 		if err := os.MkdirAll(chunkDir(uploadID), 0o755); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// 首片隐式重建会话:同名会话但布局变了(文件被修改后重传)则丢弃旧分片。
 		if meta, err := readChunkMeta(uploadID); err == nil {
 			if meta.Total != total || meta.FileName != fileName {
 				if err := os.RemoveAll(chunkDir(uploadID)); err != nil {
-					writeInternalError(w, err)
+					platform.WriteInternalError(w, err)
 					return
 				}
 				if err := os.MkdirAll(chunkDir(uploadID), 0o755); err != nil {
-					writeInternalError(w, err)
+					platform.WriteInternalError(w, err)
 					return
 				}
 			}
 		} else if !os.IsNotExist(err) {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		if err := atomicWriteFile(filepath.Join(chunkDir(uploadID), "meta.json"),
+		if err := platform.AtomicWriteFile(filepath.Join(chunkDir(uploadID), "meta.json"),
 			mustJSON(chunkMeta{FileName: fileName, Total: total}), 0o644); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -208,7 +209,7 @@ func apiMusicChunkUpload() http.HandlerFunc {
 		}
 		rc, err := receivedChunks(uploadID)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		resp := map[string]any{"received": rc, "total": total, "complete": false}
@@ -225,7 +226,7 @@ func apiMusicChunkUpload() http.HandlerFunc {
 		if saved {
 			log.Printf("music chunk upload: id=%s index=%d/%d", uploadID, index+1, total)
 		}
-		writeJSON(w, resp)
+		platform.WriteJSON(w, resp)
 	}
 }
 
@@ -233,10 +234,10 @@ func apiMusicChunkUpload() http.HandlerFunc {
 func respondChunkErr(w http.ResponseWriter, err error) {
 	var ce *chunkUploadError
 	if errors.As(err, &ce) {
-		writeError(w, ce.msg, ce.code)
+		platform.WriteError(w, ce.msg, ce.code)
 		return
 	}
-	writeInternalError(w, err)
+	platform.WriteInternalError(w, err)
 }
 
 // saveChunk 校验单片 SHA-256 后原子落盘;重复片幂等(返回 saved=false),但

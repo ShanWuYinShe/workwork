@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"context"
 	"io"
@@ -90,7 +91,7 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	defer cancel()
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: composeProjectFilters(filters.KeyValuePair{
+		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=nginx",
 		}),
 	})

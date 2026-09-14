@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"strings"
@@ -8,17 +8,17 @@ import (
 
 const defaultComposeProject = "workwork"
 
-func composeProjectName() string {
-	if project := strings.TrimSpace(getEnv("COMPOSE_PROJECT_NAME")); project != "" {
+func ComposeProjectName() string {
+	if project := strings.TrimSpace(GetEnv("COMPOSE_PROJECT_NAME")); project != "" {
 		return project
 	}
 	return defaultComposeProject
 }
 
-func composeProjectFilters(extra ...filters.KeyValuePair) filters.Args {
+func ComposeProjectFilters(extra ...filters.KeyValuePair) filters.Args {
 	args := filters.NewArgs(filters.KeyValuePair{
 		Key:   "label",
-		Value: "com.docker.compose.project=" + composeProjectName(),
+		Value: "com.docker.compose.project=" + ComposeProjectName(),
 	})
 	for _, pair := range extra {
 		args.Add(pair.Key, pair.Value)

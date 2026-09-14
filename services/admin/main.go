@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"log"
 	"net/http"
@@ -14,7 +15,7 @@ import (
 )
 
 func main() {
-	port := getEnv("ADMIN_PORT")
+	port := platform.GetEnv("ADMIN_PORT")
 	if port == "" {
 		port = "8318"
 	}
@@ -114,10 +115,10 @@ func main() {
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
 		if err := runtimeFilesReady(); err != nil {
 			log.Printf("health check failed: %v", err)
-			writeError(w, "Not ready", http.StatusServiceUnavailable)
+			platform.WriteError(w, "Not ready", http.StatusServiceUnavailable)
 			return
 		}
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	})
 
 	// Claude Code downloads — admin manages, viewer can see + download stored
