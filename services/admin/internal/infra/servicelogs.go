@@ -1,4 +1,4 @@
-package main
+package infra
 
 import (
 	"admin/internal/platform"
@@ -17,7 +17,7 @@ import (
 )
 
 // GET /api/admin/services/{name}/logs?tail=100
-func apiServiceLogs(cli *client.Client) http.HandlerFunc {
+func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {
@@ -85,7 +85,7 @@ func (w *limitWriter) Write(p []byte) (int, error) {
 }
 
 // GET /api/admin/services/{name}/logs/stream?tail=100
-func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
+func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {

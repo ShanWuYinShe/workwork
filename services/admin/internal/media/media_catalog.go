@@ -1,4 +1,4 @@
-package main
+package media
 
 import (
 	"admin/internal/auth"
@@ -127,8 +127,8 @@ func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method
 	platform.WriteJSON(w, json.RawMessage(payload))
 }
 
-// apiMediaCatalogOverview 代理 GET /internal/catalog/overview：各分类审校计数 + 快照概况 + 维护操作状态。
-func apiMediaCatalogOverview() http.HandlerFunc {
+// ApiMediaCatalogOverview 代理 GET /internal/catalog/overview：各分类审校计数 + 快照概况 + 维护操作状态。
+func ApiMediaCatalogOverview() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
@@ -136,8 +136,8 @@ func apiMediaCatalogOverview() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogItems 代理 GET /internal/catalog/items：列出某分类(可选状态)的成员供审校。
-func apiMediaCatalogItems() http.HandlerFunc {
+// ApiMediaCatalogItems 代理 GET /internal/catalog/items：列出某分类(可选状态)的成员供审校。
+func ApiMediaCatalogItems() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		category := strings.TrimSpace(r.URL.Query().Get("category"))
 		if category == "" {
@@ -161,9 +161,9 @@ func apiMediaCatalogItems() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogExport 代理 GET /internal/catalog/export：导出全部(或某分类/某状态)成员为
+// ApiMediaCatalogExport 代理 GET /internal/catalog/export：导出全部(或某分类/某状态)成员为
 // 导入兼容的 JSON,供把分类数据部署到其他 media_server 实例(把导出 JSON 直接 import 即可)。
-func apiMediaCatalogExport() http.HandlerFunc {
+func ApiMediaCatalogExport() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := url.Values{}
 		if category := strings.TrimSpace(r.URL.Query().Get("category")); category != "" {
@@ -178,9 +178,9 @@ func apiMediaCatalogExport() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogReview 代理 POST /internal/catalog/review：对单个成员 approve/reject/置顶/排序。
+// ApiMediaCatalogReview 代理 POST /internal/catalog/review：对单个成员 approve/reject/置顶/排序。
 // admin 强制把 reviewer 覆盖为当前登录用户名（审计），忽略客户端自带的 reviewer 字段。
-func apiMediaCatalogReview() http.HandlerFunc {
+func ApiMediaCatalogReview() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		if err != nil {
@@ -207,9 +207,9 @@ func apiMediaCatalogReview() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogDelete 代理 POST /internal/catalog/delete：硬删除某分类下的一个视频成员
+// ApiMediaCatalogDelete 代理 POST /internal/catalog/delete：硬删除某分类下的一个视频成员
 // (增删改查的"删",区别于 reject 软标记)。body 需含 categoryId/provider/nativeId。
-func apiMediaCatalogDelete() http.HandlerFunc {
+func ApiMediaCatalogDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		if err != nil {
@@ -226,10 +226,10 @@ func apiMediaCatalogDelete() http.HandlerFunc {
 	}
 }
 
-// apiMediaCatalogImport 代理 POST /internal/catalog/import：导入外部工具/AI 收集好的候选。
+// ApiMediaCatalogImport 代理 POST /internal/catalog/import：导入外部工具/AI 收集好的候选。
 // 默认导入为 pending；item 可带 status=approved 直接收录上线（用于"已审核视频集一步上线"）。
 // admin 强制把 reviewer 覆盖为当前登录用户名（审计），用于 approved 项的审校留痕。
-func apiMediaCatalogImport() http.HandlerFunc {
+func ApiMediaCatalogImport() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err != nil {

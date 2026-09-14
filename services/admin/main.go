@@ -3,6 +3,8 @@ package main
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
+	"admin/internal/infra"
+	"admin/internal/media"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"context"
@@ -56,19 +58,19 @@ func main() {
 	mux.HandleFunc("GET /api/admin/auth/me", auth.RequireRole("viewer")(accounts.ApiWhoAmI(cli)))
 
 	// Dashboard — viewer+ (returns role-appropriate data)
-	mux.HandleFunc("GET /api/admin/dashboard", auth.RequireRole("viewer")(apiDashboard(cli)))
-	mux.HandleFunc("GET /api/admin/services", auth.RequireRole("admin")(apiServices(cli)))
+	mux.HandleFunc("GET /api/admin/dashboard", auth.RequireRole("viewer")(infra.ApiDashboard(cli)))
+	mux.HandleFunc("GET /api/admin/services", auth.RequireRole("admin")(infra.ApiServices(cli)))
 	// 兜底：nginx 历史上曾把 /api/admin/services 301 到带斜杠路径，直接返回列表
 	// 而不是 404，避免浏览器跟随重定向后页面报错。
-	mux.HandleFunc("GET /api/admin/services/", auth.RequireRole("admin")(apiServices(cli)))
-	mux.HandleFunc("GET /api/admin/config", auth.RequireRole("viewer")(apiConfig(cli)))
+	mux.HandleFunc("GET /api/admin/services/", auth.RequireRole("admin")(infra.ApiServices(cli)))
+	mux.HandleFunc("GET /api/admin/config", auth.RequireRole("viewer")(infra.ApiConfig(cli)))
 
 	// User operations — viewer+ (read own), admin (manage all)
 	mux.HandleFunc("GET /api/admin/users", auth.RequireRole("viewer")(accounts.ApiUsers(cli)))
 	mux.HandleFunc("POST /api/admin/users/password", auth.RequireRole("viewer")(accounts.ApiChangePassword(cli)))
 
 	// Admin-only operations
-	mux.HandleFunc("POST /api/admin/services/{name}/{action}", auth.RequireRole("admin")(apiServiceAction(cli)))
+	mux.HandleFunc("POST /api/admin/services/{name}/{action}", auth.RequireRole("admin")(infra.ApiServiceAction(cli)))
 	// Xray client management — viewers can manage their own clients
 	mux.HandleFunc("POST /api/admin/users/xray/add", auth.RequireRole("viewer")(accounts.ApiAddXray(cli)))
 	mux.HandleFunc("POST /api/admin/users/xray/delete", auth.RequireRole("viewer")(accounts.ApiDeleteXray(cli)))
@@ -79,24 +81,24 @@ func main() {
 	mux.HandleFunc("GET /api/admin/network/status", auth.RequireRole("admin")(proxy.ApiNetworkStatus(cli)))
 	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", auth.RequireRole("admin")(proxy.ApiRotateIPv6(cli)))
 	mux.HandleFunc("POST /api/admin/network/sync-dns", auth.RequireRole("admin")(proxy.ApiSyncDNS(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/config", auth.RequireRole("admin")(apiMediaCenterConfig()))
-	mux.HandleFunc("PUT /api/admin/media-center/config", auth.RequireRole("admin")(apiSaveMediaCenterConfig(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/credentials", auth.RequireRole("admin")(apiMediaCenterCredentials()))
-	mux.HandleFunc("PUT /api/admin/media-center/credentials", auth.RequireRole("admin")(apiSaveMediaCenterCredentials(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/config", auth.RequireRole("admin")(media.ApiMediaCenterConfig()))
+	mux.HandleFunc("PUT /api/admin/media-center/config", auth.RequireRole("admin")(media.ApiSaveMediaCenterConfig(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/credentials", auth.RequireRole("admin")(media.ApiMediaCenterCredentials()))
+	mux.HandleFunc("PUT /api/admin/media-center/credentials", auth.RequireRole("admin")(media.ApiSaveMediaCenterCredentials(cli)))
 	// 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）。
-	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", auth.RequireRole("admin")(apiMediaCatalogOverview()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/items", auth.RequireRole("admin")(apiMediaCatalogItems()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/export", auth.RequireRole("admin")(apiMediaCatalogExport()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/review", auth.RequireRole("admin")(apiMediaCatalogReview()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", auth.RequireRole("admin")(apiMediaCatalogDelete()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/import", auth.RequireRole("admin")(apiMediaCatalogImport()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release", auth.RequireRole("admin")(apiMediaAppReleaseGet()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release", auth.RequireRole("admin")(apiMediaAppReleaseUpload()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", auth.RequireRole("admin")(media.ApiMediaCatalogOverview()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/items", auth.RequireRole("admin")(media.ApiMediaCatalogItems()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/export", auth.RequireRole("admin")(media.ApiMediaCatalogExport()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/review", auth.RequireRole("admin")(media.ApiMediaCatalogReview()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", auth.RequireRole("admin")(media.ApiMediaCatalogDelete()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/import", auth.RequireRole("admin")(media.ApiMediaCatalogImport()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release", auth.RequireRole("admin")(media.ApiMediaAppReleaseGet()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release", auth.RequireRole("admin")(media.ApiMediaAppReleaseUpload()))
 	// 版本管理：发布历史 / 回滚 / 删除历史版本 / 管理员下载指定版本 APK。
-	mux.HandleFunc("GET /api/admin/media-center/app-release/history", auth.RequireRole("admin")(apiMediaAppReleaseHistory()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release/download", auth.RequireRole("admin")(apiMediaAppReleaseDownload()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", auth.RequireRole("admin")(apiMediaAppReleaseRollback()))
-	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", auth.RequireRole("admin")(apiMediaAppReleaseVersionDelete()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release/history", auth.RequireRole("admin")(media.ApiMediaAppReleaseHistory()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release/download", auth.RequireRole("admin")(media.ApiMediaAppReleaseDownload()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", auth.RequireRole("admin")(media.ApiMediaAppReleaseRollback()))
+	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", auth.RequireRole("admin")(media.ApiMediaAppReleaseVersionDelete()))
 	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
 	mux.HandleFunc("GET /api/admin/music-library", auth.RequireRole("admin")(apiMusicLibraryList()))
 	mux.HandleFunc("POST /api/admin/music-library/upload", auth.RequireRole("admin")(apiMusicLibraryUpload()))
@@ -134,8 +136,8 @@ func main() {
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
 	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
 	// Service logs
-	mux.HandleFunc("GET /api/admin/services/{name}/logs", auth.RequireRole("admin")(apiServiceLogs(cli)))
-	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", auth.RequireRole("admin")(apiServiceLogStream(cli)))
+	mux.HandleFunc("GET /api/admin/services/{name}/logs", auth.RequireRole("admin")(infra.ApiServiceLogs(cli)))
+	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", auth.RequireRole("admin")(infra.ApiServiceLogStream(cli)))
 	// Xray downloads — admin manages, viewer can see + download stored
 	mux.HandleFunc("GET /api/admin/xray/releases", auth.RequireRole("admin")(apiXrayReleases()))
 	mux.HandleFunc("POST /api/admin/xray/refresh", auth.RequireRole("admin")(apiXrayRefresh()))

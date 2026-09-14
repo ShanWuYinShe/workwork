@@ -282,7 +282,7 @@ func serveToolDownload(s *downloadService, contentType string) http.HandlerFunc 
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeHeaderValue(filename)))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, platform.SanitizeHeaderValue(filename)))
 		w.Header().Set("Accept-Ranges", "bytes")
 		http.ServeFile(w, r, joinDownloadPath(s.dir, filename))
 	}

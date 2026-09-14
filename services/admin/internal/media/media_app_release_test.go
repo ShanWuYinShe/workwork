@@ -1,4 +1,4 @@
-package main
+package media
 
 import (
 	"encoding/json"
@@ -58,8 +58,8 @@ func TestMediaCenterAppUpdateHistoryPath(t *testing.T) {
 		{variant: "../evil", want: "/app/data/generated/media_center/app-history.json"},
 	}
 	for _, tt := range tests {
-		if got := mediaCenterAppUpdateHistoryPath(tt.variant); got != tt.want {
-			t.Errorf("mediaCenterAppUpdateHistoryPath(%q) = %q, want %q", tt.variant, got, tt.want)
+		if got := appUpdateHistoryPath(tt.variant); got != tt.want {
+			t.Errorf("appUpdateHistoryPath(%q) = %q, want %q", tt.variant, got, tt.want)
 		}
 	}
 }
