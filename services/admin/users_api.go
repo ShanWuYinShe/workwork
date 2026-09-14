@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"errors"
 	"github.com/docker/docker/client"
@@ -17,7 +18,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 		allClients, err := readXrayClientMaps()
 		if err != nil {
 			log.Printf("Failed to read clients: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -51,18 +52,18 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		genJSON := GenerateClientConfig(filtered, ClientConfig{
-			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
-			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
-			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
+			RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    xrayClientShortID(),
-			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+			XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
 			XHTTPProxyAuth:    proxyAuth,
 		})
 
 		// Build adminUsers with role info
 		doc, err := readUsersMeta()
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		type adminUserJSON struct {
@@ -89,7 +90,7 @@ func apiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"xrayClients": filtered, "generatedJSON": genJSON, "adminUsers": adminUsers,
 		})
 	}
@@ -117,47 +118,47 @@ func apiChangePassword(cli *client.Client) http.HandlerFunc {
 			OldPassword string `json:"old_password"`
 			Password    string `json:"password"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Username == "" || body.Password == "" {
-			writeError(w, "Username and password required", 400)
+			platform.WriteError(w, "Username and password required", 400)
 			return
 		}
 		if !isValidUsername(body.Username) {
-			writeError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			platform.WriteError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
 			return
 		}
 		// Non-admin can only change their own password
 		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
-			writeError(w, "Forbidden: can only change your own password", 403)
+			platform.WriteError(w, "Forbidden: can only change your own password", 403)
 			return
 		}
 		// Protected admin account (AUTH_USER) can only change its own password:
 		// 防止任意 admin 重置超级管理员密码并接管该账号(纵深防御,与
 		// apiSetRole/apiDeleteAdmin 的 isProtectedAdmin 守卫对齐)。
-		if body.Username == getEnv("AUTH_USER") && (userInfo == nil || username != body.Username) {
-			writeError(w, "Cannot change the default admin account password", 403)
+		if body.Username == platform.GetEnv("AUTH_USER") && (userInfo == nil || username != body.Username) {
+			platform.WriteError(w, "Cannot change the default admin account password", 403)
 			return
 		}
 		// Verify old password for non-admin users（持锁校验，见
 		// verifyHtpasswdPasswordLocked 注释——与后续重写共用 htpasswdMu）
 		if userInfo == nil || userInfo.Role != "admin" {
 			if body.OldPassword == "" {
-				writeError(w, "Old password required", 400)
+				platform.WriteError(w, "Old password required", 400)
 				return
 			}
 			if !verifyHtpasswdPasswordLocked(body.Username, body.OldPassword) {
-				writeError(w, "Invalid old password", 401)
+				platform.WriteError(w, "Invalid old password", 401)
 				return
 			}
 		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -168,43 +169,43 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			Password string `json:"password"`
 			Role     string `json:"role"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Username == "" || body.Password == "" {
-			writeError(w, "Username and password required", 400)
+			platform.WriteError(w, "Username and password required", 400)
 			return
 		}
 		if !isValidUsername(body.Username) {
-			writeError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			platform.WriteError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
 			return
 		}
 		if isReservedUsername(body.Username) {
-			writeError(w, "This username is reserved", 400)
+			platform.WriteError(w, "This username is reserved", 400)
 			return
 		}
 		if body.Role == "" {
 			body.Role = "viewer"
 		}
 		if body.Role != "admin" && body.Role != "viewer" {
-			writeError(w, "Role must be admin or viewer", 400)
+			platform.WriteError(w, "Role must be admin or viewer", 400)
 			return
 		}
 		// Only admin can create admin users
 		userInfo, _ := getUserFromContext(r)
 		if body.Role == "admin" && userInfo != nil && userInfo.Role != "admin" {
-			writeError(w, "Forbidden", 403)
+			platform.WriteError(w, "Forbidden", 403)
 			return
 		}
 		// 受保护账号(AUTH_USER)已存在时禁止经此端点覆盖密码：updateUsersMeta 的
 		// 守卫只在"降级已有 admin"时触发，role 保持 admin 的重置密码路径会绕过
 		// 它直达 htpasswdAddUser——与 apiChangePassword 对同一攻击的阻断对齐
 		// (防止任意 admin 重置超管密码接管账号，也让 UI 误填超管用户名时明确报错)。
-		if body.Username == getEnv("AUTH_USER") {
+		if body.Username == platform.GetEnv("AUTH_USER") {
 			if doc, err := readUsersMeta(); err == nil {
 				if _, exists := doc.Users[body.Username]; exists {
-					writeError(w, "Cannot modify the default admin account; use change-password instead", 403)
+					platform.WriteError(w, "Cannot modify the default admin account; use change-password instead", 403)
 					return
 				}
 			}
@@ -253,14 +254,14 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, errLastAdmin) {
-				writeError(w, "Cannot demote the last admin user", 400)
+				platform.WriteError(w, "Cannot demote the last admin user", 400)
 				return
 			}
 			if errors.Is(err, errProtectedAdmin) {
-				writeError(w, "Cannot demote the default admin account", 403)
+				platform.WriteError(w, "Cannot demote the default admin account", 403)
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if err := htpasswdAddUser(body.Username, body.Password); err != nil {
@@ -273,34 +274,34 @@ func apiAddAdmin(cli *client.Client) http.HandlerFunc {
 			if rollbackErr != nil {
 				log.Printf("WARNING: failed to roll back user meta for %s after htpasswd error: %v", body.Username, rollbackErr)
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		_, actor := getUserFromContext(r)
 		log.Printf("[security] user upsert user=%s role=%s created=%t by=%s",
 			body.Username, body.Role, !hadPrevious, actor)
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
 func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Username == "" {
-			writeError(w, "Username required", 400)
+			platform.WriteError(w, "Username required", 400)
 			return
 		}
 		if isProtectedAdmin(body.Username) {
-			writeError(w, "Cannot delete the default admin account", 403)
+			platform.WriteError(w, "Cannot delete the default admin account", 403)
 			return
 		}
 		_, currentUser := getUserFromContext(r)
 		if body.Username == currentUser {
-			writeError(w, "Cannot delete yourself", 400)
+			platform.WriteError(w, "Cannot delete yourself", 400)
 			return
 		}
 
@@ -329,14 +330,14 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, errLastAdmin) {
-				writeError(w, "Cannot delete the last admin user", 400)
+				platform.WriteError(w, "Cannot delete the last admin user", 400)
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if !deleted {
-			writeError(w, "User not found", 404)
+			platform.WriteError(w, "User not found", 404)
 			return
 		}
 
@@ -345,7 +346,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			// 会以 "User not provisioned" 拒绝），但 htpasswd 行残留。如实
 			// 上报部分成功，提示重试自愈，而非笼统 500。
 			log.Printf("ERROR: remove htpasswd entry for %s: %v", body.Username, err)
-			writeError(w, "用户已删除，但清理登录凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
+			platform.WriteError(w, "用户已删除，但清理登录凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
 			return
 		}
 
@@ -362,13 +363,13 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		removed, err := deleteXrayClientsByOwner(body.Username)
 		if err != nil {
 			log.Printf("ERROR: delete xray clients for %s: %v", body.Username, err)
-			writeJSON(w, map[string]string{"status": "ok"})
+			platform.WriteJSON(w, map[string]string{"status": "ok"})
 			return
 		}
 		if removed > 0 {
 			if err := genXrayConfig(); err != nil {
 				log.Printf("ERROR: regenerate xray config after user delete: %v", err)
-				writeJSON(w, map[string]string{"status": "ok"})
+				platform.WriteJSON(w, map[string]string{"status": "ok"})
 				return
 			}
 			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
@@ -377,7 +378,7 @@ func apiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				log.Printf("ERROR: restart xray after user delete: %v", err)
 			}
 		}
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -387,22 +388,22 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			Username string `json:"username"`
 			Role     string `json:"role"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Username == "" {
-			writeError(w, "Username and role required", 400)
+			platform.WriteError(w, "Username and role required", 400)
 			return
 		}
 		if body.Role != "admin" && body.Role != "viewer" {
-			writeError(w, "Role must be admin or viewer", 400)
+			platform.WriteError(w, "Role must be admin or viewer", 400)
 			return
 		}
 
 		// Protected admin account cannot be demoted
 		if isProtectedAdmin(body.Username) && body.Role != "admin" {
-			writeError(w, "Cannot demote the default admin account", 403)
+			platform.WriteError(w, "Cannot demote the default admin account", 403)
 			return
 		}
 
@@ -432,17 +433,17 @@ func apiSetRole(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, errLastAdmin) {
-				writeError(w, "Cannot demote the last admin user", 400)
+				platform.WriteError(w, "Cannot demote the last admin user", 400)
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if notFound {
-			writeError(w, "User not found", 404)
+			platform.WriteError(w, "User not found", 404)
 			return
 		}
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -450,10 +451,10 @@ func apiWhoAmI(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info, username := getUserFromContext(r)
 		if info == nil {
-			writeError(w, "Unauthorized", 401)
+			platform.WriteError(w, "Unauthorized", 401)
 			return
 		}
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"username":   username,
 			"role":       info.Role,
 			"created_at": info.CreatedAt,

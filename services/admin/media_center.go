@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -98,18 +99,18 @@ func apiMediaCenterConfig() http.HandlerFunc {
 		cfg, err := readMediaCenterConfig()
 		if err != nil {
 			log.Printf("read media center config: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		defaultCfg, err := readDefaultMediaCenterConfig()
 		if err != nil {
 			log.Printf("read media center defaults: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// files 只返回文件名(不泄露服务端绝对路径);路径仅用于 UI 展示配置流,
 		// 绝对路径对管理员排查无增益反而泄露容器内部布局。
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"config":             cfg,
 			"default_sources":    defaultCfg.Sources,
 			"default_categories": defaultCfg.Categories,
@@ -132,14 +133,14 @@ func apiMediaCenterConfig() http.HandlerFunc {
 func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incoming mediaCenterConfig
-		if err := decodeStrictJSON(r.Body, &incoming); err != nil {
-			writeError(w, "Invalid media center config JSON", http.StatusBadRequest)
+		if err := platform.DecodeStrictJSON(r.Body, &incoming); err != nil {
+			platform.WriteError(w, "Invalid media center config JSON", http.StatusBadRequest)
 			return
 		}
 
 		cfg, err := normalizeMediaCenterConfig(incoming)
 		if err != nil {
-			writeError(w, err.Error(), http.StatusBadRequest)
+			platform.WriteError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
@@ -157,11 +158,11 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 		restarted, warnings, err := applyMediaCenterConfigLocked(restartCtx, cli, cfg)
 		mediaCenterApplyMu.Unlock()
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"config":    cfg,
 			"restarted": restarted,
 			"warnings":  warnings,
@@ -173,10 +174,10 @@ func apiMediaCenterCredentials() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		cfg, err := readMediaCenterConfig()
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"credentials": cfg.Credentials,
 		})
 	}
@@ -187,8 +188,8 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 		var incoming struct {
 			Credentials []providerCredential `json:"credentials"`
 		}
-		if err := decodeStrictJSON(r.Body, &incoming); err != nil {
-			writeError(w, "Invalid credentials JSON", http.StatusBadRequest)
+		if err := platform.DecodeStrictJSON(r.Body, &incoming); err != nil {
+			platform.WriteError(w, "Invalid credentials JSON", http.StatusBadRequest)
 			return
 		}
 
@@ -197,7 +198,7 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 		cfg, err := readMediaCenterConfig()
 		if err != nil {
 			mediaCenterApplyMu.Unlock()
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		cfg.Credentials = incoming.Credentials
@@ -205,7 +206,7 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 		normalized, err := normalizeMediaCenterConfig(cfg)
 		if err != nil {
 			mediaCenterApplyMu.Unlock()
-			writeError(w, err.Error(), http.StatusBadRequest)
+			platform.WriteError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
@@ -213,11 +214,11 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 		restarted, warnings, err := applyMediaCenterConfigLocked(restartCtx, cli, normalized)
 		mediaCenterApplyMu.Unlock()
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"credentials": normalized.Credentials,
 			"restarted":   restarted,
 			"warnings":    warnings,
@@ -362,7 +363,7 @@ func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
 	data = append(data, '\n')
 	// 0600：config.json 内嵌 provider 凭证（SESSDATA 等）且无任何容器消费
 	// （下游只读 categories/credentials 两个派生文件），不应全局可读。
-	return atomicWriteFile(mediaCenterConfigPath, data, 0600)
+	return platform.AtomicWriteFile(mediaCenterConfigPath, data, 0600)
 }
 
 func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
@@ -388,7 +389,7 @@ func writeMediaCenterCategoriesFileIfChanged(cfg mediaCenterConfig) (bool, error
 	if sameFileContent(mediaCenterCategoriesPath, data) {
 		return false, nil
 	}
-	if err := atomicWriteFile(mediaCenterCategoriesPath, data, 0644); err != nil {
+	if err := platform.AtomicWriteFile(mediaCenterCategoriesPath, data, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -419,7 +420,7 @@ func writeMediaCenterCredentialsFileIfChanged(cfg mediaCenterConfig) (bool, erro
 	if sameFileContent(mediaCenterCredentialsPath, data) {
 		return false, nil
 	}
-	if err := atomicWriteFile(mediaCenterCredentialsPath, data, 0644); err != nil {
+	if err := platform.AtomicWriteFile(mediaCenterCredentialsPath, data, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -837,7 +838,7 @@ func isReservedMediaCenterPublicPath(path string) bool {
 }
 
 func envOrDefault(key, fallback string) string {
-	value := strings.TrimSpace(getEnv(key))
+	value := strings.TrimSpace(platform.GetEnv(key))
 	if value == "" {
 		return fallback
 	}
@@ -880,7 +881,7 @@ func restartMediaCenterServices(ctx context.Context, cli *client.Client, restart
 func restartComposeService(ctx context.Context, cli *client.Client, service string) (bool, error) {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All: true,
-		Filters: composeProjectFilters(filters.KeyValuePair{
+		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", service),
 		}),
 	})
@@ -902,7 +903,7 @@ func restartComposeService(ctx context.Context, cli *client.Client, service stri
 	}
 
 	// 无论 restart/start 是否返回错误，都尝试恢复轮换 IP。
-	// 容器实际未运行时 addContainerIP 会静默失败，不影响正确性。
+	// 容器实际未运行时 platform.AddContainerIP 会静默失败，不影响正确性。
 	if service == "xray" || service == "nginx" {
 		restoreServiceRotatingIP(ctx, cli, id, service)
 	}

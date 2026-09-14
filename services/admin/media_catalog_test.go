@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,9 +12,9 @@ import (
 	"testing"
 )
 
-func decodeAdminEnvelope(t *testing.T, body io.Reader) jsonResp {
+func decodeAdminEnvelope(t *testing.T, body io.Reader) platform.JSONResp {
 	t.Helper()
-	var resp jsonResp
+	var resp platform.JSONResp
 	if err := json.NewDecoder(body).Decode(&resp); err != nil {
 		t.Fatalf("decode admin envelope: %v", err)
 	}

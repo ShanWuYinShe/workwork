@@ -4,6 +4,7 @@ package main
 // 机制（manifest/下载/清理/校验/版本比较）在 downloads.go。
 
 import (
+	"admin/internal/platform"
 	"log"
 	"net/http"
 	"strings"
@@ -59,7 +60,7 @@ func apiXrayReleases() http.HandlerFunc {
 		releases, err := xrayDownloads.fetchVersions()
 		if err != nil {
 			log.Printf("Failed to fetch versions: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		type releaseOutput struct {
@@ -70,7 +71,7 @@ func apiXrayReleases() http.HandlerFunc {
 		for i, r := range releases {
 			out[i] = releaseOutput{Version: r.Version, Date: r.Date}
 		}
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"releases":  out,
 			"platforms": xrayPlatforms,
 			"stored":    xrayDownloads.listStored(),
@@ -83,12 +84,12 @@ func apiXrayPlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
-			writeError(w, "Version required", 400)
+			platform.WriteError(w, "Version required", 400)
 			return
 		}
 		release := xrayDownloads.findCachedRelease(version)
 		if release == nil {
-			writeJSON(w, map[string]any{"version": version, "platforms": []string{}})
+			platform.WriteJSON(w, map[string]any{"version": version, "platforms": []string{}})
 			return
 		}
 		assetPlats := map[string]bool{}
@@ -103,7 +104,7 @@ func apiXrayPlatforms() http.HandlerFunc {
 				available = append(available, map[string]string{"label": p.Label, "plat": p.Plat})
 			}
 		}
-		writeJSON(w, map[string]any{"version": version, "platforms": available})
+		platform.WriteJSON(w, map[string]any{"version": version, "platforms": available})
 	}
 }
 
@@ -114,7 +115,7 @@ func apiXrayStored() http.HandlerFunc {
 		if stored == nil {
 			stored = []storedDownload{}
 		}
-		writeJSON(w, map[string]any{"stored": stored})
+		platform.WriteJSON(w, map[string]any{"stored": stored})
 	}
 }
 
@@ -125,10 +126,10 @@ func apiXrayRefresh() http.HandlerFunc {
 		releases, err := xrayDownloads.fetchVersions()
 		if err != nil {
 			log.Printf("Failed to refresh: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]any{"status": "ok", "count": len(releases)})
+		platform.WriteJSON(w, map[string]any{"status": "ok", "count": len(releases)})
 	}
 }
 

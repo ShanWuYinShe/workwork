@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -61,7 +62,7 @@ func init() {
 	}
 }
 
-func cfToken() string { return getEnv("CF_API_TOKEN") }
+func cfToken() string { return platform.GetEnv("CF_API_TOKEN") }
 
 func cfResolveZoneID(domain string) (string, error) {
 	// 先查缓存(锁内只做读):未命中时释放锁再发网络请求,避免 CF API 往返

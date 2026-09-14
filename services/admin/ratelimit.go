@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"net"
 	"net/http"
 	"sync"
@@ -155,7 +156,7 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		ip := clientIP(r)
 		if ip != "" && !authRateLimiter.allow(ip) {
-			writeError(w, "Too many requests, try again later", 429)
+			platform.WriteError(w, "Too many requests, try again later", 429)
 			return
 		}
 		next(w, r)
@@ -178,7 +179,7 @@ func apiRateLimitStatus() http.HandlerFunc {
 				})
 			}
 		}
-		writeJSON(w, map[string]any{"blocked": blocked})
+		platform.WriteJSON(w, map[string]any{"blocked": blocked})
 	}
 }
 
@@ -187,16 +188,16 @@ func apiRateLimitUnblock() http.HandlerFunc {
 		var body struct {
 			IP string `json:"ip"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.IP == "" {
-			writeError(w, "IP required", 400)
+			platform.WriteError(w, "IP required", 400)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			writeError(w, "Invalid IP address", 400)
+			platform.WriteError(w, "Invalid IP address", 400)
 			return
 		}
 		authRateLimiter.mu.Lock()
@@ -207,6 +208,6 @@ func apiRateLimitUnblock() http.HandlerFunc {
 		authRateLimiter.mu.Unlock()
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

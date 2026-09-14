@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"log"
 	"time"
@@ -17,7 +18,7 @@ import (
 //   - 手动 docker restart 命令
 //   - 其他任何导致容器网络命名空间重建的操作
 func ipWatcher(ctx context.Context, cli *client.Client) {
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 
@@ -33,7 +34,7 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 		eventFilters := filters.NewArgs(
 			filters.KeyValuePair{Key: "type", Value: "container"},
 			filters.KeyValuePair{Key: "event", Value: "start"},
-			filters.KeyValuePair{Key: "label", Value: "com.docker.compose.project=" + composeProjectName()},
+			filters.KeyValuePair{Key: "label", Value: "com.docker.compose.project=" + platform.ComposeProjectName()},
 		)
 
 		msgCh, errCh := cli.Events(ctx, events.ListOptions{Filters: eventFilters})
@@ -57,7 +58,7 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 					goto reconnect
 				}
 				service := msg.Actor.Attributes["com.docker.compose.service"]
-				if msg.Actor.Attributes["com.docker.compose.project"] != composeProjectName() {
+				if msg.Actor.Attributes["com.docker.compose.project"] != platform.ComposeProjectName() {
 					continue
 				}
 				if service != "xray" && service != "nginx" {

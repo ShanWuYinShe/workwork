@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -35,7 +36,7 @@ const (
 // transferMaxPerUserBytes 返回每用户上传配额(0 = 不限),从 TRANSFER_USER_QUOTA
 // 读取,默认 [transferDefaultPerUserQuota]。
 func transferMaxPerUserBytes() int64 {
-	raw := strings.TrimSpace(getEnv("TRANSFER_USER_QUOTA"))
+	raw := strings.TrimSpace(platform.GetEnv("TRANSFER_USER_QUOTA"))
 	if raw == "" {
 		return transferDefaultPerUserQuota
 	}
@@ -74,12 +75,12 @@ var validTransferFilename = regexp.MustCompile(`^[a-zA-Z0-9_\-. ]+$`)
 
 func loadTransferManifestLocked() transferManifest {
 	var m transferManifest
-	loadJSONFile(transferManifestPath, &m)
+	platform.LoadJSONFile(transferManifestPath, &m)
 	return m
 }
 
 func saveTransferManifestLocked(m transferManifest) error {
-	return saveJSONFile(transferManifestPath, m)
+	return platform.SaveJSONFile(transferManifestPath, m)
 }
 
 func generateTransferCode() (string, error) {
@@ -207,7 +208,7 @@ func apiTransferUpload() http.HandlerFunc {
 		// 限制 multipart 内存缓冲为 32MB；更大的部分自动落盘为临时文件，
 		// 避免单次上传占用 2GB 堆内存导致 OOM。单文件上限在下方强制执行。
 		if err := r.ParseMultipartForm(transferUploadMemory); err != nil {
-			writeError(w, "文件过大（最大 2GB）或请求格式错误", 400)
+			platform.WriteError(w, "文件过大（最大 2GB）或请求格式错误", 400)
 			return
 		}
 		// multipart 落盘的临时文件不会被自动清理，请求结束时显式删除。
@@ -219,7 +220,7 @@ func apiTransferUpload() http.HandlerFunc {
 
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			writeError(w, "未找到上传文件", 400)
+			platform.WriteError(w, "未找到上传文件", 400)
 			return
 		}
 		defer file.Close()
@@ -227,13 +228,13 @@ func apiTransferUpload() http.HandlerFunc {
 		// 校验文件名
 		name := filepath.Base(header.Filename)
 		if !validTransferFilename.MatchString(name) || len(name) > 255 {
-			writeError(w, "文件名不合法（仅允许字母数字、下划线、连字符、点、空格，最长 255 字符）", 400)
+			platform.WriteError(w, "文件名不合法（仅允许字母数字、下划线、连字符、点、空格，最长 255 字符）", 400)
 			return
 		}
 
 		// 单文件大小预检（header.Size 可靠时直接拒绝超大文件）
 		if header.Size > transferMaxFile {
-			writeError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
+			platform.WriteError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
 			return
 		}
 
@@ -262,7 +263,7 @@ func apiTransferUpload() http.HandlerFunc {
 		snapshot := loadTransferManifestLocked()
 		if snapshot.TotalSize+header.Size > transferMaxTotal {
 			transferMu.Unlock()
-			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(snapshot.TotalSize)), 400)
+			platform.WriteError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(snapshot.TotalSize)), 400)
 			return
 		}
 		if quota := transferMaxPerUserBytes(); quota > 0 {
@@ -274,7 +275,7 @@ func apiTransferUpload() http.HandlerFunc {
 			}
 			if used+header.Size > quota {
 				transferMu.Unlock()
-				writeError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
+				platform.WriteError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
 				return
 			}
 		}
@@ -282,13 +283,13 @@ func apiTransferUpload() http.HandlerFunc {
 
 		// Phase 1: 文件写入磁盘（在锁外进行，避免阻塞其他 transfer 操作）
 		if err := os.MkdirAll(transferDir, 0755); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// os.CreateTemp 用随机后缀,极端并发下不会像 UnixNano 那样 O_EXCL 碰撞。
 		tmpFile, err := os.CreateTemp(transferDir, ".upload-*.tmp")
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		tmpPath := tmpFile.Name()
@@ -298,7 +299,7 @@ func apiTransferUpload() http.HandlerFunc {
 		dst.Close()
 		if err != nil {
 			os.Remove(tmpPath)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -308,7 +309,7 @@ func apiTransferUpload() http.HandlerFunc {
 			n, _ := file.Read(probe[:])
 			if n > 0 {
 				os.Remove(tmpPath)
-				writeError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
+				platform.WriteError(w, fmt.Sprintf("文件超过 %dGB 上限", transferMaxFile>>30), 400)
 				return
 			}
 		}
@@ -320,7 +321,7 @@ func apiTransferUpload() http.HandlerFunc {
 		if m.TotalSize+written > transferMaxTotal {
 			transferMu.Unlock()
 			os.Remove(tmpPath)
-			writeError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
+			platform.WriteError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
 			return
 		}
 		// per-user 配额:防止单个 viewer 用 2GB×N 次上传填满全局配额。
@@ -335,7 +336,7 @@ func apiTransferUpload() http.HandlerFunc {
 			if used+written > quota {
 				transferMu.Unlock()
 				os.Remove(tmpPath)
-				writeError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
+				platform.WriteError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
 				return
 			}
 		}
@@ -344,7 +345,7 @@ func apiTransferUpload() http.HandlerFunc {
 		if err != nil {
 			transferMu.Unlock()
 			os.Remove(tmpPath)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -352,7 +353,7 @@ func apiTransferUpload() http.HandlerFunc {
 		if err := os.Rename(tmpPath, dstPath); err != nil {
 			transferMu.Unlock()
 			os.Remove(tmpPath)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -378,11 +379,11 @@ func apiTransferUpload() http.HandlerFunc {
 			log.Printf("ERROR: save transfer manifest (upload): %v", saveErr)
 			// 磁盘文件已就位，但 manifest 未持久化 → 文件对管理面板不可见。
 			// 不回滚已写入的磁盘文件（避免二次失败），如实上报。
-			writeInternalError(w, fmt.Errorf("persist transfer manifest: %w", saveErr))
+			platform.WriteInternalError(w, fmt.Errorf("persist transfer manifest: %w", saveErr))
 			return
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
 			"code":   code,
 			"file":   entry,
@@ -415,7 +416,7 @@ func apiTransferList() http.HandlerFunc {
 			files = []transferFile{}
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"files":      files,
 			"total_size": m.TotalSize,
 			"max_total":  transferMaxTotal,
@@ -431,12 +432,12 @@ func apiTransferDelete() http.HandlerFunc {
 		var body struct {
 			Code string `json:"code"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.Code == "" {
-			writeError(w, "分享码必填", 400)
+			platform.WriteError(w, "分享码必填", 400)
 			return
 		}
 
@@ -450,7 +451,7 @@ func apiTransferDelete() http.HandlerFunc {
 			if f.Code == body.Code {
 				// 权限检查：admin 可删任意文件，普通用户只能删自己的
 				if userInfo != nil && userInfo.Role != "admin" && f.Uploader != username {
-					writeError(w, "Forbidden: 不是你上传的文件", 403)
+					platform.WriteError(w, "Forbidden: 不是你上传的文件", 403)
 					return
 				}
 				os.Remove(transferFilePath(f.Code, f.Filename))
@@ -462,7 +463,7 @@ func apiTransferDelete() http.HandlerFunc {
 		}
 
 		if !found {
-			writeError(w, "文件不存在", 404)
+			platform.WriteError(w, "文件不存在", 404)
 			return
 		}
 
@@ -472,10 +473,10 @@ func apiTransferDelete() http.HandlerFunc {
 		}
 		if err := saveTransferManifestLocked(m); err != nil {
 			log.Printf("ERROR: save transfer manifest (delete): %v", err)
-			writeInternalError(w, fmt.Errorf("persist transfer manifest: %w", err))
+			platform.WriteInternalError(w, fmt.Errorf("persist transfer manifest: %w", err))
 			return
 		}
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -484,13 +485,13 @@ func apiTransferPublicDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.PathValue("code")
 		if code == "" || len(code) != transferCodeLen {
-			writeError(w, "无效的分享码", 400)
+			platform.WriteError(w, "无效的分享码", 400)
 			return
 		}
 		// 只允许 alphanumeric
 		for _, c := range code {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-				writeError(w, "无效的分享码", 400)
+				platform.WriteError(w, "无效的分享码", 400)
 				return
 			}
 		}
@@ -508,7 +509,7 @@ func apiTransferPublicDownload() http.HandlerFunc {
 
 		if target == nil {
 			transferMu.Unlock()
-			writeError(w, "文件不存在或已过期", 404)
+			platform.WriteError(w, "文件不存在或已过期", 404)
 			return
 		}
 
@@ -516,7 +517,7 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		if target.ExpiresAt != "" {
 			if t, err := time.Parse(time.RFC3339, target.ExpiresAt); err == nil && time.Now().UTC().After(t) {
 				transferMu.Unlock()
-				writeError(w, "分享链接已过期", 410)
+				platform.WriteError(w, "分享链接已过期", 410)
 				return
 			}
 		}
@@ -524,7 +525,7 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		// 检查下载次数
 		if target.MaxDownloads > 0 && target.Downloads >= target.MaxDownloads {
 			transferMu.Unlock()
-			writeError(w, "下载次数已达上限", 410)
+			platform.WriteError(w, "下载次数已达上限", 410)
 			return
 		}
 
@@ -548,11 +549,11 @@ func apiTransferPublicDownload() http.HandlerFunc {
 		if err != nil {
 			transferMu.Unlock()
 			if os.IsNotExist(err) {
-				writeError(w, "文件不存在或已过期", 404)
+				platform.WriteError(w, "文件不存在或已过期", 404)
 				return
 			}
 			log.Printf("transfer download: open %s: %v", code, err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		info, err := f.Stat()
@@ -560,7 +561,7 @@ func apiTransferPublicDownload() http.HandlerFunc {
 			f.Close()
 			transferMu.Unlock()
 			log.Printf("transfer download: stat %s: %v", code, err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		transferMu.Unlock()

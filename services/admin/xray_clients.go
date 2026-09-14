@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"encoding/json"
 	"errors"
 	"os"
@@ -58,7 +59,7 @@ func writeXrayClientsNoLock(clients []xrayClientEntry) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(xrayClientsPath, data, 0600)
+	return platform.AtomicWriteFile(xrayClientsPath, data, 0600)
 }
 
 func writeXrayClients(clients []xrayClientEntry) error {
@@ -186,8 +187,8 @@ func ensureXrayClients() error {
 
 	clients := migrateXrayClientsFromConfig()
 	if len(clients) == 0 {
-		ids := getEnv("XRAY_CLIENT_IDS")
-		owner := getEnv("AUTH_USER")
+		ids := platform.GetEnv("XRAY_CLIENT_IDS")
+		owner := platform.GetEnv("AUTH_USER")
 		for _, u := range strings.Split(ids, ",") {
 			u = strings.TrimSpace(u)
 			if u == "" {

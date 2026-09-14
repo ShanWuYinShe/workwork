@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"strings"
 	"testing"
 )
@@ -131,7 +132,7 @@ func TestMediaCenterConfigRejectsDuplicateCategoryIDs(t *testing.T) {
 
 func TestMediaCenterConfigDecodeRejectsTrailingJSON(t *testing.T) {
 	var cfg mediaCenterConfig
-	err := decodeStrictJSON(strings.NewReader(`{"service":{"upstream":"media_server:8787","public_path":"/api/media"},"categories":[{"id":"movies","title":"电影","description":"电影","keywords":["电影"]}]} {"extra":true}`), &cfg)
+	err := platform.DecodeStrictJSON(strings.NewReader(`{"service":{"upstream":"media_server:8787","public_path":"/api/media"},"categories":[{"id":"movies","title":"电影","description":"电影","keywords":["电影"]}]} {"extra":true}`), &cfg)
 	if err == nil {
 		t.Fatal("expected trailing JSON to be rejected")
 	}

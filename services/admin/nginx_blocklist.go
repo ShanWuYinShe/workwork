@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"fmt"
 	"log"
@@ -105,7 +106,7 @@ func syncBlockedIPsToNginx(cli *client.Client) error {
 		}
 	}
 	sb.WriteString("}\n")
-	if err := atomicWriteFile(nginxBlockedConfPath, []byte(sb.String()), 0644); err != nil {
+	if err := platform.AtomicWriteFile(nginxBlockedConfPath, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", nginxBlockedConfPath, err)
 	}
 	return reloadNginx(cli)
@@ -132,9 +133,9 @@ func blockEntryExpired(e ipBlockEntry) bool {
 func reloadNginx(cli *client.Client) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	id, err := findContainer(ctx, cli, "nginx")
+	id, err := platform.FindContainer(ctx, cli, "nginx")
 	if err != nil {
 		return fmt.Errorf("find nginx container: %w", err)
 	}
-	return containerExec(ctx, cli, id, "nginx", "-s", "reload")
+	return platform.ContainerExec(ctx, cli, id, "nginx", "-s", "reload")
 }

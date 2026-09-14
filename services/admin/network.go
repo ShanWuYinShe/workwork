@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -37,13 +38,13 @@ func loadCurrentIPs() (xrayIP, nginxIP string) {
 // AAAA 记录明细，供 apiNetworkStatus 的 DNS 表格复用——同一请求内不再对
 // 同一批域名发起第二轮全量 CF 查询（此前单次页面刷新 = 域数 × 2 轮串行 CF API）。
 func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
-	// env 回退值过 normalizeIPv6：CF 路径与 getContainerIPs 返回的都是压缩
+	// env 回退值过 platform.NormalizeIPv6：CF 路径与 platform.GetContainerIPs 返回的都是压缩
 	// 规范形，env 若填了全展开形式，ip_consistency 的字符串比较会永假，
 	// 每 3 分钟误报一次 "missing rotating IP"（日志噪音 + no-op add）。
-	xrayIP = normalizeIPv6(getEnv("XRAY_IPV6"))
-	nginxIP = normalizeIPv6(getEnv("NGINX_IPV6"))
+	xrayIP = platform.NormalizeIPv6(platform.GetEnv("XRAY_IPV6"))
+	nginxIP = platform.NormalizeIPv6(platform.GetEnv("NGINX_IPV6"))
 	records = map[string]*cfDNSRecord{}
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 	for _, di := range allDomainInfos() {
@@ -53,9 +54,9 @@ func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cf
 		}
 		records[di.Domain] = rec
 		if di.Container == "xray" {
-			xrayIP = normalizeIPv6(rec.Content)
+			xrayIP = platform.NormalizeIPv6(rec.Content)
 		} else {
-			nginxIP = normalizeIPv6(rec.Content)
+			nginxIP = platform.NormalizeIPv6(rec.Content)
 		}
 	}
 	return
@@ -69,16 +70,16 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
-		cfOK := getEnv("CF_API_TOKEN") != ""
-		subnet := getEnv("IPV6_SUBNET")
-		nginxStatic := getEnv("NGINX_IPV6")
-		xrayStatic := getEnv("XRAY_IPV6")
+		cfOK := platform.GetEnv("CF_API_TOKEN") != ""
+		subnet := platform.GetEnv("IPV6_SUBNET")
+		nginxStatic := platform.GetEnv("NGINX_IPV6")
+		xrayStatic := platform.GetEnv("XRAY_IPV6")
 		dnsXrayIP, dnsNginxIP, dnsRecords := loadCurrentIPsWithRecords()
 		xrayIP, nxIP := dnsXrayIP, dnsNginxIP
-		if xrayID, err := findContainer(r.Context(), cli, "xray"); err == nil {
+		if xrayID, err := platform.FindContainer(r.Context(), cli, "xray"); err == nil {
 			xrayIP = selectContainerDNSIP(r.Context(), cli, xrayID, xrayStatic, dnsXrayIP)
 		}
-		if nginxID, err := findContainer(r.Context(), cli, "nginx"); err == nil {
+		if nginxID, err := platform.FindContainer(r.Context(), cli, "nginx"); err == nil {
 			nxIP = selectContainerDNSIP(r.Context(), cli, nginxID, nginxStatic, dnsNginxIP)
 		}
 
@@ -126,13 +127,13 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 				if rec != nil {
 					// 两端都归一化后再比较：CF 返回的 IPv6 压缩形式可能与
 					// 预期值不同，直接字符串比较会误报 mismatch。
-					info.Synced = normalizeIPv6(rec.Content) == normalizeIPv6(expectedIP)
+					info.Synced = platform.NormalizeIPv6(rec.Content) == platform.NormalizeIPv6(expectedIP)
 				}
 				dnsResults = append(dnsResults, info)
 			}
 		}
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"subnet":         subnetDisplay,
 			"static_range":   staticRange,
 			"rotating_range": rotatingRange,
@@ -155,13 +156,13 @@ type domainInfo struct {
 // XRAY_REALITY_DOMAIN -> xray, NGINX_DOMAINS (comma-separated) -> nginx.
 func allDomainInfos() []domainInfo {
 	var infos []domainInfo
-	if d := getEnv("XRAY_REALITY_DOMAIN"); d != "" {
+	if d := platform.GetEnv("XRAY_REALITY_DOMAIN"); d != "" {
 		infos = append(infos, domainInfo{Domain: d, Container: "xray"})
 	}
-	if d := getEnv("XHTTP_DOMAIN"); d != "" {
+	if d := platform.GetEnv("XHTTP_DOMAIN"); d != "" {
 		infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
 	}
-	for _, d := range strings.Split(getEnv("NGINX_DOMAINS"), ",") {
+	for _, d := range strings.Split(platform.GetEnv("NGINX_DOMAINS"), ",") {
 		d = strings.TrimSpace(d)
 		if d != "" {
 			infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
@@ -240,7 +241,7 @@ func rollbackDomainAAAARecords(entries []dnsRollbackEntry) (bool, error) {
 // It only allocates fresh addresses when DNS/current container state has no usable
 // rotating address, avoiding unnecessary DNS churn on admin restarts.
 func startupRotateIPv6(cli *client.Client) {
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -252,8 +253,8 @@ func startupRotateIPv6(cli *client.Client) {
 	var xrayID, nginxID string
 	for {
 		var xrayErr, nginxErr error
-		xrayID, xrayErr = findContainer(ctx, cli, "xray")
-		nginxID, nginxErr = findContainer(ctx, cli, "nginx")
+		xrayID, xrayErr = platform.FindContainer(ctx, cli, "xray")
+		nginxID, nginxErr = platform.FindContainer(ctx, cli, "nginx")
 		if xrayErr == nil && nginxErr == nil {
 			break
 		}
@@ -272,7 +273,7 @@ func startupRotateIPv6(cli *client.Client) {
 	}
 	defer ipv6RotateMu.Unlock()
 
-	subnet := getEnv("IPV6_SUBNET")
+	subnet := platform.GetEnv("IPV6_SUBNET")
 	prefix, err := parseSubnetPrefix(subnet)
 	if err != nil {
 		log.Printf("startup IPv6 restore: subnet: %v", err)
@@ -283,11 +284,11 @@ func startupRotateIPv6(cli *client.Client) {
 		log.Printf("startup IPv6 restore: rotating prefix: %v", err)
 		return
 	}
-	xrayStatic := getEnv("XRAY_IPV6")
-	nginxStatic := getEnv("NGINX_IPV6")
+	xrayStatic := platform.GetEnv("XRAY_IPV6")
+	nginxStatic := platform.GetEnv("NGINX_IPV6")
 
-	xrayAssigned := getContainerIPs(ctx, cli, xrayID)
-	nginxAssigned := getContainerIPs(ctx, cli, nginxID)
+	xrayAssigned := platform.GetContainerIPs(ctx, cli, xrayID)
+	nginxAssigned := platform.GetContainerIPs(ctx, cli, nginxID)
 	allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
 	dnsXrayIP, dnsNginxIP := loadCurrentIPs()
 
@@ -321,13 +322,13 @@ func startupRotateIPv6(cli *client.Client) {
 	}
 	nginxIP := nginxSelection.IP
 
-	if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
+	if err := platform.AddContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
 		log.Printf("startup IPv6 restore: add xray IP: %v", err)
 		return
 	}
-	if err := addContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
+	if err := platform.AddContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
 		if xraySelection.Generated {
-			delContainerIP(ctx, cli, xrayID, xrayIP)
+			platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
 		}
 		log.Printf("startup IPv6 restore: add nginx IP: %v", err)
 		return
@@ -336,10 +337,10 @@ func startupRotateIPv6(cli *client.Client) {
 	if _, rollbackOK, err := updateDomainAAAARecords(allDomainInfos(), xrayIP, nginxIP); err != nil {
 		if rollbackOK {
 			if xraySelection.Generated {
-				delContainerIP(ctx, cli, xrayID, xrayIP)
+				platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
 			}
 			if nginxSelection.Generated {
-				delContainerIP(ctx, cli, nginxID, nginxIP)
+				platform.DelContainerIP(ctx, cli, nginxID, nginxIP)
 			}
 			log.Printf("startup IPv6 restore: DNS update failed: %v; rolled back newly generated IPs", err)
 		} else {
@@ -361,12 +362,12 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
 
-		subnet := getEnv("IPV6_SUBNET")
-		xrayStatic := getEnv("XRAY_IPV6")
-		nginxStatic := getEnv("NGINX_IPV6")
+		subnet := platform.GetEnv("IPV6_SUBNET")
+		xrayStatic := platform.GetEnv("XRAY_IPV6")
+		nginxStatic := platform.GetEnv("NGINX_IPV6")
 
-		if getEnv("CF_API_TOKEN") == "" {
-			writeError(w, "CF_API_TOKEN not configured", 400)
+		if platform.GetEnv("CF_API_TOKEN") == "" {
+			platform.WriteError(w, "CF_API_TOKEN not configured", 400)
 			return
 		}
 
@@ -375,18 +376,18 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 
-		xrayID, err := findContainer(ctx, cli, "xray")
+		xrayID, err := platform.FindContainer(ctx, cli, "xray")
 		if err != nil {
 			// 服务暂时不可用（容器缺失/查询失败）而非内部错误：与 apiSyncDNS
-			// 同场景的写法对齐（writeInternalError 记日志 + 通用文案），503
+			// 同场景的写法对齐（platform.WriteInternalError 记日志 + 通用文案），503
 			// 让客户端明确这是环境态而非代码 bug。
 			log.Printf("rotate ipv6: find xray container: %v", err)
-			writeError(w, "Xray container not available", http.StatusServiceUnavailable)
+			platform.WriteError(w, "Xray container not available", http.StatusServiceUnavailable)
 			return
 		}
-		nginxID, err := findContainer(ctx, cli, "nginx")
+		nginxID, err := platform.FindContainer(ctx, cli, "nginx")
 		if err != nil {
-			writeError(w, "Nginx container not found", 500)
+			platform.WriteError(w, "Nginx container not found", 500)
 			return
 		}
 
@@ -394,24 +395,24 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		prefix, err := parseSubnetPrefix(subnet)
 		if err != nil {
 			log.Printf("Invalid IPV6_SUBNET: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		rotatingPrefix, err := rotatingIPv6Prefix(subnet)
 		if err != nil {
 			log.Printf("Invalid IPV6_SUBNET rotating prefix: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
-		xrayAssigned := getContainerIPs(ctx, cli, xrayID)
-		nginxAssigned := getContainerIPs(ctx, cli, nginxID)
+		xrayAssigned := platform.GetContainerIPs(ctx, cli, xrayID)
+		nginxAssigned := platform.GetContainerIPs(ctx, cli, nginxID)
 		allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
 		xrayExclude := append([]string{xrayStatic, nginxStatic}, allAssigned...)
 		xrayIP, err := genRandomIPv6(prefix, xrayExclude...)
 		if err != nil {
 			log.Printf("Failed to generate xray IPv6: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -419,22 +420,22 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		nginxIP, err := genRandomIPv6(prefix, nginxExclude...)
 		if err != nil {
 			log.Printf("Failed to generate nginx IPv6: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
 
 		// Add new IPs
-		if err := addContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
+		if err := platform.AddContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
 			log.Printf("Failed to add IPv6 to xray: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		if err := addContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
-			delContainerIP(ctx, cli, xrayID, xrayIP)
+		if err := platform.AddContainerIP(ctx, cli, nginxID, nginxIP); err != nil {
+			platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
 			log.Printf("Failed to add IPv6 to nginx: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -443,30 +444,30 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		updated, rollbackOK, err := updateDomainAAAARecords(domains, xrayIP, nginxIP)
 		if err != nil {
 			if rollbackOK {
-				delContainerIP(ctx, cli, xrayID, xrayIP)
-				delContainerIP(ctx, cli, nginxID, nginxIP)
+				platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
+				platform.DelContainerIP(ctx, cli, nginxID, nginxIP)
 				log.Printf("DNS update failed: %v; rolled back DNS and IPs", err)
 			} else {
 				saveCurrentIPs(xrayIP, nginxIP)
 				log.Printf("DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
 			}
-			writeError(w, "DNS update failed", 500)
+			platform.WriteError(w, "DNS update failed", 500)
 			return
 		}
 
 		saveCurrentIPs(xrayIP, nginxIP)
 		var retired []retiredIPv6Entry
-		if oldXrayIP != "" && normalizeIPv6(oldXrayIP) != normalizeIPv6(xrayStatic) && isRotatingIPv6InPrefix(oldXrayIP, rotatingPrefix) {
+		if oldXrayIP != "" && platform.NormalizeIPv6(oldXrayIP) != platform.NormalizeIPv6(xrayStatic) && isRotatingIPv6InPrefix(oldXrayIP, rotatingPrefix) {
 			retired = append(retired, retiredIPv6Entry{Service: "xray", IP: oldXrayIP})
 		}
-		if oldNginxIP != "" && normalizeIPv6(oldNginxIP) != normalizeIPv6(nginxStatic) && isRotatingIPv6InPrefix(oldNginxIP, rotatingPrefix) {
+		if oldNginxIP != "" && platform.NormalizeIPv6(oldNginxIP) != platform.NormalizeIPv6(nginxStatic) && isRotatingIPv6InPrefix(oldNginxIP, rotatingPrefix) {
 			retired = append(retired, retiredIPv6Entry{Service: "nginx", IP: oldNginxIP})
 		}
 		retireRotatingIPs(retired...)
 		retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
 		retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"xray_ip":               xrayIP,
 			"nginx_ip":              nginxIP,
 			"domains":               updated,
@@ -498,7 +499,7 @@ func parseSubnetPrefix(subnet string) (string, error) {
 func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 	excludeSet := map[string]bool{}
 	for _, e := range exclude {
-		if normalized := normalizeIPv6(e); normalized != "" {
+		if normalized := platform.NormalizeIPv6(e); normalized != "" {
 			excludeSet[normalized] = true
 		}
 	}
@@ -516,7 +517,7 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 			binary.BigEndian.Uint16(ifid[2:4]),
 			binary.BigEndian.Uint16(ifid[4:6]),
 		)
-		ip = normalizeIPv6(ip)
+		ip = platform.NormalizeIPv6(ip)
 		if !excludeSet[ip] {
 			return ip, nil
 		}
@@ -528,30 +529,30 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
-		if getEnv("CF_API_TOKEN") == "" {
-			writeError(w, "CF_API_TOKEN not configured", 400)
+		if platform.GetEnv("CF_API_TOKEN") == "" {
+			platform.WriteError(w, "CF_API_TOKEN not configured", 400)
 			return
 		}
 		// 使用独立 context 避免 HTTP 客户端断开取消 DNS 同步操作。
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		// Get actual container IPs — no local state, containers are the source of truth.
-		xrayID, err := findContainer(ctx, cli, "xray")
+		xrayID, err := platform.FindContainer(ctx, cli, "xray")
 		if err != nil {
 			log.Printf("xray container: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		nginxID, err := findContainer(ctx, cli, "nginx")
+		nginxID, err := platform.FindContainer(ctx, cli, "nginx")
 		if err != nil {
 			log.Printf("nginx container: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
 		oldXrayIP, oldNginxIP := loadCurrentIPs()
-		xrayIP := selectContainerDNSIP(ctx, cli, xrayID, getEnv("XRAY_IPV6"), oldXrayIP)
-		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, getEnv("NGINX_IPV6"), oldNginxIP)
+		xrayIP := selectContainerDNSIP(ctx, cli, xrayID, platform.GetEnv("XRAY_IPV6"), oldXrayIP)
+		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, platform.GetEnv("NGINX_IPV6"), oldNginxIP)
 
 		var results []string
 		for _, di := range allDomainInfos() {
@@ -568,7 +569,7 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		saveCurrentIPs(xrayIP, nginxIP)
-		writeJSON(w, map[string]any{"results": results})
+		platform.WriteJSON(w, map[string]any{"results": results})
 	}
 }
 
@@ -576,31 +577,31 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 // keep the current rotating DNS IP if it is still assigned, otherwise prefer
 // any assigned rotating-range IP over the static Docker-assigned address.
 func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, staticIP, currentDNSIP string) string {
-	ips := getContainerIPs(ctx, cli, containerID)
+	ips := platform.GetContainerIPs(ctx, cli, containerID)
 	if len(ips) == 0 {
 		return staticIP
 	}
-	subnet := getEnv("IPV6_SUBNET")
+	subnet := platform.GetEnv("IPV6_SUBNET")
 	rotatingPrefix, err := rotatingIPv6Prefix(subnet)
 	if err != nil {
 		return staticIP
 	}
-	currentDNSIP = normalizeIPv6(currentDNSIP)
-	staticIP = normalizeIPv6(staticIP)
+	currentDNSIP = platform.NormalizeIPv6(currentDNSIP)
+	staticIP = platform.NormalizeIPv6(staticIP)
 	if currentDNSIP != "" && currentDNSIP != staticIP && isRotatingIPv6InPrefix(currentDNSIP, rotatingPrefix) {
 		for _, ip := range ips {
-			if normalizeIPv6(ip) == currentDNSIP {
+			if platform.NormalizeIPv6(ip) == currentDNSIP {
 				return currentDNSIP
 			}
 		}
 	}
 	for _, ip := range ips {
 		if isRotatingIPv6InPrefix(ip, rotatingPrefix) {
-			return normalizeIPv6(ip)
+			return platform.NormalizeIPv6(ip)
 		}
 	}
 	for _, ip := range ips {
-		if normalizeIPv6(ip) == staticIP {
+		if platform.NormalizeIPv6(ip) == staticIP {
 			return ip
 		}
 	}
@@ -609,7 +610,7 @@ func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, 
 
 func restartXray(ctx context.Context, cli *client.Client) error {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: composeProjectFilters(filters.KeyValuePair{
+		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=xray",
 		}),
 	})
@@ -621,7 +622,7 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	}
 	id := containers[0].ID
 
-	t := dockerStopTimeoutSeconds
+	t := platform.DockerStopTimeoutSeconds
 	restartErr := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t})
 
 	// 始终尝试恢复轮换 IP。Docker restart 超时/cancel 时容器可能已完成重启，
@@ -635,7 +636,7 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 }
 
 func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, containerID, service string) {
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 	// 非阻塞获取读锁:启动轮换/手动轮换持写锁期间跳过本轮恢复(与
@@ -652,7 +653,7 @@ func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, container
 	if ip == "" {
 		return
 	}
-	if err := addContainerIP(ctx, cli, containerID, ip); err != nil {
+	if err := platform.AddContainerIP(ctx, cli, containerID, ip); err != nil {
 		log.Printf("WARNING: failed to restore %s rotating IPv6 %s: %v", service, ip, err)
 	}
 }
