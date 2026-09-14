@@ -37,6 +37,11 @@ func generateConfigs() error {
 	if err := media.EnsureNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
 	}
+	// 封禁 map 配置是 nginx 配置的硬依赖(undefined variable 即 emerg),
+	// 必须在 nginx 容器启动前同步落盘;后续变更仍走 2s 去抖的异步同步。
+	if err := auth.WriteBlockedIPsConf(); err != nil {
+		return fmt.Errorf("nginx blocked-ips conf: %w", err)
+	}
 	if err := auth.EnsureHtpasswd(); err != nil {
 		return fmt.Errorf("htpasswd: %w", err)
 	}
