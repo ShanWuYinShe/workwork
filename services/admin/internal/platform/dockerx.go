@@ -15,11 +15,8 @@ import (
 	"time"
 )
 
-// ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转。
-// 写锁：startupRotateIPv6 / apiRotateIPv6（分配新 IP、更新 DNS）。
-// 读锁：restoreServiceRotatingIP（恢复当前 IP，不修改 DNS）。
 // docker 容器 stop 的宽限期（秒）：超时后 SIGKILL。service action / 部署
-// 重启路径共用。
+// 重启路径共用。（IPv6 轮换的并发互斥见 proxy 包的 ipv6RotateMu。）
 const DockerStopTimeoutSeconds = 10
 
 // FindContainer returns the container ID for a given compose service label.
@@ -70,14 +67,18 @@ func GetContainerIPs(ctx context.Context, cli *client.Client, containerID string
 		Cmd:          []string{"sh", "-c", "ip -6 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1"},
 		AttachStdout: true, AttachStderr: true,
 	}
+	shortID := containerID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
 	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
-		log.Printf("GetContainerIPs: exec create %s: %v", containerID[:12], err)
+		log.Printf("GetContainerIPs: exec create %s: %v", shortID, err)
 		return nil
 	}
 	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
-		log.Printf("GetContainerIPs: exec attach %s: %v", containerID[:12], err)
+		log.Printf("GetContainerIPs: exec attach %s: %v", shortID, err)
 		return nil
 	}
 	defer attachResp.Close()

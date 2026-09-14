@@ -30,12 +30,6 @@ var (
 	xrayClientsMu   sync.Mutex
 )
 
-func readXrayClients() ([]xrayClientEntry, error) {
-	xrayClientsMu.Lock()
-	defer xrayClientsMu.Unlock()
-	return readXrayClientsNoLock()
-}
-
 // readXrayClientsNoLock assumes the caller already holds xrayClientsMu.
 func readXrayClientsNoLock() ([]xrayClientEntry, error) {
 	data, err := os.ReadFile(xrayClientsPath)
@@ -205,13 +199,9 @@ func EnsureXrayClients() error {
 }
 
 func migrateXrayClientsFromConfig() []xrayClientEntry {
-	var data []byte
-	for _, path := range []string{proxy.XrayConfigPath} {
-		var err error
-		data, err = os.ReadFile(path)
-		if err == nil {
-			break
-		}
+	data, err := os.ReadFile(proxy.XrayConfigPath)
+	if err != nil {
+		data = nil
 	}
 	if len(data) == 0 {
 		return nil
@@ -249,5 +239,5 @@ func migrateXrayClientsFromConfig() []xrayClientEntry {
 func ReadXrayClientMaps() ([]map[string]string, error) {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
-	return ReadXrayClients()
+	return readXrayClientMapsNoLock()
 }

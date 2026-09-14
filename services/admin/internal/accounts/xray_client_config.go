@@ -7,7 +7,11 @@ import (
 	"os"
 )
 
-func ReadXrayClients() ([]map[string]string, error) {
+// readXrayClientMapsNoLock 读取 clients 并转成 map 形式(handler 展示用)。
+// 命名含 NoLock:调用方必须已持有 xrayClientsMu(与 readXrayClientsNoLock
+// 同一约定)。此前名为 ReadXrayClients(大写、无锁),与已删除的加锁版
+// readXrayClients 仅大小写之差——曾有调用方误用加锁版造成双重加锁死锁的风险。
+func readXrayClientMapsNoLock() ([]map[string]string, error) {
 	data, err := os.ReadFile("/app/data/xray-clients.json")
 	if err != nil {
 		if os.IsNotExist(err) {
