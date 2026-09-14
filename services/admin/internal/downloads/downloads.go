@@ -1,4 +1,4 @@
-package main
+package downloads
 
 // downloads.go 是 claude.go / xray.go 的共享下载层。
 // 此前两文件约 500 行结构性重复（manifest 读写、下载循环、NDJSON 进度、
@@ -475,7 +475,40 @@ func joinDownloadPath(dir, filename string) string {
 	return filepath.Join(dir, filename)
 }
 
-// downloadDirs 返回全部工具下载目录（purgeStaleDownloadTemps 启动清理用）。
+// downloadDirs 返回全部工具下载目录（PurgeStaleDownloadTemps 启动清理用）。
 func downloadDirs() []string {
 	return []string{claudeDownloads.dir, xrayDownloads.dir}
+}
+
+// 迁自主包 deploy.go:启动时清理中断下载残留。
+// PurgeStaleDownloadTemps 清理上次运行残留的 ".download-*" 临时文件。
+//
+// download{Claude,Xray}Archive 用 defer os.Remove 清理正常/失败路径,但容器在
+// 下载中途被 kill 或重建(如 docker compose up -d admin)时 defer 不执行,临时
+// 文件会永久留在下载目录:既占磁盘(claude/Xray 包可达数百 MB),又会被
+// downloads.ApiClaudeCodeServeDownload / downloads.ApiXrayServeDownload 的路径校验拒之门外——
+// 永远不可下载也不可删除的僵尸文件。启动是唯一可靠的清理时机(此刻不可能有
+// 正在进行的下载)。
+func PurgeStaleDownloadTemps() {
+	for _, dir := range downloadDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue // 目录不存在:尚未下载过任何文件
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !strings.Contains(name, ".download-") {
+				continue
+			}
+			p := filepath.Join(dir, name)
+			if err := os.Remove(p); err != nil {
+				log.Printf("remove stale download temp %s: %v", p, err)
+				continue
+			}
+			log.Printf("removed stale download temp: %s", p)
+		}
+	}
 }

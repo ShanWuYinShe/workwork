@@ -1,4 +1,4 @@
-package main
+package music
 
 // 网易云账号扫码登录:管理面板展示二维码,轮询扫码状态,成功后提取
 // MUSIC_U cookie 写入共享文件(music_server 热加载,30s 内生效)。
@@ -88,8 +88,8 @@ func neteaseUpstreamGet(path string, timeout time.Duration) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// apiNeteaseLoginStart 生成扫码 key 与二维码。
-func apiNeteaseLoginStart() http.HandlerFunc {
+// ApiNeteaseLoginStart 生成扫码 key 与二维码。
+func ApiNeteaseLoginStart() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ts := time.Now().UnixMilli()
 		keyBody, err := neteaseUpstreamGet(fmt.Sprintf("/login/qr/key?timestamp=%d", ts), 8*time.Second)
@@ -139,8 +139,8 @@ func apiNeteaseLoginStart() http.HandlerFunc {
 	}
 }
 
-// apiNeteaseLoginPoll 轮询扫码状态;803(成功)时提取 MUSIC_U 写入 cookie 文件。
-func apiNeteaseLoginPoll() http.HandlerFunc {
+// ApiNeteaseLoginPoll 轮询扫码状态;803(成功)时提取 MUSIC_U 写入 cookie 文件。
+func ApiNeteaseLoginPoll() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		if key == "" {
@@ -200,9 +200,9 @@ func apiNeteaseLoginPoll() http.HandlerFunc {
 	}
 }
 
-// apiNeteaseLoginState 返回当前登录态:cookie 文件存在即视为已配置,
+// ApiNeteaseLoginState 返回当前登录态:cookie 文件存在即视为已配置,
 // 并经上游 login/status 校验与取昵称(上游失败不影响已配置状态的展示)。
-func apiNeteaseLoginState() http.HandlerFunc {
+func ApiNeteaseLoginState() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info, err := os.Stat(neteaseCookiePath)
 		if err != nil {
@@ -237,8 +237,8 @@ func apiNeteaseLoginState() http.HandlerFunc {
 	}
 }
 
-// apiNeteaseLoginLogout 删除 cookie 文件(music_server 检测到文件消失即回匿名)。
-func apiNeteaseLoginLogout() http.HandlerFunc {
+// ApiNeteaseLoginLogout 删除 cookie 文件(music_server 检测到文件消失即回匿名)。
+func ApiNeteaseLoginLogout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := os.Remove(neteaseCookiePath); err != nil && !os.IsNotExist(err) {
 			platform.WriteInternalError(w, err)

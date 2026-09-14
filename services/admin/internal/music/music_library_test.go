@@ -1,6 +1,7 @@
-package main
+package music
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"encoding/json"
 	"mime/multipart"
@@ -51,7 +52,7 @@ func TestMusicLibraryUploadListDelete(t *testing.T) {
 		"notes.txt":          "z",
 	})
 	rec := httptest.NewRecorder()
-	apiMusicLibraryUpload().ServeHTTP(rec, req)
+	ApiMusicLibraryUpload().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
 	}
@@ -87,7 +88,7 @@ func TestMusicLibraryUploadListDelete(t *testing.T) {
 
 	// 列表:只见白名单音频。
 	rec = httptest.NewRecorder()
-	apiMusicLibraryList().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/music-library", nil))
+	ApiMusicLibraryList().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/music-library", nil))
 	var list struct {
 		Data struct {
 			Files []musicLibraryFile `json:"files"`
@@ -102,13 +103,13 @@ func TestMusicLibraryUploadListDelete(t *testing.T) {
 
 	// 删除:合法名成功,穿越名拒绝。
 	rec = httptest.NewRecorder()
-	apiMusicLibraryDelete().ServeHTTP(rec, httptest.NewRequest(http.MethodDelete,
+	ApiMusicLibraryDelete().ServeHTTP(rec, httptest.NewRequest(http.MethodDelete,
 		"/api/admin/music-library?name="+url.QueryEscape("歌手A - 歌名B.mp3"), nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	apiMusicLibraryDelete().ServeHTTP(rec, httptest.NewRequest(http.MethodDelete,
+	ApiMusicLibraryDelete().ServeHTTP(rec, httptest.NewRequest(http.MethodDelete,
 		"/api/admin/music-library?name="+url.QueryEscape("../../etc/passwd"), nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("traversal delete must be rejected, got %d", rec.Code)
@@ -125,7 +126,7 @@ func TestMusicLibraryUploadOverwrites(t *testing.T) {
 	for i, content := range []string{"v1", "v2-longer"} {
 		req := musicUploadRequest(t, map[string]string{"同一首 - 名字.mp3": content})
 		rec := httptest.NewRecorder()
-		apiMusicLibraryUpload().ServeHTTP(rec, req)
+		ApiMusicLibraryUpload().ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("upload #%d: %d %s", i, rec.Code, rec.Body.String())
 		}
@@ -144,9 +145,8 @@ func TestMusicLibraryUploadOverwrites(t *testing.T) {
 // 的真实歌曲在 ParseMultipartForm 即失败(线上 400"上传内容过大或格式不正确")。
 // 走 applyBodyLimit + handler 完整链路 + 真 HTTP 客户端,模拟线上请求路径。
 func TestMusicLibraryUploadBypassesGlobalBodyLimit(t *testing.T) {
-	if !bodyLimitExempt("/api/admin/music-library/upload") {
-		t.Fatal("music-library/upload must be exempt from the global 1MB body limit")
-	}
+	// 模拟 main 路由装配: 注册处声明豁免(main 包的契约测试锁住真实清单)。
+	platform.ExemptBodyLimit("/api/admin/music-library/upload")
 
 	dir := t.TempDir()
 	old := musicLibraryDir
@@ -154,8 +154,8 @@ func TestMusicLibraryUploadBypassesGlobalBodyLimit(t *testing.T) {
 	t.Cleanup(func() { musicLibraryDir = old })
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		applyBodyLimit(w, r)
-		apiMusicLibraryUpload().ServeHTTP(w, r)
+		platform.ApplyBodyLimit(w, r)
+		ApiMusicLibraryUpload().ServeHTTP(w, r)
 	}))
 	defer srv.Close()
 

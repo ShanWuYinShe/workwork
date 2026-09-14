@@ -3,10 +3,13 @@ package main
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
+	"admin/internal/downloads"
 	"admin/internal/infra"
 	"admin/internal/media"
+	"admin/internal/music"
 	"admin/internal/platform"
 	"admin/internal/proxy"
+	"admin/internal/transfer"
 	"context"
 	"log"
 	"net/http"
@@ -100,17 +103,17 @@ func main() {
 	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", auth.RequireRole("admin")(media.ApiMediaAppReleaseRollback()))
 	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", auth.RequireRole("admin")(media.ApiMediaAppReleaseVersionDelete()))
 	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
-	mux.HandleFunc("GET /api/admin/music-library", auth.RequireRole("admin")(apiMusicLibraryList()))
-	mux.HandleFunc("POST /api/admin/music-library/upload", auth.RequireRole("admin")(apiMusicLibraryUpload()))
+	mux.HandleFunc("GET /api/admin/music-library", auth.RequireRole("admin")(music.ApiMusicLibraryList()))
+	mux.HandleFunc("POST /api/admin/music-library/upload", auth.RequireRole("admin")(music.ApiMusicLibraryUpload()))
 	// 分片上传（大文件绕过 CF 单请求 100MB 上限 + 断点续传）
-	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(apiMusicChunkUpload()))
-	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(apiMusicChunkQuery()))
-	mux.HandleFunc("DELETE /api/admin/music-library", auth.RequireRole("admin")(apiMusicLibraryDelete()))
+	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(music.ApiMusicChunkUpload()))
+	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(music.ApiMusicChunkQuery()))
+	mux.HandleFunc("DELETE /api/admin/music-library", auth.RequireRole("admin")(music.ApiMusicLibraryDelete()))
 	// 网易云账号扫码登录：二维码生成 / 轮询（成功写 cookie 文件）/ 状态 / 登出
-	mux.HandleFunc("POST /api/admin/music/netease/login/start", auth.RequireRole("admin")(apiNeteaseLoginStart()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/poll", auth.RequireRole("admin")(apiNeteaseLoginPoll()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/state", auth.RequireRole("admin")(apiNeteaseLoginState()))
-	mux.HandleFunc("POST /api/admin/music/netease/login/logout", auth.RequireRole("admin")(apiNeteaseLoginLogout()))
+	mux.HandleFunc("POST /api/admin/music/netease/login/start", auth.RequireRole("admin")(music.ApiNeteaseLoginStart()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/poll", auth.RequireRole("admin")(music.ApiNeteaseLoginPoll()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/state", auth.RequireRole("admin")(music.ApiNeteaseLoginState()))
+	mux.HandleFunc("POST /api/admin/music/netease/login/logout", auth.RequireRole("admin")(music.ApiNeteaseLoginLogout()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", auth.RequireRole("admin")(auth.ApiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", auth.RequireRole("admin")(auth.ApiBlockIP()))
@@ -127,35 +130,35 @@ func main() {
 	})
 
 	// Claude Code downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/claude-code/releases", auth.RequireRole("admin")(apiClaudeCodeReleases()))
-	mux.HandleFunc("POST /api/admin/claude-code/refresh", auth.RequireRole("admin")(apiClaudeCodeRefresh()))
-	mux.HandleFunc("GET /api/admin/claude-code/platforms/{version}", auth.RequireRole("admin")(apiClaudeCodePlatforms()))
-	mux.HandleFunc("GET /api/admin/claude-code/stored", auth.RequireRole("viewer")(apiClaudeCodeStored()))
-	mux.HandleFunc("POST /api/admin/claude-code/download", auth.RequireRole("admin")(apiClaudeCodeDownload()))
-	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", auth.RequireRole("viewer")(apiClaudeCodeServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
+	mux.HandleFunc("GET /api/admin/claude-code/releases", auth.RequireRole("admin")(downloads.ApiClaudeCodeReleases()))
+	mux.HandleFunc("POST /api/admin/claude-code/refresh", auth.RequireRole("admin")(downloads.ApiClaudeCodeRefresh()))
+	mux.HandleFunc("GET /api/admin/claude-code/platforms/{version}", auth.RequireRole("admin")(downloads.ApiClaudeCodePlatforms()))
+	mux.HandleFunc("GET /api/admin/claude-code/stored", auth.RequireRole("viewer")(downloads.ApiClaudeCodeStored()))
+	mux.HandleFunc("POST /api/admin/claude-code/download", auth.RequireRole("admin")(downloads.ApiClaudeCodeDownload()))
+	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", auth.RequireRole("viewer")(downloads.ApiClaudeCodeServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", auth.RequireRole("admin")(downloads.ApiClaudeCodeDeleteDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", auth.RequireRole("admin")(downloads.ApiClaudeCodeDeleteDownload()))
 	// Service logs
 	mux.HandleFunc("GET /api/admin/services/{name}/logs", auth.RequireRole("admin")(infra.ApiServiceLogs(cli)))
 	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", auth.RequireRole("admin")(infra.ApiServiceLogStream(cli)))
 	// Xray downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/xray/releases", auth.RequireRole("admin")(apiXrayReleases()))
-	mux.HandleFunc("POST /api/admin/xray/refresh", auth.RequireRole("admin")(apiXrayRefresh()))
-	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", auth.RequireRole("admin")(apiXrayPlatforms()))
-	mux.HandleFunc("GET /api/admin/xray/stored", auth.RequireRole("viewer")(apiXrayStored()))
-	mux.HandleFunc("POST /api/admin/xray/download", auth.RequireRole("admin")(apiXrayDownload()))
-	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", auth.RequireRole("viewer")(apiXrayServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads", auth.RequireRole("admin")(apiXrayDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads/", auth.RequireRole("admin")(apiXrayDeleteDownload()))
+	mux.HandleFunc("GET /api/admin/xray/releases", auth.RequireRole("admin")(downloads.ApiXrayReleases()))
+	mux.HandleFunc("POST /api/admin/xray/refresh", auth.RequireRole("admin")(downloads.ApiXrayRefresh()))
+	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", auth.RequireRole("admin")(downloads.ApiXrayPlatforms()))
+	mux.HandleFunc("GET /api/admin/xray/stored", auth.RequireRole("viewer")(downloads.ApiXrayStored()))
+	mux.HandleFunc("POST /api/admin/xray/download", auth.RequireRole("admin")(downloads.ApiXrayDownload()))
+	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", auth.RequireRole("viewer")(downloads.ApiXrayServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads", auth.RequireRole("admin")(downloads.ApiXrayDeleteDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads/", auth.RequireRole("admin")(downloads.ApiXrayDeleteDownload()))
 	// Rate limit management (admin only)
 	mux.HandleFunc("GET /api/admin/security/rate-limit", auth.RequireRole("admin")(auth.ApiRateLimitStatus()))
 	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", auth.RequireRole("admin")(auth.ApiRateLimitUnblock()))
 	// File transfer station — viewer+ uploads/lists, public download via share code
-	mux.HandleFunc("POST /api/admin/transfer/upload", auth.RequireRole("viewer")(apiTransferUpload()))
-	mux.HandleFunc("GET /api/admin/transfer/files", auth.RequireRole("viewer")(apiTransferList()))
-	mux.HandleFunc("DELETE /api/admin/transfer/files", auth.RequireRole("viewer")(apiTransferDelete()))
+	mux.HandleFunc("POST /api/admin/transfer/upload", auth.RequireRole("viewer")(transfer.ApiTransferUpload()))
+	mux.HandleFunc("GET /api/admin/transfer/files", auth.RequireRole("viewer")(transfer.ApiTransferList()))
+	mux.HandleFunc("DELETE /api/admin/transfer/files", auth.RequireRole("viewer")(transfer.ApiTransferDelete()))
 	// Public transfer download — no auth required
-	mux.HandleFunc("GET /api/transfer/{code}", apiTransferPublicDownload())
+	mux.HandleFunc("GET /api/transfer/{code}", transfer.ApiTransferPublicDownload())
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("GET /admin/", serveSPA)
@@ -178,7 +181,7 @@ func main() {
 		// Transfer upload streams large bodies (per-file cap enforced in the
 		// handler via io.LimitReader); use exact match to avoid false positives
 		// on similar paths.
-		applyBodyLimit(w, r)
+		platform.ApplyBodyLimit(w, r)
 		// Static assets: /assets/ 是指纹文件名(内容哈希),可永久缓存;
 		// favicon.svg / icons.svg 非指纹,更新后需尽快生效,只给短缓存。
 		// 两者都跳过 rate limit(高频低价值)。
@@ -214,17 +217,17 @@ func main() {
 	auth.StartRateLimiter()
 
 	// Graceful shutdown — context 创建在 cleanup goroutine 之前，
-	// 这样 transferCleanupLoop 能响应 SIGTERM 信号优雅退出。
+	// 这样 transfer.StartCleanupLoop 能响应 SIGTERM 信号优雅退出。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
 	defer auth.StopRateLimiter()
 
-	cleanupOrphanTransferTempFiles()
-	go transferCleanupLoop(ctx)
-	cleanupExpiredChunkUploads()
-	go chunkCleanupLoop(ctx)
+	transfer.CleanupOrphanTempFiles()
+	go transfer.StartCleanupLoop(ctx)
+	music.CleanupExpiredChunkUploads()
+	go music.StartChunkCleanupLoop(ctx)
 
 	go func() {
 		log.Printf("Admin panel listening on %s", srv.Addr)
@@ -255,30 +258,16 @@ func main() {
 	log.Println("Server stopped")
 }
 
+// 大上传端点豁免全局 1MB 请求体上限。与下方路由注册一一对应,新增大上传
+// 端点时必须在此同步声明;main_test.go 的契约测试锁住该清单。
+func init() {
+	platform.ExemptBodyLimit("/api/admin/transfer/upload")             // handler: 2GB
+	platform.ExemptBodyLimit("/api/admin/media-center/app-release")    // APK 发布上传
+	platform.ExemptBodyLimit("/api/admin/media-center/catalog/import") // 目录导入
+	platform.ExemptBodyLimit("/api/admin/music-library/upload")        // handler: 408MB(multipart)
+	platform.ExemptBodyLimit("/api/admin/music-library/upload-chunk")  // handler: 单片 8MB+开销
+}
+
 func serveSPA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/app/ui/index.html")
-}
-
-// bodyLimitExempt 列出豁免全局 1MB 请求体上限的大上传端点;各自 handler 内
-// 用 MaxBytesReader/io.LimitReader 施加自己的上限。新增大上传端点必须加进
-// 此名单,否则 multipart 解析在 1MB 处即失败(music-library 上传曾因未豁免
-// 而全部 400)。精确匹配,防相似路径误豁免。
-var bodyLimitExemptPaths = map[string]bool{
-	"/api/admin/transfer/upload":             true, // handler: 2GB
-	"/api/admin/media-center/app-release":    true, // APK 发布上传
-	"/api/admin/media-center/catalog/import": true, // 目录导入
-	"/api/admin/music-library/upload":        true, // handler: 408MB(multipart)
-	"/api/admin/music-library/upload-chunk":  true, // handler: 单片 8MB+开销
-}
-
-func bodyLimitExempt(path string) bool {
-	return bodyLimitExemptPaths[path]
-}
-
-// applyBodyLimit 对未豁免路径施加全局 1MB 请求体上限(大上传端点见
-// bodyLimitExemptPaths,由各 handler 自行限制)。抽成函数以便测试覆盖完整链路。
-func applyBodyLimit(w http.ResponseWriter, r *http.Request) {
-	if !bodyLimitExempt(r.URL.Path) {
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
-	}
 }
