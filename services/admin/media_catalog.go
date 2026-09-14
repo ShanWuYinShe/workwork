@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -33,7 +34,7 @@ func mediaCenterInternalBaseURL() string {
 }
 
 func mediaCenterInternalToken() string {
-	return strings.TrimSpace(getEnv("MEDIA_SERVER_INTERNAL_TOKEN"))
+	return strings.TrimSpace(platform.GetEnv("MEDIA_SERVER_INTERNAL_TOKEN"))
 }
 
 // callMediaCenterInternal 向 media_server 内部管理接口发起带令牌的请求，返回状态码与响应体。
@@ -92,15 +93,15 @@ func mediaCenterInternalErrorMessage(payload []byte, status int) string {
 }
 
 // proxyMediaCenterInternal 调用内部接口并把结果转写为 admin 统一信封：
-// 成功时把上游 JSON 原样作为 data 透传;失败时提取上游消息用 writeError 返回对应状态码。
+// 成功时把上游 JSON 原样作为 data 透传;失败时提取上游消息用 platform.WriteError 返回对应状态码。
 func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method, path string, query url.Values, body []byte) {
 	status, payload, err := callMediaCenterInternal(ctx, method, path, query, body)
 	if err != nil {
 		if errors.Is(err, errMediaCenterInternalDisabled) {
-			writeError(w, "媒体中心内部管理接口未启用：请在 .env 配置 MEDIA_SERVER_INTERNAL_TOKEN 并重建 admin/media_server", http.StatusServiceUnavailable)
+			platform.WriteError(w, "媒体中心内部管理接口未启用：请在 .env 配置 MEDIA_SERVER_INTERNAL_TOKEN 并重建 admin/media_server", http.StatusServiceUnavailable)
 			return
 		}
-		writeInternalError(w, err)
+		platform.WriteInternalError(w, err)
 		return
 	}
 	if status < 200 || status >= 300 {
@@ -108,21 +109,21 @@ func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method
 		// 透传给前端会泄露内部状态;仅 4xx 业务错误(如 not_found)保留上游消息。
 		if status >= 500 {
 			log.Printf("media center internal %s %s: status=%d body=%s", method, path, status, string(payload))
-			writeInternalError(w, errors.New("media center internal API error"))
+			platform.WriteInternalError(w, errors.New("media center internal API error"))
 			return
 		}
-		writeError(w, mediaCenterInternalErrorMessage(payload, status), status)
+		platform.WriteError(w, mediaCenterInternalErrorMessage(payload, status), status)
 		return
 	}
 	if len(bytes.TrimSpace(payload)) == 0 {
-		writeJSON(w, struct{}{})
+		platform.WriteJSON(w, struct{}{})
 		return
 	}
 	if !json.Valid(payload) {
-		writeInternalError(w, errors.New("media center internal API returned non-JSON body"))
+		platform.WriteInternalError(w, errors.New("media center internal API returned non-JSON body"))
 		return
 	}
-	writeJSON(w, json.RawMessage(payload))
+	platform.WriteJSON(w, json.RawMessage(payload))
 }
 
 // apiMediaCatalogOverview 代理 GET /internal/catalog/overview：各分类审校计数 + 快照概况 + 维护操作状态。
@@ -139,7 +140,7 @@ func apiMediaCatalogItems() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		category := strings.TrimSpace(r.URL.Query().Get("category"))
 		if category == "" {
-			writeError(w, "category 参数不能为空", http.StatusBadRequest)
+			platform.WriteError(w, "category 参数不能为空", http.StatusBadRequest)
 			return
 		}
 		q := url.Values{}
@@ -182,12 +183,12 @@ func apiMediaCatalogReview() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		var req map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &req); err != nil {
-			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			platform.WriteError(w, "请求体不是合法 JSON", http.StatusBadRequest)
 			return
 		}
 		_, username := getUserFromContext(r)
@@ -196,7 +197,7 @@ func apiMediaCatalogReview() http.HandlerFunc {
 		}
 		body, err := json.Marshal(req)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
@@ -211,11 +212,11 @@ func apiMediaCatalogDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if !json.Valid(bytes.TrimSpace(raw)) {
-			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			platform.WriteError(w, "请求体不是合法 JSON", http.StatusBadRequest)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
@@ -231,20 +232,20 @@ func apiMediaCatalogImport() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
-			writeError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
+			platform.WriteError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
 			return
 		}
 		var req map[string]json.RawMessage
 		if err := json.Unmarshal(bytes.TrimSpace(raw), &req); err != nil {
-			writeError(w, "请求体不是合法 JSON", http.StatusBadRequest)
+			platform.WriteError(w, "请求体不是合法 JSON", http.StatusBadRequest)
 			return
 		}
 		if req == nil {
-			writeError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
+			platform.WriteError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
 			return
 		}
 		_, username := getUserFromContext(r)
@@ -253,7 +254,7 @@ func apiMediaCatalogImport() http.HandlerFunc {
 		}
 		body, err := json.Marshal(req)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)

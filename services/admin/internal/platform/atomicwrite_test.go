@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"fmt"
@@ -27,7 +27,7 @@ func TestAtomicWriteFileConcurrentSamePath(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			data := []byte(fmt.Sprintf("payload-%02d", n))
-			if err := atomicWriteFile(path, data, 0o644); err != nil {
+			if err := AtomicWriteFile(path, data, 0o644); err != nil {
 				errs <- err
 			}
 		}(i)
@@ -35,7 +35,7 @@ func TestAtomicWriteFileConcurrentSamePath(t *testing.T) {
 	wg.Wait()
 	close(errs)
 	for err := range errs {
-		t.Fatalf("concurrent atomicWriteFile failed: %v", err)
+		t.Fatalf("concurrent AtomicWriteFile failed: %v", err)
 	}
 
 	got, err := os.ReadFile(path)

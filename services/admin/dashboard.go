@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"fmt"
 	"github.com/docker/docker/client"
 	"log"
@@ -16,7 +17,7 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 			allClients, err := readXrayClientMaps()
 			if err != nil {
 				log.Printf("Failed to read clients for dashboard: %v", err)
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 			var myClients []map[string]string
@@ -29,19 +30,19 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 			if len(myClients) > 0 {
 				proxyAuth, err = proxyAuthForUser(username)
 				if err != nil {
-					writeInternalError(w, err)
+					platform.WriteInternalError(w, err)
 					return
 				}
 			}
 			genJSON := GenerateClientConfig(myClients, ClientConfig{
-				RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
-				RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
-				RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+				RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
+				RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
+				RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
 				RealityShortID:    xrayClientShortID(),
-				XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+				XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPProxyAuth:    proxyAuth,
 			})
-			writeJSON(w, map[string]any{
+			platform.WriteJSON(w, map[string]any{
 				"role":          userInfo.Role,
 				"username":      username,
 				"myClients":     myClients,
@@ -72,6 +73,6 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		svcs := listServicesJSON(r.Context(), cli)
-		writeJSON(w, map[string]any{"stats": stats, "services": svcs, "role": "admin"})
+		platform.WriteJSON(w, map[string]any{"stats": stats, "services": svcs, "role": "admin"})
 	}
 }

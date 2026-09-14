@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"encoding/json"
 	"errors"
@@ -72,7 +73,7 @@ func saveRotatingIPStateLocked(state rotatingIPState) {
 		log.Printf("ERROR: marshal rotating IP state: %v", err)
 		return
 	}
-	if err := atomicWriteFile(rotatingIPStatePath, data, 0600); err != nil {
+	if err := platform.AtomicWriteFile(rotatingIPStatePath, data, 0600); err != nil {
 		log.Printf("ERROR: save rotating IP state: %v", err)
 	}
 }
@@ -82,7 +83,7 @@ func normalizeRotatingIPState(state *rotatingIPState) {
 		state.Current = map[string]string{}
 	}
 	for service, ip := range state.Current {
-		if normalized := normalizeIPv6(ip); normalized != "" {
+		if normalized := platform.NormalizeIPv6(ip); normalized != "" {
 			state.Current[service] = normalized
 		}
 	}
@@ -90,7 +91,7 @@ func normalizeRotatingIPState(state *rotatingIPState) {
 	dedup := make(map[string]retiredIPv6Entry)
 	for _, entry := range state.Retired {
 		entry.Service = strings.TrimSpace(entry.Service)
-		entry.IP = normalizeIPv6(entry.IP)
+		entry.IP = platform.NormalizeIPv6(entry.IP)
 		if entry.Service == "" || entry.IP == "" {
 			continue
 		}
@@ -112,10 +113,10 @@ func saveCurrentIPs(xrayIP, nginxIP string) {
 
 	state := loadRotatingIPStateLocked()
 	if xrayIP != "" {
-		state.Current["xray"] = normalizeIPv6(xrayIP)
+		state.Current["xray"] = platform.NormalizeIPv6(xrayIP)
 	}
 	if nginxIP != "" {
-		state.Current["nginx"] = normalizeIPv6(nginxIP)
+		state.Current["nginx"] = platform.NormalizeIPv6(nginxIP)
 	}
 	saveRotatingIPStateLocked(state)
 }
@@ -132,7 +133,7 @@ func retireRotatingIPs(entries ...retiredIPv6Entry) {
 	now := time.Now()
 	for _, entry := range entries {
 		entry.Service = strings.TrimSpace(entry.Service)
-		entry.IP = normalizeIPv6(entry.IP)
+		entry.IP = platform.NormalizeIPv6(entry.IP)
 		if entry.Service == "" || entry.IP == "" {
 			continue
 		}
@@ -148,10 +149,10 @@ func retireRotatingIPs(entries ...retiredIPv6Entry) {
 }
 
 func retireStaleAssignedRotatingIPs(service string, assigned []string, keepIP string, rotatingPrefix netip.Prefix) {
-	keepIP = normalizeIPv6(keepIP)
+	keepIP = platform.NormalizeIPv6(keepIP)
 	var entries []retiredIPv6Entry
 	for _, ip := range assigned {
-		ip = normalizeIPv6(ip)
+		ip = platform.NormalizeIPv6(ip)
 		if ip == "" || ip == keepIP || !isRotatingIPv6InPrefix(ip, rotatingPrefix) {
 			continue
 		}
@@ -161,7 +162,7 @@ func retireStaleAssignedRotatingIPs(service string, assigned []string, keepIP st
 }
 
 func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
-	if getEnv("CF_API_TOKEN") == "" {
+	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 	if !ipv6RotateMu.TryLock() {
@@ -172,7 +173,7 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	// 锁内：读取 state 并划分待清理列表，立即落盘（先移除待清理项）。
 	// 这样网络 IO 在锁外执行，不会长时间阻塞其它 state 读写（saveCurrentIPs 等）。
 	rotatingIPStateMu.Lock()
-	rotatingPrefix, err := rotatingIPv6Prefix(getEnv("IPV6_SUBNET"))
+	rotatingPrefix, err := rotatingIPv6Prefix(platform.GetEnv("IPV6_SUBNET"))
 	if err != nil {
 		rotatingIPStateMu.Unlock()
 		log.Printf("[ip-cleanup] subnet: %v", err)
@@ -185,7 +186,7 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	var toCleanup []retiredIPv6Entry
 	for _, entry := range state.Retired {
 		entry.Service = strings.TrimSpace(entry.Service)
-		entry.IP = normalizeIPv6(entry.IP)
+		entry.IP = platform.NormalizeIPv6(entry.IP)
 		if entry.Service == "" || entry.IP == "" {
 			continue
 		}
@@ -203,20 +204,20 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	saveRotatingIPStateLocked(state)
 	rotatingIPStateMu.Unlock()
 
-	// 锁外：执行可能缓慢的网络 IO（findContainer + delContainerIP）。
+	// 锁外：执行可能缓慢的网络 IO（platform.FindContainer + platform.DelContainerIP）。
 	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	var failed []retiredIPv6Entry
 	for _, entry := range toCleanup {
-		id, err := findContainer(cleanupCtx, cli, entry.Service)
+		id, err := platform.FindContainer(cleanupCtx, cli, entry.Service)
 		if err != nil {
 			log.Printf("[ip-cleanup] %s container not found for retired IP %s: %v", entry.Service, entry.IP, err)
 			entry.CleanupAfter = now.Add(time.Minute)
 			failed = append(failed, entry)
 			continue
 		}
-		if err := delContainerIP(cleanupCtx, cli, id, entry.IP); err != nil {
+		if err := platform.DelContainerIP(cleanupCtx, cli, id, entry.IP); err != nil {
 			log.Printf("[ip-cleanup] failed to remove retired %s IPv6 %s: %v", entry.Service, entry.IP, err)
 			entry.CleanupAfter = now.Add(time.Minute)
 			failed = append(failed, entry)
@@ -255,20 +256,6 @@ func rotatingIPv6Prefix(subnet string) (netip.Prefix, error) {
 	return netip.PrefixFrom(netip.AddrFrom16(bytes), 80), nil
 }
 
-func normalizeIPv6(ip string) string {
-	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return ""
-	}
-	addr, err := netip.ParseAddr(ip)
-	if err != nil || !addr.Is6() || addr.Is4In6() {
-		// 解析失败返回空:让脏输入(如被篡改的 DNS 记录内容)止步于此,
-		// 而不是原样透传进状态文件/容器 exec 参数。
-		return ""
-	}
-	return addr.String()
-}
-
 func isIPv6InPrefix(ip string, prefix netip.Prefix) bool {
 	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
 	return err == nil && addr.Is6() && !addr.Is4In6() && prefix.Contains(addr)
@@ -279,8 +266,8 @@ func isRotatingIPv6InPrefix(ip string, rotatingPrefix netip.Prefix) bool {
 }
 
 func selectStartupRotatingIP(basePrefix string, rotatingPrefix netip.Prefix, staticIP, dnsIP string, assigned, disallow, generateExclude []string) (startupIPv6Selection, error) {
-	staticIP = normalizeIPv6(staticIP)
-	dnsIP = normalizeIPv6(dnsIP)
+	staticIP = platform.NormalizeIPv6(staticIP)
+	dnsIP = platform.NormalizeIPv6(dnsIP)
 	disallowed := ipv6Set(append(disallow, staticIP))
 
 	if dnsIP != "" && dnsIP != staticIP && !disallowed[dnsIP] && isRotatingIPv6InPrefix(dnsIP, rotatingPrefix) {
@@ -288,7 +275,7 @@ func selectStartupRotatingIP(basePrefix string, rotatingPrefix netip.Prefix, sta
 	}
 
 	for _, ip := range assigned {
-		ip = normalizeIPv6(ip)
+		ip = platform.NormalizeIPv6(ip)
 		if ip == "" || ip == staticIP || disallowed[ip] || !isRotatingIPv6InPrefix(ip, rotatingPrefix) {
 			continue
 		}
@@ -305,14 +292,10 @@ func selectStartupRotatingIP(basePrefix string, rotatingPrefix netip.Prefix, sta
 func ipv6Set(values []string) map[string]bool {
 	set := make(map[string]bool, len(values))
 	for _, value := range values {
-		value = normalizeIPv6(value)
+		value = platform.NormalizeIPv6(value)
 		if value != "" {
 			set[value] = true
 		}
 	}
 	return set
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

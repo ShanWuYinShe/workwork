@@ -1,4 +1,4 @@
-package main
+package platform
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	// 使用唯一临时文件名，使同一目标路径的并发写入互不干扰。
 	// 固定的 path+".tmp" 会让并发写入者争用同一 inode，导致内容损坏或 rename ENOENT。
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
@@ -45,24 +45,24 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// loadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
-func loadJSONFile(path string, dest any) {
+// LoadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
+func LoadJSONFile(path string, dest any) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("ERROR: loadJSONFile read %s: %v", path, err)
+			log.Printf("ERROR: LoadJSONFile read %s: %v", path, err)
 		}
 		return
 	}
 	if err := json.Unmarshal(data, dest); err != nil {
-		log.Printf("ERROR: loadJSONFile decode %s: %v", path, err)
+		log.Printf("ERROR: LoadJSONFile decode %s: %v", path, err)
 	}
 }
 
-// saveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
+// SaveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。
 // 返回错误而非静默吞掉——manifest/磁盘一致性依赖调用方检查返回值并在失败时
-// 中止（writeInternalError），避免向用户上报成功但实际落盘失败导致状态漂移。
-func saveJSONFile(path string, v any) error {
+// 中止（WriteInternalError），避免向用户上报成功但实际落盘失败导致状态漂移。
+func SaveJSONFile(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
@@ -70,7 +70,7 @@ func saveJSONFile(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", path, err)
 	}
-	if err := atomicWriteFile(path, data, 0600); err != nil {
+	if err := AtomicWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

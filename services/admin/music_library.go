@@ -10,6 +10,7 @@ package main
 // 写入走临时文件 + rename 原子落盘,同名覆盖(重传修正版语义)。
 
 import (
+	"admin/internal/platform"
 	"errors"
 	"io"
 	"log"
@@ -57,10 +58,10 @@ func apiMusicLibraryList() http.HandlerFunc {
 		entries, err := os.ReadDir(musicLibraryDir)
 		if err != nil {
 			if os.IsNotExist(err) {
-				writeJSON(w, map[string]any{"files": []musicLibraryFile{}})
+				platform.WriteJSON(w, map[string]any{"files": []musicLibraryFile{}})
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		files := make([]musicLibraryFile, 0, len(entries))
@@ -79,7 +80,7 @@ func apiMusicLibraryList() http.HandlerFunc {
 			})
 		}
 		sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-		writeJSON(w, map[string]any{"files": files})
+		platform.WriteJSON(w, map[string]any{"files": files})
 	}
 }
 
@@ -87,23 +88,23 @@ func apiMusicLibraryUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxMusicBodyBytes)
 		if err := r.ParseMultipartForm(8 << 20); err != nil {
-			writeError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
+			platform.WriteError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
 			return
 		}
 		// 超过内存阈值的 multipart 部分落盘为临时文件,请求结束必须显式清理。
 		defer r.MultipartForm.RemoveAll()
 
 		if err := os.MkdirAll(musicLibraryDir, 0o755); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		headers := r.MultipartForm.File["files"]
 		if len(headers) == 0 {
-			writeError(w, "请选择要上传的音频文件", http.StatusBadRequest)
+			platform.WriteError(w, "请选择要上传的音频文件", http.StatusBadRequest)
 			return
 		}
 		if len(headers) > 50 {
-			writeError(w, "单次最多上传 50 个文件", http.StatusBadRequest)
+			platform.WriteError(w, "单次最多上传 50 个文件", http.StatusBadRequest)
 			return
 		}
 
@@ -118,7 +119,7 @@ func apiMusicLibraryUpload() http.HandlerFunc {
 			saved = append(saved, name)
 		}
 		log.Printf("music library upload: %d saved, %d skipped", len(saved), len(skipped))
-		writeJSON(w, map[string]any{"saved": saved, "skipped": skipped})
+		platform.WriteJSON(w, map[string]any{"saved": saved, "skipped": skipped})
 	}
 }
 
@@ -170,21 +171,21 @@ func apiMusicLibraryDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := filepath.Base(strings.TrimSpace(r.URL.Query().Get("name")))
 		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
-			writeError(w, "文件名不合法", http.StatusBadRequest)
+			platform.WriteError(w, "文件名不合法", http.StatusBadRequest)
 			return
 		}
 		if !musicLibraryAllowedExt[strings.ToLower(filepath.Ext(name))] {
-			writeError(w, "文件名不合法", http.StatusBadRequest)
+			platform.WriteError(w, "文件名不合法", http.StatusBadRequest)
 			return
 		}
 		if err := os.Remove(filepath.Join(musicLibraryDir, name)); err != nil {
 			if os.IsNotExist(err) {
-				writeError(w, "文件不存在", http.StatusNotFound)
+				platform.WriteError(w, "文件不存在", http.StatusNotFound)
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
-		writeJSON(w, map[string]string{"deleted": name})
+		platform.WriteJSON(w, map[string]string{"deleted": name})
 	}
 }

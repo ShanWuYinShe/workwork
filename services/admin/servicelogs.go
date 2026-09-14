@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -20,7 +21,7 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {
-			writeError(w, "Invalid service name", 400)
+			platform.WriteError(w, "Invalid service name", 400)
 			return
 		}
 		tail := r.URL.Query().Get("tail")
@@ -32,18 +33,18 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
-			Filters: composeProjectFilters(filters.KeyValuePair{
+			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
 		if err != nil {
 			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
 			log.Printf("list containers for logs (%s): %v", name, err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if len(containers) == 0 {
-			writeError(w, "Service not found", 404)
+			platform.WriteError(w, "Service not found", 404)
 			return
 		}
 		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
@@ -51,7 +52,7 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 			Tail: tail,
 		})
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		defer logs.Close()
@@ -61,7 +62,7 @@ func apiServiceLogs(cli *client.Client) http.HandlerFunc {
 		buf.max = 128 * 1024
 		stdcopy.StdCopy(&buf, &buf, logs)
 		s := string(buf.buf)
-		writeJSON(w, map[string]any{"logs": s})
+		platform.WriteJSON(w, map[string]any{"logs": s})
 	}
 }
 
@@ -88,7 +89,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {
-			writeError(w, "Invalid service name", 400)
+			platform.WriteError(w, "Invalid service name", 400)
 			return
 		}
 		tail := r.URL.Query().Get("tail")
@@ -100,18 +101,18 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		}
 		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
 			All: true,
-			Filters: composeProjectFilters(filters.KeyValuePair{
+			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
 		if err != nil {
 			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
 			log.Printf("list containers for logs (%s): %v", name, err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if len(containers) == 0 {
-			writeError(w, "Service not found", 404)
+			platform.WriteError(w, "Service not found", 404)
 			return
 		}
 		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
@@ -119,7 +120,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 			Tail: tail, Follow: true,
 		})
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		defer logs.Close()
@@ -130,7 +131,7 @@ func apiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			writeError(w, "Streaming not supported", 500)
+			platform.WriteError(w, "Streaming not supported", 500)
 			return
 		}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,7 +21,7 @@ import (
 const maxMediaAppAPKSize = 300 << 20 // 300 MiB
 
 // mediaAppReleaseMu 串行化发布历史的"读-改-写"序列（发布追加 / 回滚 / 删除），
-// 避免并发操作互相覆盖丢记录。单个文件本身的完整性由 atomicWriteFile 保证，
+// 避免并发操作互相覆盖丢记录。单个文件本身的完整性由 platform.AtomicWriteFile 保证，
 // 锁保证跨文件（manifest + history）的一致性窗口。
 var mediaAppReleaseMu sync.Mutex
 
@@ -44,17 +45,17 @@ func apiMediaAppReleaseGet() http.HandlerFunc {
 		variant := strings.TrimSpace(r.URL.Query().Get("variant"))
 		manifest, exists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		apkPath := mediaAppReleaseAPKPath(manifest, variant)
 		info, statErr := os.Stat(apkPath)
 		apkExists := statErr == nil
 		if statErr != nil && !os.IsNotExist(statErr) {
-			writeInternalError(w, statErr)
+			platform.WriteInternalError(w, statErr)
 			return
 		}
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"published": exists && apkExists,
 			"manifest":  manifest,
 			"apkSizeBytes": func() int64 {
@@ -85,12 +86,12 @@ func apiMediaAppReleaseHistory() http.HandlerFunc {
 
 		current, currentExists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		records, err := readMediaAppReleaseHistory(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -99,7 +100,7 @@ func apiMediaAppReleaseHistory() http.HandlerFunc {
 			apkPath := mediaAppReleaseAPKPath(rec, variant)
 			_, statErr := os.Stat(apkPath)
 			if statErr != nil && !os.IsNotExist(statErr) {
-				writeInternalError(w, statErr)
+				platform.WriteInternalError(w, statErr)
 				return
 			}
 			entries = append(entries, releaseHistoryEntry{
@@ -113,7 +114,7 @@ func apiMediaAppReleaseHistory() http.HandlerFunc {
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].VersionCode > entries[j].VersionCode
 		})
-		writeJSON(w, map[string]any{"versions": entries, "count": len(entries)})
+		platform.WriteJSON(w, map[string]any{"versions": entries, "count": len(entries)})
 	}
 }
 
@@ -126,13 +127,13 @@ func apiMediaAppReleaseRollback() http.HandlerFunc {
 			Variant     string `json:"variant"`
 			VersionCode int    `json:"versionCode"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "请求格式不正确", http.StatusBadRequest)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "请求格式不正确", http.StatusBadRequest)
 			return
 		}
 		variant := sanitizeVariant(body.Variant)
 		if body.VersionCode <= 0 {
-			writeError(w, "versionCode 必须是正整数", http.StatusBadRequest)
+			platform.WriteError(w, "versionCode 必须是正整数", http.StatusBadRequest)
 			return
 		}
 
@@ -141,20 +142,20 @@ func apiMediaAppReleaseRollback() http.HandlerFunc {
 
 		current, currentExists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if currentExists && current.VersionCode == body.VersionCode {
-			writeError(w, "该版本已是当前发布版本", http.StatusBadRequest)
+			platform.WriteError(w, "该版本已是当前发布版本", http.StatusBadRequest)
 			return
 		}
 		target, ok, err := findHistoryRecord(variant, body.VersionCode)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if !ok {
-			writeError(w, "版本历史中不存在该 versionCode", http.StatusNotFound)
+			platform.WriteError(w, "版本历史中不存在该 versionCode", http.StatusNotFound)
 			return
 		}
 		apkPath := mediaAppReleaseAPKPath(target, variant)
@@ -162,19 +163,19 @@ func apiMediaAppReleaseRollback() http.HandlerFunc {
 		// 非 ENOENT 的 IO 错误(权限/磁盘)按内部错误处理并记日志，
 		// 不能伪装成业务 409 把真实故障吞掉。
 		if statErr != nil && !os.IsNotExist(statErr) {
-			writeInternalError(w, statErr)
+			platform.WriteInternalError(w, statErr)
 			return
 		}
 		if statErr != nil || info.Size() != target.SizeBytes {
-			writeError(w, "该版本的 APK 文件已不存在或大小不符，无法回滚", http.StatusConflict)
+			platform.WriteError(w, "该版本的 APK 文件已不存在或大小不符，无法回滚", http.StatusConflict)
 			return
 		}
 		if err := writeMediaAppReleaseManifest(target, variant); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		log.Printf("app release rollback: variant=%q versionCode=%d", variant, target.VersionCode)
-		writeJSON(w, map[string]any{"manifest": target})
+		platform.WriteJSON(w, map[string]any{"manifest": target})
 	}
 }
 
@@ -186,13 +187,13 @@ func apiMediaAppReleaseVersionDelete() http.HandlerFunc {
 			Variant     string `json:"variant"`
 			VersionCode int    `json:"versionCode"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "请求格式不正确", http.StatusBadRequest)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "请求格式不正确", http.StatusBadRequest)
 			return
 		}
 		variant := sanitizeVariant(body.Variant)
 		if body.VersionCode <= 0 {
-			writeError(w, "versionCode 必须是正整数", http.StatusBadRequest)
+			platform.WriteError(w, "versionCode 必须是正整数", http.StatusBadRequest)
 			return
 		}
 
@@ -201,17 +202,17 @@ func apiMediaAppReleaseVersionDelete() http.HandlerFunc {
 
 		current, currentExists, err := readMediaAppReleaseManifest(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if currentExists && current.VersionCode == body.VersionCode {
-			writeError(w, "不能删除当前正在发布的版本；请先发布新版本后再清理", http.StatusBadRequest)
+			platform.WriteError(w, "不能删除当前正在发布的版本；请先发布新版本后再清理", http.StatusBadRequest)
 			return
 		}
 
 		records, err := readMediaAppReleaseHistory(variant)
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		filtered := make([]mediaAppReleaseManifest, 0, len(records))
@@ -224,17 +225,17 @@ func apiMediaAppReleaseVersionDelete() http.HandlerFunc {
 			filtered = append(filtered, rec)
 		}
 		if !removed {
-			writeError(w, "版本历史中不存在该 versionCode", http.StatusNotFound)
+			platform.WriteError(w, "版本历史中不存在该 versionCode", http.StatusNotFound)
 			return
 		}
 		if err := writeMediaAppReleaseHistory(variant, filtered); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// 被删记录引用的 APK 若不再被任何 manifest/历史引用，会被 prune 清理。
 		pruneOrphanAppAPKs()
 		log.Printf("app release history delete: variant=%q versionCode=%d remaining=%d", variant, body.VersionCode, len(filtered))
-		writeJSON(w, map[string]any{"removed": true, "remaining": len(filtered)})
+		platform.WriteJSON(w, map[string]any{"removed": true, "remaining": len(filtered)})
 	}
 }
 
@@ -250,21 +251,21 @@ func apiMediaAppReleaseDownload() http.HandlerFunc {
 		if versionRaw == "" {
 			m, exists, err := readMediaAppReleaseManifest(variant)
 			if err != nil {
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 			manifest, found = m, exists
 		} else {
 			code, parseErr := strconv.Atoi(versionRaw)
 			if parseErr != nil || code <= 0 {
-				writeError(w, "versionCode 必须是正整数", http.StatusBadRequest)
+				platform.WriteError(w, "versionCode 必须是正整数", http.StatusBadRequest)
 				return
 			}
 			mediaAppReleaseMu.Lock()
 			rec, ok, err := findHistoryRecord(variant, code)
 			mediaAppReleaseMu.Unlock()
 			if err != nil {
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 			if ok {
@@ -275,7 +276,7 @@ func apiMediaAppReleaseDownload() http.HandlerFunc {
 			}
 		}
 		if !found {
-			writeError(w, "未找到该版本的发布记录", http.StatusNotFound)
+			platform.WriteError(w, "未找到该版本的发布记录", http.StatusNotFound)
 			return
 		}
 
@@ -283,16 +284,16 @@ func apiMediaAppReleaseDownload() http.HandlerFunc {
 		f, err := os.Open(apkPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				writeError(w, "该版本的 APK 文件不存在", http.StatusNotFound)
+				platform.WriteError(w, "该版本的 APK 文件不存在", http.StatusNotFound)
 				return
 			}
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		defer f.Close()
 		info, err := f.Stat()
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -312,7 +313,7 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxMediaAppAPKSize+2<<20)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
-			writeError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
+			platform.WriteError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
 			return
 		}
 		// 超过内存阈值的 multipart 部分会落盘为临时文件，请求结束必须显式清理，
@@ -324,54 +325,54 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 
 		versionCode, err := strconv.Atoi(strings.TrimSpace(r.FormValue("versionCode")))
 		if err != nil || versionCode <= 0 {
-			writeError(w, "versionCode 必须是正整数", http.StatusBadRequest)
+			platform.WriteError(w, "versionCode 必须是正整数", http.StatusBadRequest)
 			return
 		}
 		versionName := strings.TrimSpace(r.FormValue("versionName"))
 		if versionName == "" || len(versionName) > 64 {
-			writeError(w, "versionName 不能为空且不能超过 64 字符", http.StatusBadRequest)
+			platform.WriteError(w, "versionName 不能为空且不能超过 64 字符", http.StatusBadRequest)
 			return
 		}
 		releaseNotes := strings.TrimSpace(r.FormValue("releaseNotes"))
 		if len(releaseNotes) > 4000 {
-			writeError(w, "releaseNotes 不能超过 4000 字符", http.StatusBadRequest)
+			platform.WriteError(w, "releaseNotes 不能超过 4000 字符", http.StatusBadRequest)
 			return
 		}
 
 		file, header, err := r.FormFile("apk")
 		if err != nil {
-			writeError(w, "请上传 apk 文件", http.StatusBadRequest)
+			platform.WriteError(w, "请上传 apk 文件", http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
 		if !strings.EqualFold(filepath.Ext(header.Filename), ".apk") {
-			writeError(w, "只允许上传 .apk 文件", http.StatusBadRequest)
+			platform.WriteError(w, "只允许上传 .apk 文件", http.StatusBadRequest)
 			return
 		}
 		// 内容校验：APK 是 ZIP 包，必须以本地文件头 PK\x03\x04 开头——
 		// 仅查扩展名时任意内容改名 .apk 即可混入下载分发通道。
 		var magic [4]byte
 		if _, err := io.ReadFull(file, magic[:]); err != nil {
-			writeError(w, "APK 文件无效（无法读取）", http.StatusBadRequest)
+			platform.WriteError(w, "APK 文件无效（无法读取）", http.StatusBadRequest)
 			return
 		}
 		if string(magic[:]) != "PK\x03\x04" {
-			writeError(w, "只允许上传有效的 APK（ZIP）文件", http.StatusBadRequest)
+			platform.WriteError(w, "只允许上传有效的 APK（ZIP）文件", http.StatusBadRequest)
 			return
 		}
 		// 读回文件头后把偏移复位，后续按整个文件哈希/落盘。
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
 		if err := os.MkdirAll(filepath.Dir(apkPath), 0755); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		tmp, err := os.CreateTemp(filepath.Dir(apkPath), ".media-center-app.apk.tmp-*")
 		if err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		tmpPath := tmp.Name()
@@ -383,26 +384,26 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 			copyErr = closeErr
 		}
 		if copyErr != nil {
-			writeInternalError(w, copyErr)
+			platform.WriteInternalError(w, copyErr)
 			return
 		}
 		if written <= 0 {
-			writeError(w, "apk 文件不能为空", http.StatusBadRequest)
+			platform.WriteError(w, "apk 文件不能为空", http.StatusBadRequest)
 			return
 		}
 		if written > maxMediaAppAPKSize {
-			writeError(w, fmt.Sprintf("apk 文件不能超过 %d MiB", maxMediaAppAPKSize>>20), http.StatusBadRequest)
+			platform.WriteError(w, fmt.Sprintf("apk 文件不能超过 %d MiB", maxMediaAppAPKSize>>20), http.StatusBadRequest)
 			return
 		}
 		checksum := hex.EncodeToString(hasher.Sum(nil))
 		if err := os.Chmod(tmpPath, 0644); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		apkFilename := mediaAppReleaseFilename(versionCode, checksum)
 		finalAPKPath := filepath.Join(filepath.Dir(apkPath), apkFilename)
 		if err := os.Rename(tmpPath, finalAPKPath); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -421,17 +422,17 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 		mediaAppReleaseMu.Lock()
 		defer mediaAppReleaseMu.Unlock()
 		if err := writeMediaAppReleaseManifest(manifest, variant); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if err := upsertMediaAppReleaseHistory(variant, manifest); err != nil {
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// 尽力清理不再被任何变体 manifest/历史引用的历史 APK,避免确定性文件名无限堆积。
 		pruneOrphanAppAPKs(filepath.Base(finalAPKPath))
 		log.Printf("app release publish: variant=%q versionCode=%d size=%d", variant, versionCode, written)
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"manifest": manifest,
 		})
 	}
@@ -458,7 +459,7 @@ func writeMediaAppReleaseManifest(manifest mediaAppReleaseManifest, variant stri
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterAppUpdateManifestPath(variant), data, 0644)
+	return platform.AtomicWriteFile(mediaCenterAppUpdateManifestPath(variant), data, 0644)
 }
 
 // readMediaAppReleaseHistory 读取变体的发布历史。文件不存在视为空历史；
@@ -493,7 +494,7 @@ func writeMediaAppReleaseHistory(variant string, records []mediaAppReleaseManife
 		return err
 	}
 	data = append(data, '\n')
-	return atomicWriteFile(mediaCenterAppUpdateHistoryPath(variant), data, 0644)
+	return platform.AtomicWriteFile(mediaCenterAppUpdateHistoryPath(variant), data, 0644)
 }
 
 // upsertMediaAppReleaseHistory 追加（或按 versionCode 覆盖）一条发布记录并落盘。

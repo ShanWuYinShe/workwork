@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/platform"
 	"context"
 	"github.com/docker/docker/client"
 	"log"
@@ -16,16 +17,16 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		var body struct {
 			UUID string `json:"uuid"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.UUID == "" {
-			writeError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID required", 400)
 			return
 		}
 		if !validUUID.MatchString(body.UUID) {
-			writeError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
+			platform.WriteError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
 			return
 		}
 		// UUID 规范化:大写/小写视为同一客户端(Xray 的 UUID 不区分大小写),
@@ -38,7 +39,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		if username != "internal" {
 			if _, err := getOrCreateProxyPassword(username); err != nil {
 				log.Printf("Failed to create proxy password for %s: %v", username, err)
-				writeInternalError(w, err)
+				platform.WriteInternalError(w, err)
 				return
 			}
 		}
@@ -53,17 +54,17 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			var added bool
 			added, err = addXrayClientIfOwnerUnique(entry)
 			if !added && err == nil {
-				writeError(w, "You can only create one client. Delete the existing one first.", 400)
+				platform.WriteError(w, "You can only create one client. Delete the existing one first.", 400)
 				return
 			}
 		}
 		if err != nil {
 			if err == errDuplicateUUID {
-				writeError(w, "Client with this UUID already exists", 409)
+				platform.WriteError(w, "Client with this UUID already exists", 409)
 				return
 			}
 			log.Printf("Failed to save client: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 
@@ -71,7 +72,7 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// 重启不随客户端断开而取消：与 apiServiceAction 一致，避免 add 请求断连后
@@ -83,11 +84,11 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			// 实际不可用;配置保留在磁盘,用户重试会撞 409 无法自愈,因此文案
 			// 明确说明"已保存但未生效"。
 			log.Printf("ERROR: failed to restart xray after add: %v", err)
-			writeError(w, "客户端已保存，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
+			platform.WriteError(w, "客户端已保存，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
 			return
 		}
 		cancel()
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -98,12 +99,12 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		var body struct {
 			UUID string `json:"uuid"`
 		}
-		if err := decodeStrictJSON(r.Body, &body); err != nil {
-			writeError(w, "Invalid JSON", 400)
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "Invalid JSON", 400)
 			return
 		}
 		if body.UUID == "" {
-			writeError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID required", 400)
 			return
 		}
 		// 与 apiAddXray 的规范化一致:UUID 不区分大小写。
@@ -119,19 +120,19 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		deleted, err := deleteXrayClientIfOwner(body.UUID, ownerFilter)
 		if err != nil {
 			if err == errForbidden {
-				writeError(w, "Forbidden: not your client", 403)
+				platform.WriteError(w, "Forbidden: not your client", 403)
 				return
 			}
 			if err == errNotFound {
-				writeError(w, "Client not found", 404)
+				platform.WriteError(w, "Client not found", 404)
 				return
 			}
 			log.Printf("Failed to delete client: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		if !deleted {
-			writeError(w, "Client not found", 404)
+			platform.WriteError(w, "Client not found", 404)
 			return
 		}
 
@@ -139,7 +140,7 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		// generating the config, so add/delete operations are not blocked.
 		if err := genXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		// 重启不随客户端断开而取消（与 apiAddXray 一致）。
@@ -147,11 +148,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 		if err := restartXray(restartCtx, cli); err != nil {
 			cancel()
 			log.Printf("ERROR: failed to restart xray after delete: %v", err)
-			writeError(w, "客户端已删除，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
+			platform.WriteError(w, "客户端已删除，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
 			return
 		}
 		cancel()
-		writeJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
@@ -161,14 +162,14 @@ func apiXrayClientConfig() http.HandlerFunc {
 		userInfo, username := getUserFromContext(r)
 		uuid := strings.ToLower(r.PathValue("uuid"))
 		if uuid == "" {
-			writeError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID required", 400)
 			return
 		}
 
 		allClients, err := readXrayClientMaps()
 		if err != nil {
 			log.Printf("Failed to read clients: %v", err)
-			writeInternalError(w, err)
+			platform.WriteInternalError(w, err)
 			return
 		}
 		var client map[string]string
@@ -179,13 +180,13 @@ func apiXrayClientConfig() http.HandlerFunc {
 			}
 		}
 		if client == nil {
-			writeError(w, "Client not found", 404)
+			platform.WriteError(w, "Client not found", 404)
 			return
 		}
 
 		// Regular users can only view their own client
 		if userInfo != nil && userInfo.Role != "admin" && client["owner"] != username {
-			writeError(w, "Forbidden", 403)
+			platform.WriteError(w, "Forbidden", 403)
 			return
 		}
 
@@ -194,14 +195,14 @@ func apiXrayClientConfig() http.HandlerFunc {
 		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 apiUsers 一致。
 		proxyAuth := proxyAuthForUserRead(client["owner"])
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
-			RealityDomain:     getEnv("XRAY_REALITY_DOMAIN"),
-			RealityServerName: getEnv("XRAY_REALITY_SERVER_NAME"),
-			RealityPublicKey:  getEnv("XRAY_PUBLIC_KEY"),
+			RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
+			RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
+			RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
 			RealityShortID:    xrayClientShortID(),
-			XHTTPDomain:       getEnv("XHTTP_DOMAIN"),
+			XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
 			XHTTPProxyAuth:    proxyAuth,
 		})
-		writeJSON(w, map[string]any{
+		platform.WriteJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],
 		})
 	}
