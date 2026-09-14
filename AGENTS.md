@@ -43,9 +43,9 @@ go vet -C services/admin ./...         # 静态检查
 gofmt -l services/admin/               # 格式化检查（列出不符合的文件）
 go test -C services/admin ./...        # 单元测试
 
-# Svelte 前端构建（使用 Bun；Docker 多阶段构建用 oven/bun 镜像 + bun.lock 冻结锁文件）
-bun install --cwd ui                   # 安装依赖（生成/校验 ui/bun.lock）
-bun run --cwd ui build                 # 构建
+# Svelte 前端构建（使用 Bun；前端源码在 services/admin/ui/，构建产物打进 admin 镜像）
+bun install --cwd services/admin/ui                   # 安装依赖（生成/校验 bun.lock）
+bun run --cwd services/admin/ui build                 # 构建
 
 # Media Server 验证（源码在 services/media_center 子模块；首次需 git submodule update --init --recursive）
 go build -C services/media_center/media_server -o /dev/null .
@@ -115,7 +115,7 @@ ssh workwork-server "cd workwork && make deploy-changed"
 #     docker compose build netease_api music_server && \
 #     docker compose up -d --no-deps netease_api music_server
 #     （可选 .env 配 NETEASE_MUSIC_COOKIE 解锁登录态曲目；匿名仅免费曲）
-# - services/admin/** 或 ui/**:
+# - services/admin/**（含 ui/ 与 configs/ 模板，均随 admin 镜像分发）:
 #     docker compose build admin && docker compose up -d --no-deps admin
 # - services/nginx/**:
 #     docker compose build nginx && docker compose up -d --no-deps nginx
@@ -123,7 +123,7 @@ ssh workwork-server "cd workwork && make deploy-changed"
 #     docker compose build xray xray-forward && docker compose up -d --no-deps xray xray-forward
 # - docker-compose.yml / 共享网络 / 共享 env 变更:
 #     docker compose up -d <受影响服务...>
-# admin 的 deploy.go / 模板改动可能影响运行时生成的 nginx/xray/media 配置；
+# admin 的 deploy.go / configs 模板改动可能影响运行时生成的 nginx/xray/media 配置；
 # admin 重启后只重启实际配置变化的下游服务。
 ```
 
@@ -133,9 +133,12 @@ ssh workwork-server "cd workwork && make deploy-changed"
 
 HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过 `docker.sock` 操作其他容器。
 
-### ui/ — Svelte 5 SPA
+### services/admin/ui/ — Svelte 5 SPA
 
-Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile: oven/bun → golang → alpine）。
+Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile: oven/bun → golang → alpine）。源码随 admin 仓库目录（services/admin/ui/），非独立部署单元。
+### services/admin/configs/ — 配置模板
+
+`nginx.conf.tmpl` / `xray.json.tmpl` 的唯一读者是 admin（启动时渲染到 `.wework/generated/`），随 admin 镜像构建期 COPY 分发——模板版本与二进制版本原子对应，改模板 = rebuild admin。
 
 ### services/xray/ — Xray VLESS 代理
 

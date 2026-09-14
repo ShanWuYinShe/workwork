@@ -142,7 +142,7 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 }
 
 func TestXrayTemplateRendersValidJSON(t *testing.T) {
-	templatePath := filepath.Join("..", "..", "..", "xray", "config.json.tmpl")
+	templatePath := filepath.Join("..", "..", "configs", "xray.json.tmpl")
 	data, err := os.ReadFile(templatePath)
 	if err != nil {
 		t.Fatalf("read template: %v", err)

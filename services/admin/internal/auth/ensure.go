@@ -21,9 +21,6 @@ func EnsureHtpasswd() error {
 			return platform.EnsurePerm(HtpasswdFile, 0644)
 		}
 	}
-	if data, err := os.ReadFile(legacyHtpasswdPath); err == nil && len(data) > 10 {
-		return platform.AtomicWriteFile(HtpasswdFile, data, 0644)
-	}
 	user := platform.GetEnv("AUTH_USER")
 	pass := platform.GetEnv("AUTH_PASS")
 	if user == "" || pass == "" {

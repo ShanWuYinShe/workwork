@@ -66,7 +66,7 @@ fi
 if printf '%s\n' "$changed" | grep -q '^services/netease_api/'; then
   add_svc netease_api
 fi
-if printf '%s\n' "$changed" | grep -q '^services/admin/\|^ui/'; then
+if printf '%s\n' "$changed" | grep -q '^services/admin/'; then
   add_svc admin
 fi
 if printf '%s\n' "$changed" | grep -q '^services/nginx/'; then
@@ -80,9 +80,6 @@ fi
 # ---------- 提示性事项（不进入自动部署范围） ----------
 if printf '%s\n' "$changed" | grep -q '^services/media_center/media_app'; then
   echo "⚠ media_app 源码变更: APK 需手动构建上传（见 AGENTS.md media_app 条目）"
-fi
-if printf '%s\n' "$changed" | grep -q '^services/nginx/nginx.conf.tmpl$\|^services/xray/config.json.tmpl$'; then
-  echo "⚠ 配置模板变更: 模板由 admin 运行时挂载消费，需重启 admin 重新生成: make restart admin"
 fi
 if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; then
   echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"

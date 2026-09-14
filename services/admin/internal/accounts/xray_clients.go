@@ -206,7 +206,7 @@ func EnsureXrayClients() error {
 
 func migrateXrayClientsFromConfig() []xrayClientEntry {
 	var data []byte
-	for _, path := range []string{proxy.XrayConfigPath, proxy.LegacyXrayConfigPath} {
+	for _, path := range []string{proxy.XrayConfigPath} {
 		var err error
 		data, err = os.ReadFile(path)
 		if err == nil {
