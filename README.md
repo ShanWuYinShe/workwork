@@ -128,15 +128,17 @@ workwork/
 ├── services/
 │   ├── admin/                # Go 管理面板后端（package main 分文件按功能域组织）
 │   │   ├── main.go          # HTTP 路由注册、中间件链、后台任务启动
-│   │   ├── api.go           # 核心 API（用户、服务、网络、IPv6/DNS）
 │   │   ├── middleware.go    # 认证、角色检查、限流
 │   │   ├── deploy.go        # 启动时配置生成（模板 → .wework/generated/）
+│   │   ├── response.go / fsutil.go / htpasswd.go             # 响应辅助 / 原子写 / 认证文件
+│   │   ├── users_api.go / xray_clients_api.go / dashboard.go # 用户与角色 / Xray 客户端 API
+│   │   ├── network.go / services_api.go / dockerx.go         # IPv6+DNS / 服务管理 / docker 封装
+│   │   ├── xray_client_config.go           # Xray 客户端配置生成
 │   │   ├── xray.go / xray_clients.go      # Xray 二进制下载 / 客户端持久化
 │   │   ├── media_center.go / media_catalog.go / media_app_release.go  # 媒体中心管理
 │   │   ├── music_library.go / netease_login.go                # 曲库与网易云登录
 │   │   ├── transfer.go / downloads.go / claude.go             # 文件中转 / 二进制下载
-│   │   ├── cloudflare.go / ipv6_rotation.go                   # DNS 与 IPv6 轮换
-│   │   └── handlers/        # Xray 客户端配置生成器（GenerateClientConfig）
+│   │   └── cloudflare.go / ipv6_rotation.go                   # DNS 与 IPv6 轮换
 │   │
 │   ├── xray/                # Xray 代理（config.json.tmpl 由 admin 渲染）
 │   │   ├── config.json.tmpl

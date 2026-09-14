@@ -1,7 +1,6 @@
 package main
 
 import (
-	"admin/handlers"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,7 +9,7 @@ import (
 )
 
 func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
-	cfgJSON := handlers.GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, handlers.ClientConfig{
+	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
 		RealityDomain:     "xray.example.com",
 		RealityServerName: "addons.mozilla.org",
 		RealityPublicKey:  "public-key",
@@ -106,7 +105,7 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 
 	// Reality 字段缺失即视为服务端配置不完整。
-	if got := handlers.GenerateClientConfig(nil, handlers.ClientConfig{XHTTPDomain: "example.com"}); !strings.Contains(got, "incomplete") {
+	if got := GenerateClientConfig(nil, ClientConfig{XHTTPDomain: "example.com"}); !strings.Contains(got, "incomplete") {
 		t.Fatalf("expected incomplete-config error, got %s", got)
 	}
 }
