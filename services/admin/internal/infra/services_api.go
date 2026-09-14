@@ -1,4 +1,4 @@
-package main
+package infra
 
 import (
 	"admin/internal/platform"
@@ -17,14 +17,14 @@ import (
 	"strings"
 )
 
-func apiServices(cli *client.Client) http.HandlerFunc {
+func ApiServices(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svcs := listServicesJSON(r.Context(), cli)
 		platform.WriteJSON(w, map[string]any{"services": svcs})
 	}
 }
 
-func apiServiceAction(cli *client.Client) http.HandlerFunc {
+func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		action := r.PathValue("action")
@@ -82,7 +82,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func apiConfig(cli *client.Client) http.HandlerFunc {
+func ApiConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		result := map[string]any{
 			"xrayInbounds": 0, "xrayClients": 0,

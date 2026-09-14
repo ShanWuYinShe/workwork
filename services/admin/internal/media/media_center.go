@@ -1,4 +1,4 @@
-package main
+package media
 
 import (
 	"admin/internal/platform"
@@ -95,9 +95,9 @@ type providerCredential struct {
 	Fields   map[string]string `json:"fields"`
 }
 
-func apiMediaCenterConfig() http.HandlerFunc {
+func ApiMediaCenterConfig() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		cfg, err := readMediaCenterConfig()
+		cfg, err := ReadMediaCenterConfig()
 		if err != nil {
 			log.Printf("read media center config: %v", err)
 			platform.WriteInternalError(w, err)
@@ -116,9 +116,9 @@ func apiMediaCenterConfig() http.HandlerFunc {
 			"default_sources":    defaultCfg.Sources,
 			"default_categories": defaultCfg.Categories,
 			"files": map[string]string{
-				"admin_config":   filepath.Base(mediaCenterConfigPath),
-				"runtime_config": filepath.Base(mediaCenterCategoriesPath),
-				"defaults":       filepath.Base(mediaCenterDefaultCategoriesPath),
+				"admin_config":   filepath.Base(ConfigPath),
+				"runtime_config": filepath.Base(CategoriesPath),
+				"defaults":       filepath.Base(DefaultCategoriesPath),
 			},
 			"limits": map[string]int{
 				"max_categories":              maxMediaCenterCategories,
@@ -126,12 +126,12 @@ func apiMediaCenterConfig() http.HandlerFunc {
 				"max_keywords_per_category":   maxCategoryKeywords,
 				"max_source_queries_per_rule": maxCategorySourceQueries,
 			},
-			"runtime_file": filepath.Base(mediaCenterCategoriesPath),
+			"runtime_file": filepath.Base(CategoriesPath),
 		})
 	}
 }
 
-func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
+func ApiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incoming mediaCenterConfig
 		if err := platform.DecodeStrictJSON(r.Body, &incoming); err != nil {
@@ -151,7 +151,7 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 		// 如果前端未提交 credentials（保存来源/分类时不涉及），保留现有配置，
 		// 避免无意清空已配置的 provider 凭证。
 		if len(incoming.Credentials) == 0 && len(cfg.Credentials) == 0 {
-			existingCfg, readErr := readMediaCenterConfig()
+			existingCfg, readErr := ReadMediaCenterConfig()
 			if readErr == nil && len(existingCfg.Credentials) > 0 {
 				cfg.Credentials = existingCfg.Credentials
 			}
@@ -171,9 +171,9 @@ func apiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func apiMediaCenterCredentials() http.HandlerFunc {
+func ApiMediaCenterCredentials() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		cfg, err := readMediaCenterConfig()
+		cfg, err := ReadMediaCenterConfig()
 		if err != nil {
 			platform.WriteInternalError(w, err)
 			return
@@ -184,7 +184,7 @@ func apiMediaCenterCredentials() http.HandlerFunc {
 	}
 }
 
-func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
+func ApiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incoming struct {
 			Credentials []providerCredential `json:"credentials"`
@@ -196,7 +196,7 @@ func apiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 
 		// 持 applyMu 跨越 read-modify-apply，避免与并发保存竞态导致 sources/categories 被覆盖。
 		mediaCenterApplyMu.Lock()
-		cfg, err := readMediaCenterConfig()
+		cfg, err := ReadMediaCenterConfig()
 		if err != nil {
 			mediaCenterApplyMu.Unlock()
 			platform.WriteInternalError(w, err)
@@ -248,7 +248,7 @@ func applyMediaCenterConfigLocked(ctx context.Context, cli *client.Client, cfg m
 	if err != nil {
 		return nil, nil, fmt.Errorf("write media center credentials: %w", err)
 	}
-	nginxChanged, err := genNginxConfigForMediaCenter(cfg)
+	nginxChanged, err := RegenNginxForMediaCenter(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("regenerate nginx config after media center save: %w", err)
 	}
@@ -262,11 +262,11 @@ func applyMediaCenterConfigLocked(ctx context.Context, cli *client.Client, cfg m
 	return restarted, warnings, nil
 }
 
-func ensureMediaCenterConfig() error {
+func EnsureMediaCenterConfig() error {
 	mediaCenterConfigMu.Lock()
 	defer mediaCenterConfigMu.Unlock()
 
-	if _, err := os.Stat(mediaCenterConfigPath); err == nil {
+	if _, err := os.Stat(ConfigPath); err == nil {
 		cfg, err := readMediaCenterConfigNoLock()
 		if err != nil {
 			return err
@@ -297,8 +297,8 @@ func ensureMediaCenterConfig() error {
 	return writeMediaCenterCredentialsFile(normalized)
 }
 
-func genMediaCenterCategories() error {
-	cfg, err := readMediaCenterConfig()
+func GenMediaCenterCategories() error {
+	cfg, err := ReadMediaCenterConfig()
 	if err != nil {
 		return err
 	}
@@ -308,14 +308,14 @@ func genMediaCenterCategories() error {
 	return writeMediaCenterCredentialsFile(cfg)
 }
 
-func readMediaCenterConfig() (mediaCenterConfig, error) {
+func ReadMediaCenterConfig() (mediaCenterConfig, error) {
 	mediaCenterConfigMu.Lock()
 	defer mediaCenterConfigMu.Unlock()
 	return readMediaCenterConfigNoLock()
 }
 
 func readMediaCenterConfigNoLock() (mediaCenterConfig, error) {
-	data, err := os.ReadFile(mediaCenterConfigPath)
+	data, err := os.ReadFile(ConfigPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			categories, defaultsErr := readDefaultMediaCenterCategories()
@@ -354,7 +354,7 @@ func persistMediaCenterConfig(normalized mediaCenterConfig) error {
 }
 
 func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
-	if err := os.MkdirAll(filepath.Dir(mediaCenterConfigPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(ConfigPath), 0755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -364,7 +364,7 @@ func writeMediaCenterConfigFile(cfg mediaCenterConfig) error {
 	data = append(data, '\n')
 	// 0600：config.json 内嵌 provider 凭证（SESSDATA 等）且无任何容器消费
 	// （下游只读 categories/credentials 两个派生文件），不应全局可读。
-	return platform.AtomicWriteFile(mediaCenterConfigPath, data, 0600)
+	return platform.AtomicWriteFile(ConfigPath, data, 0600)
 }
 
 func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
@@ -375,7 +375,7 @@ func writeMediaCenterCategoriesFile(cfg mediaCenterConfig) error {
 // writeMediaCenterCategoriesFileIfChanged 写 contentCategories.json；内容未变化时
 // 跳过写盘并返回 false，供保存流程判断是否需要重启 media_server。
 func writeMediaCenterCategoriesFileIfChanged(cfg mediaCenterConfig) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(mediaCenterCategoriesPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(CategoriesPath), 0755); err != nil {
 		return false, err
 	}
 	payload := struct {
@@ -387,10 +387,10 @@ func writeMediaCenterCategoriesFileIfChanged(cfg mediaCenterConfig) (bool, error
 		return false, err
 	}
 	data = append(data, '\n')
-	if sameFileContent(mediaCenterCategoriesPath, data) {
+	if sameFileContent(CategoriesPath, data) {
 		return false, nil
 	}
-	if err := platform.AtomicWriteFile(mediaCenterCategoriesPath, data, 0644); err != nil {
+	if err := platform.AtomicWriteFile(CategoriesPath, data, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -407,7 +407,7 @@ func writeMediaCenterCredentialsFile(cfg mediaCenterConfig) error {
 // writeMediaCenterCredentialsFileIfChanged 写 providerCredentials.json；内容未变化时
 // 跳过写盘并返回 false，供保存流程判断是否需要重启 media_server。
 func writeMediaCenterCredentialsFileIfChanged(cfg mediaCenterConfig) (bool, error) {
-	if err := os.MkdirAll(filepath.Dir(mediaCenterCredentialsPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(CredentialsPath), 0755); err != nil {
 		return false, err
 	}
 	payload := struct {
@@ -418,10 +418,10 @@ func writeMediaCenterCredentialsFileIfChanged(cfg mediaCenterConfig) (bool, erro
 		return false, err
 	}
 	data = append(data, '\n')
-	if sameFileContent(mediaCenterCredentialsPath, data) {
+	if sameFileContent(CredentialsPath, data) {
 		return false, nil
 	}
-	if err := platform.AtomicWriteFile(mediaCenterCredentialsPath, data, 0644); err != nil {
+	if err := platform.AtomicWriteFile(CredentialsPath, data, 0644); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -447,7 +447,7 @@ func readDefaultMediaCenterCategories() ([]mediaCenterCategory, error) {
 }
 
 func readDefaultMediaCenterConfig() (mediaCenterConfig, error) {
-	data, err := os.ReadFile(mediaCenterDefaultCategoriesPath)
+	data, err := os.ReadFile(DefaultCategoriesPath)
 	if err != nil {
 		return mediaCenterConfig{}, err
 	}
