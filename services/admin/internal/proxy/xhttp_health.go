@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"admin/internal/platform"
@@ -35,7 +35,7 @@ const (
 	maxRestartsPerHour = 2
 )
 
-func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
+func XhttpHealthChecker(ctx context.Context, cli *client.Client) {
 	// restartHistory 保存最近重启时间，用于冷却期 + 每小时上限双重约束。
 	var restartHistory []time.Time
 	ticker := time.NewTicker(checkInterval)
@@ -73,7 +73,7 @@ func xhttpHealthChecker(ctx context.Context, cli *client.Client) {
 				// docker.sock 挂起时无此超时会永久卡住整个自检循环
 				// (与 apiServiceAction 的 2min 对齐)。
 				restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				err := restartXray(restartCtx, cli)
+				err := RestartXray(restartCtx, cli)
 				cancel()
 				if err != nil {
 					log.Printf("[xhttp-health] restart failed: %v", err)

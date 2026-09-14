@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"bytes"
 	"context"
@@ -16,7 +17,7 @@ import (
 
 // media_catalog.go：admin 侧的“分类审核（catalog 人工审核：导入候选 → 审核 → 上线 approved）”管理端点。
 // 设计为 Option C：media_server 是 catalog.db 的唯一读写者，对内网暴露 /internal/*
-// 管理接口；admin 仅作代理（requireRole("admin")）并转换响应信封，避免跨容器共享 SQLite 写。
+// 管理接口；admin 仅作代理（auth.RequireRole("admin")）并转换响应信封，避免跨容器共享 SQLite 写。
 
 const (
 	defaultMediaCenterInternalURL = "http://media_server:8787"
@@ -191,7 +192,7 @@ func apiMediaCatalogReview() http.HandlerFunc {
 			platform.WriteError(w, "请求体不是合法 JSON", http.StatusBadRequest)
 			return
 		}
-		_, username := getUserFromContext(r)
+		_, username := auth.GetUserFromContext(r)
 		if reviewer, mErr := json.Marshal(strings.TrimSpace(username)); mErr == nil {
 			req["reviewer"] = reviewer
 		}
@@ -248,7 +249,7 @@ func apiMediaCatalogImport() http.HandlerFunc {
 			platform.WriteError(w, "请求体必须是包含 items 的 JSON 对象", http.StatusBadRequest)
 			return
 		}
-		_, username := getUserFromContext(r)
+		_, username := auth.GetUserFromContext(r)
 		if reviewer, mErr := json.Marshal(strings.TrimSpace(username)); mErr == nil {
 			req["reviewer"] = reviewer
 		}

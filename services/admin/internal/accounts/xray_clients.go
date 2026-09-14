@@ -1,7 +1,8 @@
-package main
+package accounts
 
 import (
 	"admin/internal/platform"
+	"admin/internal/proxy"
 	"encoding/json"
 	"errors"
 	"os"
@@ -171,11 +172,11 @@ func deleteXrayClientsByOwner(owner string) (int, error) {
 	return removed, writeXrayClientsNoLock(kept)
 }
 
-// ensureXrayClients initializes the data file on first run.
+// EnsureXrayClients initializes the data file on first run.
 // 以「数据文件是否存在」判断首次运行，而非集合是否为空：管理员把客户端
 // 全部删除（吊销）后文件是空集，若按空集判断会在重启时重新播下 env/
 // legacy 配置里的 UUID，被吊销的代理身份悄悄恢复。
-func ensureXrayClients() error {
+func EnsureXrayClients() error {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
 
@@ -205,7 +206,7 @@ func ensureXrayClients() error {
 
 func migrateXrayClientsFromConfig() []xrayClientEntry {
 	var data []byte
-	for _, path := range []string{xrayConfigPath, legacyXrayConfigPath} {
+	for _, path := range []string{proxy.XrayConfigPath, proxy.LegacyXrayConfigPath} {
 		var err error
 		data, err = os.ReadFile(path)
 		if err == nil {
@@ -245,7 +246,7 @@ func migrateXrayClientsFromConfig() []xrayClientEntry {
 	return clients
 }
 
-func readXrayClientMaps() ([]map[string]string, error) {
+func ReadXrayClientMaps() ([]map[string]string, error) {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
 	return ReadXrayClients()

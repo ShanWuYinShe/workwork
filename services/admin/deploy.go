@@ -1,18 +1,15 @@
 package main
 
 import (
+	"admin/internal/accounts"
+	"admin/internal/auth"
 	"admin/internal/platform"
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
+	"admin/internal/proxy"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 )
 
 // generateConfigs creates runtime configs and auth files from templates.
@@ -24,16 +21,16 @@ func generateConfigs() error {
 	// 清理上次运行被中断下载残留的临时文件(不返回错误:清理失败只影响
 	// 磁盘占用,不应阻断启动)。
 	purgeStaleDownloadTemps()
-	if err := validateProxyConfigEnv(); err != nil {
+	if err := accounts.ValidateProxyConfigEnv(); err != nil {
 		return fmt.Errorf("proxy env: %w", err)
 	}
-	if err := ensureXrayClients(); err != nil {
+	if err := accounts.EnsureXrayClients(); err != nil {
 		return fmt.Errorf("xray clients init: %w", err)
 	}
 	if err := ensureMediaCenterConfig(); err != nil {
 		return fmt.Errorf("media center config init: %w", err)
 	}
-	if err := genXrayConfig(); err != nil {
+	if err := accounts.GenXrayConfig(); err != nil {
 		return fmt.Errorf("xray config: %w", err)
 	}
 	if err := genMediaCenterCategories(); err != nil {
@@ -42,19 +39,19 @@ func generateConfigs() error {
 	if err := genNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
 	}
-	if err := genHtpasswd(); err != nil {
+	if err := auth.EnsureHtpasswd(); err != nil {
 		return fmt.Errorf("htpasswd: %w", err)
 	}
-	if err := seedAdminUser(); err != nil {
+	if err := auth.SeedAdminUser(); err != nil {
 		return fmt.Errorf("seed admin: %w", err)
 	}
-	if err := genProxyHtpasswd(); err != nil {
+	if err := auth.EnsureProxyHtpasswd(); err != nil {
 		return fmt.Errorf("xhttp htpasswd: %w", err)
 	}
-	if err := genInternalToken(); err != nil {
+	if err := auth.EnsureInternalToken(); err != nil {
 		return fmt.Errorf("internal token: %w", err)
 	}
-	if err := genFail2BanToken(); err != nil {
+	if err := auth.EnsureFail2BanToken(); err != nil {
 		return fmt.Errorf("fail2ban token: %w", err)
 	}
 	return nil
@@ -62,20 +59,20 @@ func generateConfigs() error {
 
 func runtimeFilesReady() error {
 	required := []string{
-		xrayConfigPath,
-		nginxConfigPath,
+		proxy.XrayConfigPath,
+		proxy.NginxConfigPath,
 		mediaCenterCategoriesPath,
-		htpasswdFile,
-		proxyHtpasswdPath,
-		internalTokenPath,
-		fail2banTokenPath,
+		auth.HtpasswdFile,
+		auth.ProxyHtpasswdPath,
+		auth.InternalTokenPath,
+		auth.Fail2BanTokenPath,
 	}
 	for _, path := range required {
 		info, err := os.Stat(path)
 		if err != nil {
 			return err
 		}
-		if path != proxyHtpasswdPath && info.Size() == 0 {
+		if path != auth.ProxyHtpasswdPath && info.Size() == 0 {
 			return fmt.Errorf("%s is empty", path)
 		}
 	}
@@ -88,7 +85,7 @@ func ensureRuntimeDirs() error {
 		"/app/data/generated/nginx",
 		"/app/data/generated/media_center",
 		"/app/data/media-center",
-		nginxAuthDir,
+		auth.NginxAuthDir,
 	} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
@@ -129,172 +126,6 @@ func purgeStaleDownloadTemps() {
 	}
 }
 
-// genXrayConfig generates xray.json from the template + persisted client data.
-// Always regenerates — client data lives in /app/data/xray-clients.json.
-// Reads clients under xrayClientsMu, copies, then releases the lock before
-// generating the config. This avoids blocking concurrent client add/delete
-// operations during the (potentially slow) template processing + file write.
-// The brief inconsistency window is benign: the next add/delete call triggers
-// another genXrayConfig that will include the latest client set.
-func genXrayConfig() error {
-	tmpl, err := os.ReadFile(xrayConfigTemplatePath)
-	if err != nil {
-		return err
-	}
-	shortIDsJSON, err := xrayShortIDsJSON()
-	if err != nil {
-		return err
-	}
-
-	xrayClientsMu.Lock()
-	clients, err := readXrayClientsNoLock()
-	if err != nil {
-		xrayClientsMu.Unlock()
-		return fmt.Errorf("read xray clients: %w", err)
-	}
-	// 复制切片以在锁外安全使用
-	clientsCopy := make([]xrayClientEntry, len(clients))
-	copy(clientsCopy, clients)
-	xrayClientsMu.Unlock()
-
-	xhttpJSON, err := encodeXrayClients(clientsCopy, "")
-	if err != nil {
-		return fmt.Errorf("encode xhttp clients: %w", err)
-	}
-	realityJSON, err := encodeXrayClients(clientsCopy, "xtls-rprx-vision")
-	if err != nil {
-		return fmt.Errorf("encode reality clients: %w", err)
-	}
-
-	out := string(tmpl)
-	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", xhttpJSON)
-	out = strings.ReplaceAll(out, "__XRAY_REALITY_CLIENTS_JSON__", realityJSON)
-	out = strings.ReplaceAll(out, "__XRAY_SHORT_IDS_JSON__", shortIDsJSON)
-	// 三个占位符都在 JSON 字符串字面量内（config.json.tmpl dest/serverNames/
-	// privateKey），值先经 json.Marshal 再去外层引号替换——裸替换在值含
-	// `"` 或 `\` 时产生非法 JSON / 提前闭合注入任意键。与客户端字段的
-	// json.Encoder 路径对齐同一转义标准。
-	replaceJSONEnv := func(placeholder, key, def string) {
-		v := strings.TrimSpace(platform.GetEnv(key))
-		if v == "" {
-			v = def
-		}
-		quoted, err := json.Marshal(v)
-		if err != nil {
-			quoted = []byte(`"` + def + `"`)
-		}
-		out = strings.ReplaceAll(out, placeholder, string(quoted[1:len(quoted)-1]))
-	}
-	replaceJSONEnv("__XRAY_REALITY_DEST__", "XRAY_REALITY_DEST", "addons.mozilla.org")
-	replaceJSONEnv("__XRAY_REALITY_SERVER_NAME__", "XRAY_REALITY_SERVER_NAME", "")
-	replaceJSONEnv("__XRAY_PRIVATE_KEY__", "XRAY_PRIVATE_KEY", "")
-
-	// Always write — content comparison happens inside WriteFile (atomic overwrite).
-	// The file is shared with xray container via bind mount.
-	if err := os.MkdirAll("/app/data/generated/xray", 0755); err != nil {
-		return err
-	}
-	existing, _ := os.ReadFile(xrayConfigPath)
-	if string(existing) == out {
-		return ensurePerm(xrayConfigPath, 0640)
-	}
-	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return platform.AtomicWriteFile(xrayConfigPath, []byte(out), 0640)
-}
-
-// encodeXrayClients 将持久化的 client 条目编码为 Xray inbound `clients` JSON 数组。
-// 只保留 Xray 能识别的 id/email/flow：管理面的 owner 归属信息不属于运行时配置，
-// 不应写入（Xray 对未知字段静默忽略所以此前无害，但属于泄漏且未来收紧校验会炸）。
-// 唯一的遗留读者 migrateXrayClientsFromConfig 在 Owner 缺失时已回退为 Owner=ID。
-func encodeXrayClients(clients []xrayClientEntry, flow string) (string, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	for _, c := range clients {
-		if err := enc.Encode(map[string]string{"id": c.ID, "email": c.Email, "flow": flow}); err != nil {
-			return "", fmt.Errorf("encode client %s: %w", c.ID, err)
-		}
-		// enc.Encode 追加换行；去掉尾换行再加逗号，拼成 JSON 数组元素。
-		// 编码失败时 buffer 不会增长，Truncate(Len()-1) 在空 buffer 上会 panic，
-		// 因此只在 Encode 成功后才 Truncate。
-		buf.Truncate(buf.Len() - 1)
-		buf.WriteByte(',')
-	}
-	if buf.Len() == 0 {
-		return "[]", nil
-	}
-	return "[" + strings.TrimSuffix(buf.String(), ",") + "]", nil
-}
-
-func validateProxyConfigEnv() error {
-	required := []string{
-		"XRAY_REALITY_DOMAIN",
-		"XRAY_REALITY_SERVER_NAME",
-		"XRAY_PRIVATE_KEY",
-		"XRAY_PUBLIC_KEY",
-		"XRAY_SHORT_IDS",
-		"XHTTP_DOMAIN",
-	}
-	var missing []string
-	for _, key := range required {
-		if strings.TrimSpace(platform.GetEnv(key)) == "" {
-			missing = append(missing, key)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
-	}
-	if _, err := xrayShortIDs(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func xrayShortIDsJSON() (string, error) {
-	ids, err := xrayShortIDs()
-	if err != nil {
-		return "", err
-	}
-	data, err := json.Marshal(ids)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func xrayClientShortID() string {
-	ids, err := xrayShortIDs()
-	if err != nil || len(ids) == 0 {
-		return strings.TrimSpace(platform.GetEnv("XRAY_SHORT_IDS"))
-	}
-	return ids[0]
-}
-
-func xrayShortIDs() ([]string, error) {
-	raw := strings.TrimSpace(platform.GetEnv("XRAY_SHORT_IDS"))
-	if raw == "" {
-		return nil, fmt.Errorf("XRAY_SHORT_IDS is required")
-	}
-	var ids []string
-	for _, part := range strings.Split(raw, ",") {
-		id := strings.TrimSpace(part)
-		if id == "" {
-			continue
-		}
-		if len(id)%2 != 0 || len(id) > 16 {
-			return nil, fmt.Errorf("invalid XRAY_SHORT_IDS value %q: use even-length hex strings up to 16 characters", id)
-		}
-		if _, err := hex.DecodeString(id); err != nil {
-			return nil, fmt.Errorf("invalid XRAY_SHORT_IDS value %q: %w", id, err)
-		}
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("XRAY_SHORT_IDS is required")
-	}
-	return ids, nil
-}
-
 func genNginxConfig() error {
 	mediaCfg, err := readMediaCenterConfig()
 	if err != nil {
@@ -307,7 +138,7 @@ func genNginxConfig() error {
 // genNginxConfigForMediaCenter 渲染并（仅在内容变化时）写 nginx 配置，
 // 返回是否实际写入，供保存流程判断是否需要重启 nginx。
 func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) (bool, error) {
-	tmpl, err := os.ReadFile(nginxConfigTemplatePath)
+	tmpl, err := os.ReadFile(proxy.NginxConfigTemplatePath)
 	if err != nil {
 		return false, err
 	}
@@ -325,163 +156,13 @@ func genNginxConfigForMediaCenter(mediaCfg mediaCenterConfig) (bool, error) {
 	if err := os.MkdirAll("/app/data/generated/nginx", 0755); err != nil {
 		return false, err
 	}
-	if existing, err := os.ReadFile(nginxConfigPath); err == nil && string(existing) == out {
-		return false, ensurePerm(nginxConfigPath, 0644)
+	if existing, err := os.ReadFile(proxy.NginxConfigPath); err == nil && string(existing) == out {
+		return false, platform.EnsurePerm(proxy.NginxConfigPath, 0644)
 	}
-	if err := platform.AtomicWriteFile(nginxConfigPath, []byte(out), 0644); err != nil {
+	if err := platform.AtomicWriteFile(proxy.NginxConfigPath, []byte(out), 0644); err != nil {
 		return false, err
 	}
 	return true, nil
-}
-
-func genHtpasswd() error {
-	if err := os.MkdirAll(nginxAuthDir, 0755); err != nil {
-		return err
-	}
-	if data, err := os.ReadFile(htpasswdFile); err == nil {
-		if len(data) > 10 {
-			return ensurePerm(htpasswdFile, 0644)
-		}
-	}
-	if data, err := os.ReadFile(legacyHtpasswdPath); err == nil && len(data) > 10 {
-		return platform.AtomicWriteFile(htpasswdFile, data, 0644)
-	}
-	user := platform.GetEnv("AUTH_USER")
-	pass := platform.GetEnv("AUTH_PASS")
-	if user == "" || pass == "" {
-		return fmt.Errorf("AUTH_USER and AUTH_PASS are required when no existing htpasswd is available")
-	}
-	out, err := bcryptHtpasswdLine(user, pass)
-	if err != nil {
-		return err
-	}
-	return platform.AtomicWriteFile(htpasswdFile, []byte(out), 0644)
-}
-
-func seedAdminUser() error {
-	adminUser := platform.GetEnv("AUTH_USER")
-	if adminUser == "" {
-		return nil
-	}
-	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
-		if _, exists := doc.Users[adminUser]; !exists {
-			doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-			return true, nil
-		}
-		return false, nil
-	})
-}
-
-func genInternalToken() error {
-	if tok := platform.GetEnv("INTERNAL_TOKEN"); tok != "" {
-		if existing, err := os.ReadFile(internalTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
-			setInternalToken(tok)
-			return ensurePerm(internalTokenPath, 0640)
-		}
-		if err := platform.AtomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
-			return err
-		}
-		setInternalToken(tok)
-		return nil
-	}
-	if existing, err := os.ReadFile(internalTokenPath); err == nil {
-		tok := strings.TrimSpace(string(existing))
-		if tok != "" {
-			setInternalToken(tok)
-			return ensurePerm(internalTokenPath, 0640)
-		}
-	}
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return err
-	}
-	tok := hex.EncodeToString(b)
-	if err := platform.AtomicWriteFile(internalTokenPath, []byte(tok), 0640); err != nil {
-		return err
-	}
-	setInternalToken(tok)
-	return nil
-}
-
-func genFail2BanToken() error {
-	// 目录挂载路径:确保目录存在(Docker 首次以 root 建目录,admin 以 1001 运行
-	// 时可能尚未创建)。platform.AtomicWriteFile 只建临时文件,不建父目录。
-	if err := os.MkdirAll(filepath.Dir(fail2banTokenPath), 0755); err != nil {
-		return err
-	}
-	if tok := platform.GetEnv("FAIL2BAN_TOKEN"); tok != "" {
-		if existing, err := os.ReadFile(fail2banTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
-			setFail2BanToken(tok)
-			return ensurePerm(fail2banTokenPath, 0640)
-		}
-		if err := platform.AtomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
-			return err
-		}
-		setFail2BanToken(tok)
-		return nil
-	}
-	if existing, err := os.ReadFile(fail2banTokenPath); err == nil {
-		tok := strings.TrimSpace(string(existing))
-		if tok != "" {
-			setFail2BanToken(tok)
-			return ensurePerm(fail2banTokenPath, 0640)
-		}
-	}
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return err
-	}
-	tok := hex.EncodeToString(b)
-	if err := platform.AtomicWriteFile(fail2banTokenPath, []byte(tok), 0640); err != nil {
-		return err
-	}
-	setFail2BanToken(tok)
-	return nil
-}
-
-// genProxyHtpasswd regenerates nginx's per-user XHTTP proxy htpasswd file.
-func genProxyHtpasswd() error {
-	doc, err := readUsersMeta()
-	if err != nil {
-		return fmt.Errorf("read users: %w", err)
-	}
-	var entries []string
-	for username, info := range doc.Users {
-		if info.ProxyPassword == "" {
-			continue
-		}
-		out, err := bcryptHtpasswdLine(username, info.ProxyPassword)
-		if err != nil {
-			return fmt.Errorf("bcrypt for %s: %w", username, err)
-		}
-		entries = append(entries, out)
-	}
-	if err := os.MkdirAll(nginxAuthDir, 0755); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
-	}
-	data := []byte(strings.Join(entries, "\n") + "\n")
-	if len(entries) == 0 {
-		data = []byte{}
-	}
-	if err := platform.AtomicWriteFile(proxyHtpasswdPath, data, 0644); err != nil {
-		return fmt.Errorf("write file: %w", err)
-	}
-	return nil
-}
-
-// ensurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
-// platform.AtomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
-func ensurePerm(path string, want os.FileMode) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode().Perm() != want.Perm() {
-		log.Printf("Fixing permissions: %s %o -> %o", path, info.Mode().Perm(), want.Perm())
-		// os.Chmod 受 umask 影响，先用 syscall 确保精确权限
-		return syscall.Chmod(path, uint32(want.Perm()))
-	}
-	return nil
 }
 
 func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {

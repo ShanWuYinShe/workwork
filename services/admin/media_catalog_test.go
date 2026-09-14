@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"context"
 	"encoding/json"
@@ -115,7 +116,7 @@ func TestApiMediaCatalogReviewInjectsReviewer(t *testing.T) {
 
 	reqBody := `{"categoryId":"movies","provider":"bilibili","nativeId":"BV1","status":"approved","reviewer":"attacker"}`
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/review", strings.NewReader(reqBody))
-	r = r.WithContext(context.WithValue(r.Context(), usernameCtxKey, "alice"))
+	r = auth.WithTestUser(r, &auth.UserInfo{}, "alice")
 	rec := httptest.NewRecorder()
 
 	apiMediaCatalogReview()(rec, r)
@@ -151,7 +152,7 @@ func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
 
 	reqBody := `{"reviewer":"attacker","items":[{"categoryId":"movies","provider":"bilibili","nativeId":"BV1","title":"T","status":"approved"}]}`
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(reqBody))
-	r = r.WithContext(context.WithValue(r.Context(), usernameCtxKey, "alice"))
+	r = auth.WithTestUser(r, &auth.UserInfo{}, "alice")
 	rec := httptest.NewRecorder()
 	apiMediaCatalogImport()(rec, r)
 

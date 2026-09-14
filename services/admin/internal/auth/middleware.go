@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"admin/internal/platform"
@@ -30,7 +30,7 @@ type UserInfo struct {
 	ProxyPassword string `json:"proxy_password"` // plaintext, for xhttp client config
 }
 
-type usersMetaDoc struct {
+type UsersMetaDoc struct {
 	Users map[string]UserInfo `json:"users"`
 }
 
@@ -39,14 +39,14 @@ var (
 	usersMetaMu   sync.Mutex
 )
 
-// errLastAdmin 表示"不能移除最后一个管理员"的业务错误。它由 usersMeta 持锁回调
-// 返回(在 updateUsersMeta 的单次锁获取内完成 read-check-write),handler 层用
+// ErrLastAdmin 表示"不能移除最后一个管理员"的业务错误。它由 usersMeta 持锁回调
+// 返回(在 UpdateUsersMeta 的单次锁获取内完成 read-check-write),handler 层用
 // errors.Is 识别并映射为 400——把 last-admin 守卫从"先读后写"的两段式改成原子
 // 操作,消除并发降级/删除绕过守卫把管理员清零的 TOCTOU 窗口。
-var errLastAdmin = errors.New("cannot remove the last admin user")
+var ErrLastAdmin = errors.New("cannot remove the last admin user")
 
-// errProtectedAdmin 表示"不能降级受保护的管理员账号"(AUTH_USER)。
-var errProtectedAdmin = errors.New("cannot demote the default admin account")
+// ErrProtectedAdmin 表示"不能降级受保护的管理员账号"(AUTH_USER)。
+var ErrProtectedAdmin = errors.New("cannot demote the default admin account")
 
 // internalToken/fail2banToken 由 deploy.go 生成并加载。
 // 避免使用 os.Setenv 注入进程环境（并发不安全）以及 platform.GetEnv 的双重来源行为。
@@ -91,11 +91,11 @@ var trustedProxyCIDRCache = struct {
 	valid bool
 }{}
 
-func readUsersMeta() (*usersMetaDoc, error) {
+func ReadUsersMeta() (*UsersMetaDoc, error) {
 	usersMetaMu.Lock()
 	defer usersMetaMu.Unlock()
 
-	doc := &usersMetaDoc{Users: make(map[string]UserInfo)}
+	doc := &UsersMetaDoc{Users: make(map[string]UserInfo)}
 	data, err := os.ReadFile(usersMetaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -112,11 +112,11 @@ func readUsersMeta() (*usersMetaDoc, error) {
 	return doc, nil
 }
 
-func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
+func UpdateUsersMeta(fn func(doc *UsersMetaDoc) (bool, error)) error {
 	usersMetaMu.Lock()
 	defer usersMetaMu.Unlock()
 
-	doc := &usersMetaDoc{Users: make(map[string]UserInfo)}
+	doc := &UsersMetaDoc{Users: make(map[string]UserInfo)}
 	data, err := os.ReadFile(usersMetaPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -144,8 +144,8 @@ func updateUsersMeta(fn func(doc *usersMetaDoc) (bool, error)) error {
 	return platform.AtomicWriteFile(usersMetaPath, data, 0600)
 }
 
-func ensureUserMeta(username string) (*UserInfo, error) {
-	doc, err := readUsersMeta()
+func EnsureUserMeta(username string) (*UserInfo, error) {
+	doc, err := ReadUsersMeta()
 	if err != nil {
 		return nil, err
 	}
@@ -157,34 +157,34 @@ func ensureUserMeta(username string) (*UserInfo, error) {
 	return nil, nil
 }
 
-func isProtectedAdmin(username string) bool {
+func IsProtectedAdmin(username string) bool {
 	return username == platform.GetEnv("AUTH_USER")
 }
 
-func updateUserMeta(username string, info UserInfo) error {
-	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+func UpdateUserMeta(username string, info UserInfo) error {
+	return UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
 		doc.Users[username] = info
 		return true, nil
 	})
 }
 
-func deleteUserMeta(username string) error {
-	return updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+func DeleteUserMeta(username string) error {
+	return UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
 		delete(doc.Users, username)
 		return true, nil
 	})
 }
 
-func getUserFromContext(r *http.Request) (*UserInfo, string) {
+func GetUserFromContext(r *http.Request) (*UserInfo, string) {
 	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
 	username, _ := r.Context().Value(usernameCtxKey).(string)
 	return info, username
 }
 
-func getOrCreateProxyPassword(username string) (string, error) {
+func GetOrCreateProxyPassword(username string) (string, error) {
 	var password string
 	created := false
-	err := updateUsersMeta(func(doc *usersMetaDoc) (bool, error) {
+	err := UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
 		info := doc.Users[username]
 		if info.ProxyPassword != "" {
 			password = info.ProxyPassword
@@ -207,7 +207,7 @@ func getOrCreateProxyPassword(username string) (string, error) {
 		return "", err
 	}
 	if created || !proxyHtpasswdContainsUser(username) {
-		if err := genProxyHtpasswd(); err != nil {
+		if err := EnsureProxyHtpasswd(); err != nil {
 			return "", err
 		}
 	}
@@ -215,7 +215,7 @@ func getOrCreateProxyPassword(username string) (string, error) {
 }
 
 func proxyHtpasswdContainsUser(username string) bool {
-	data, err := os.ReadFile(proxyHtpasswdPath)
+	data, err := os.ReadFile(ProxyHtpasswdPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("WARNING: read proxy htpasswd: %v", err)
@@ -233,12 +233,12 @@ func proxyHtpasswdContainsUser(username string) bool {
 
 // proxyPasswordIfExists 返回已存在的 proxy 密码（只读，不创建）。
 // 用于 GET /api/admin/users 这类读端点——避免在查询时产生副作用（生成密码 +
-// 重写 htpasswd）。密码在用户首次添加 Xray 客户端时由 getOrCreateProxyPassword 懒创建。
+// 重写 htpasswd）。密码在用户首次添加 Xray 客户端时由 GetOrCreateProxyPassword 懒创建。
 func proxyPasswordIfExists(username string) string {
 	if username == "" {
 		return ""
 	}
-	doc, err := readUsersMeta()
+	doc, err := ReadUsersMeta()
 	if err != nil {
 		return ""
 	}
@@ -308,7 +308,7 @@ func trustedProxyHosts() []string {
 
 // trustedProxyHostIPs 返回信任代理主机名解析出的 IP 集合。
 // DNS 解析在锁外进行（与 cloudflare.go cfResolveZoneID 同款模式）：此前解析
-// 持有全局锁，每个经 requireRole 的请求都要过这把锁——缓存过期或 DNS 故障
+// 持有全局锁，每个经 RequireRole 的请求都要过这把锁——缓存过期或 DNS 故障
 // （失败只缓存 5s）期间所有请求串行排队，各付最长 200ms 解析超时，面板整体
 // 延迟被放大。锁外解析 + 锁内回写（允许并发重复解析，结果幂等）消除该瓶颈。
 func trustedProxyHostIPs() []net.IP {
@@ -416,7 +416,7 @@ func isPrivilegedServiceRequest(r *http.Request) bool {
 	return isInternalRequest(r) || isFail2BanRequest(r)
 }
 
-func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
+func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
@@ -445,7 +445,7 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 				var err error
-				info, err = ensureUserMeta(username)
+				info, err = EnsureUserMeta(username)
 				if err != nil {
 					platform.WriteInternalError(w, err)
 					return
@@ -479,4 +479,12 @@ func requireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			next(w, r.WithContext(ctx))
 		}
 	}
+}
+
+// WithTestUser 供外部包测试向请求 ctx 注入已认证用户(生产代码不得调用;
+// 生产路径由 requireRole 中间件写入)。
+func WithTestUser(r *http.Request, info *UserInfo, username string) *http.Request {
+	ctx := context.WithValue(r.Context(), userInfoCtxKey, info)
+	ctx = context.WithValue(ctx, usernameCtxKey, username)
+	return r.WithContext(ctx)
 }

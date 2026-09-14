@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"admin/internal/platform"
@@ -145,9 +145,9 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return true
 }
 
-// rateLimitMiddleware should be placed before ipBlockMiddleware so repeated
+// RateLimitMiddleware should be placed before IPBlockMiddleware so repeated
 // abusive requests can be persisted into the IP block list.
-func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
 		if isPrivilegedServiceRequest(r) {
@@ -163,7 +163,7 @@ func rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func apiRateLimitStatus() http.HandlerFunc {
+func ApiRateLimitStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authRateLimiter.mu.Lock()
 		defer authRateLimiter.mu.Unlock()
@@ -183,7 +183,7 @@ func apiRateLimitStatus() http.HandlerFunc {
 	}
 }
 
-func apiRateLimitUnblock() http.HandlerFunc {
+func ApiRateLimitUnblock() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP string `json:"ip"`
@@ -211,3 +211,7 @@ func apiRateLimitUnblock() http.HandlerFunc {
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
+
+// StartRateLimiter/StopRateLimiter 供 main 装配调用(包内 authRateLimiter 单例)。
+func StartRateLimiter() { authRateLimiter.start() }
+func StopRateLimiter()  { authRateLimiter.stop() }
