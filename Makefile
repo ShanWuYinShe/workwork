@@ -37,8 +37,8 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端构建
 	@test -z "$$(gofmt -l services/admin/)" || { echo 'gofmt 未通过:'; gofmt -l services/admin/; exit 1; }
 	go vet -C services/admin ./...
 	go test -C services/admin ./...
-	bun install --cwd ui
-	bun run --cwd ui build
+	bun install --cwd services/admin/ui
+	bun run --cwd services/admin/ui build
 
 deploy-changed: ## 服务器部署: pull + 子模块同步 + 按变更最小 build/up
 	./scripts/deploy-changed.sh

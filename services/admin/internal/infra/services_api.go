@@ -89,7 +89,7 @@ func ApiConfig(cli *client.Client) http.HandlerFunc {
 			"configStatus": "-",
 		}
 		var raw []byte
-		for _, path := range []string{proxy.XrayConfigPath, proxy.LegacyXrayConfigPath} {
+		for _, path := range []string{proxy.XrayConfigPath} {
 			fileData, err := os.ReadFile(path)
 			if err == nil {
 				raw = fileData

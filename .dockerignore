@@ -17,3 +17,6 @@ node_modules
 #（media_app/music_app 由各自子仓库构建），排除可显著减小 context 传输体积。
 services/media_center
 services/music_player
+# ui 的依赖与构建产物不进 context（bun 在镜像内 install/build）
+services/admin/ui/node_modules
+services/admin/ui/dist
