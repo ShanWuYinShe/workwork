@@ -38,7 +38,7 @@ func main() {
 	// 服务日志 SSE(/api/admin/services 的 logs/stream,Follow:true)会在
 	// 60s 后被硬切,proxy.IPWatcher 的 Events 流也会每 60s 断开重连。
 	// 需要超时兜底的自愈调用改为在调用点显式包 context deadline(见
-	// proxy.XhttpHealthChecker 的 proxy.RestartXray、proxy.IPWatcher 的 proxy.RestoreServiceRotatingIP)。
+	// XhttpHealthChecker 的 RestartXray、IPWatcher 的 RestoreServiceRotatingIP)。
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
@@ -258,8 +258,8 @@ func main() {
 	log.Println("Server stopped")
 }
 
-// 大上传端点豁免全局 1MB 请求体上限。与下方路由注册一一对应,新增大上传
-// 端点时必须在此同步声明;main_test.go 的契约测试锁住该清单。
+// 大上传端点豁免全局 1MB 请求体上限。与本文件路由注册一一对应,新增大
+// 上传端点时必须在此同步声明;main_test.go 的契约测试锁住该清单。
 func init() {
 	platform.ExemptBodyLimit("/api/admin/transfer/upload")             // handler: 2GB
 	platform.ExemptBodyLimit("/api/admin/media-center/app-release")    // APK 发布上传

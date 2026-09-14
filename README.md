@@ -126,19 +126,20 @@ workwork/
 ├── setup-networks.sh         # 创建 ipvlan 网络
 │
 ├── services/
-│   ├── admin/                # Go 管理面板后端（package main 分文件按功能域组织）
-│   │   ├── main.go          # HTTP 路由注册、中间件链、后台任务启动
-│   │   ├── middleware.go    # 认证、角色检查、限流
-│   │   ├── deploy.go        # 启动时配置生成（模板 → .wework/generated/）
-│   │   ├── response.go / fsutil.go / htpasswd.go             # 响应辅助 / 原子写 / 认证文件
-│   │   ├── users_api.go / xray_clients_api.go / dashboard.go # 用户与角色 / Xray 客户端 API
-│   │   ├── network.go / services_api.go / dockerx.go         # IPv6+DNS / 服务管理 / docker 封装
-│   │   ├── xray_client_config.go           # Xray 客户端配置生成
-│   │   ├── xray.go / xray_clients.go      # Xray 二进制下载 / 客户端持久化
-│   │   ├── media_center.go / media_catalog.go / media_app_release.go  # 媒体中心管理
-│   │   ├── music_library.go / netease_login.go                # 曲库与网易云登录
-│   │   ├── transfer.go / downloads.go / claude.go             # 文件中转 / 二进制下载
-│   │   └── cloudflare.go / ipv6_rotation.go                   # DNS 与 IPv6 轮换
+│   ├── admin/                # Go 管理面板后端（internal/ 分域包,依赖单向无环）
+│   │   ├── main.go          # 装配:路由注册、中间件链、后台任务启动、body-limit 豁免声明
+│   │   ├── deploy.go        # 启动引导:调用各域 Ensure* 生成运行时配置
+│   │   ├── main_test.go     # 路由装配契约测试(大上传端点豁免清单)
+│   │   └── internal/
+│   │       ├── platform/    # 零业务底座:env、原子写、HTTP 响应、docker 封装、compose 工具
+│   │       ├── auth/        # 认证原语:htpasswd、用户元数据、token、中间件链、限流、IP 封禁
+│   │       ├── accounts/    # 用户管理 + Xray 客户端管理(删用户级联删客户端,故合域)
+│   │       ├── proxy/       # xray/nginx 配置路径、IPv6 轮换、CF DNS、服务守护 watcher
+│   │       ├── infra/       # docker 服务管理、日志流、Dashboard
+│   │       ├── media/       # 媒体中心配置、目录审核、APK 发布、nginx 接线渲染
+│   │       ├── music/       # 曲库、分片上传、网易云扫码登录
+│   │       ├── downloads/   # Claude Code / Xray 二进制下载
+│   │       └── transfer/    # 文件中转(公开分享下载)
 │   │
 │   ├── xray/                # Xray 代理（config.json.tmpl 由 admin 渲染）
 │   │   ├── config.json.tmpl
