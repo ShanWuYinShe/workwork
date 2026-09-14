@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"admin/internal/platform"
@@ -31,11 +31,11 @@ var (
 	blocklistSyncPending bool // sync 执行期间又有新变更,需合并重跑一轮
 )
 
-// scheduleBlocklistSync 在封禁列表变更后调度一次 nginx 同步(去抖):
+// ScheduleBlocklistSync 在封禁列表变更后调度一次 nginx 同步(去抖):
 // 连续变更(如批量封禁/解封)在窗口内只生成一次配置、reload 一次。
 // 注意:调用方可能持锁(ipBlocker.save 持 ipBlocker.mu),这里只做调度,
 // 实际生成与 reload 在独立 timer goroutine 中执行,不阻塞请求热路径。
-func scheduleBlocklistSync() {
+func ScheduleBlocklistSync() {
 	blocklistSyncMu.Lock()
 	defer blocklistSyncMu.Unlock()
 	if blocklistSyncTimer != nil {
@@ -139,3 +139,6 @@ func reloadNginx(cli *client.Client) error {
 	}
 	return platform.ContainerExec(ctx, cli, id, "nginx", "-s", "reload")
 }
+
+// SetBlocklistClient 由 main 装配注入 docker client。
+func SetBlocklistClient(cli *client.Client) { blocklistSyncCli = cli }

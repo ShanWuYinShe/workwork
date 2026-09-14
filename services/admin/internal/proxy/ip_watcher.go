@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"admin/internal/platform"
@@ -11,13 +11,13 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// ipWatcher 订阅 Docker 容器 start 事件，当 xray 或 nginx 容器启动时
+// IPWatcher 订阅 Docker 容器 start 事件，当 xray 或 nginx 容器启动时
 // 自动恢复其轮换 IPv6 地址。覆盖所有容器生命周期事件，包括：
 //   - 宿主机 docker compose 操作
 //   - Docker restart policy（主机重启后）
 //   - 手动 docker restart 命令
 //   - 其他任何导致容器网络命名空间重建的操作
-func ipWatcher(ctx context.Context, cli *client.Client) {
+func IPWatcher(ctx context.Context, cli *client.Client) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
@@ -82,7 +82,7 @@ func ipWatcher(ctx context.Context, cli *client.Client) {
 					// 全部漏处理)。
 					restoreCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 					defer cancel()
-					restoreServiceRotatingIP(restoreCtx, cli, containerID, service)
+					RestoreServiceRotatingIP(restoreCtx, cli, containerID, service)
 				}()
 
 				// 成功处理事件后重置退避

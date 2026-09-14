@@ -1,6 +1,8 @@
 package main
 
 import (
+	"admin/internal/accounts"
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"fmt"
 	"github.com/docker/docker/client"
@@ -10,11 +12,11 @@ import (
 
 func apiDashboard(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 
 		// For non-admin users, return personalized dashboard
 		if userInfo != nil && userInfo.Role != "admin" {
-			allClients, err := readXrayClientMaps()
+			allClients, err := accounts.ReadXrayClientMaps()
 			if err != nil {
 				log.Printf("Failed to read clients for dashboard: %v", err)
 				platform.WriteInternalError(w, err)
@@ -28,17 +30,17 @@ func apiDashboard(cli *client.Client) http.HandlerFunc {
 			}
 			proxyAuth := ""
 			if len(myClients) > 0 {
-				proxyAuth, err = proxyAuthForUser(username)
+				proxyAuth, err = auth.ProxyAuthForUser(username)
 				if err != nil {
 					platform.WriteInternalError(w, err)
 					return
 				}
 			}
-			genJSON := GenerateClientConfig(myClients, ClientConfig{
+			genJSON := accounts.GenerateClientConfig(myClients, accounts.ClientConfig{
 				RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
 				RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
 				RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
-				RealityShortID:    xrayClientShortID(),
+				RealityShortID:    accounts.XrayClientShortID(),
 				XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPProxyAuth:    proxyAuth,
 			})

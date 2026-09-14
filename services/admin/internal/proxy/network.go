@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"admin/internal/platform"
@@ -20,24 +20,21 @@ import (
 
 const rotatingIPv6CleanupGrace = 10 * time.Minute
 
-// restart/轮转类长流程（stop+start+健康等待）的整体收敛时限。
-const restartTimeout = 2 * time.Minute
-
 var ipv6RotateMu sync.RWMutex
 
 // -- Network / IPv6 rotation APIs --
 
-// loadCurrentIPs 是 loadCurrentIPsWithRecords 的兼容包装（不需要记录明细的
+// LoadCurrentIPs 是 LoadCurrentIPsWithRecords 的兼容包装（不需要记录明细的
 // 调用方继续用两返回值签名）。
-func loadCurrentIPs() (xrayIP, nginxIP string) {
-	x, n, _ := loadCurrentIPsWithRecords()
+func LoadCurrentIPs() (xrayIP, nginxIP string) {
+	x, n, _ := LoadCurrentIPsWithRecords()
 	return x, n
 }
 
-// loadCurrentIPsWithRecords 除返回各容器当前 IPv6 外，还带出本次轮询查到的
-// AAAA 记录明细，供 apiNetworkStatus 的 DNS 表格复用——同一请求内不再对
+// LoadCurrentIPsWithRecords 除返回各容器当前 IPv6 外，还带出本次轮询查到的
+// AAAA 记录明细，供 ApiNetworkStatus 的 DNS 表格复用——同一请求内不再对
 // 同一批域名发起第二轮全量 CF 查询（此前单次页面刷新 = 域数 × 2 轮串行 CF API）。
-func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
+func LoadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
 	// env 回退值过 platform.NormalizeIPv6：CF 路径与 platform.GetContainerIPs 返回的都是压缩
 	// 规范形，env 若填了全展开形式，ip_consistency 的字符串比较会永假，
 	// 每 3 分钟误报一次 "missing rotating IP"（日志噪音 + no-op add）。
@@ -62,7 +59,7 @@ func loadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cf
 	return
 }
 
-func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
+func ApiNetworkStatus(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 整体收敛 deadline：此 handler 串行发起多轮 CF API + docker exec，
 		// 全部挂在 r.Context() 上（客户端不断开就不取消），CF 慢时页面可挂起
@@ -74,7 +71,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		subnet := platform.GetEnv("IPV6_SUBNET")
 		nginxStatic := platform.GetEnv("NGINX_IPV6")
 		xrayStatic := platform.GetEnv("XRAY_IPV6")
-		dnsXrayIP, dnsNginxIP, dnsRecords := loadCurrentIPsWithRecords()
+		dnsXrayIP, dnsNginxIP, dnsRecords := LoadCurrentIPsWithRecords()
 		xrayIP, nxIP := dnsXrayIP, dnsNginxIP
 		if xrayID, err := platform.FindContainer(r.Context(), cli, "xray"); err == nil {
 			xrayIP = selectContainerDNSIP(r.Context(), cli, xrayID, xrayStatic, dnsXrayIP)
@@ -118,7 +115,7 @@ func apiNetworkStatus(cli *client.Client) http.HandlerFunc {
 					expectedIP = xrayIP
 				}
 				info := dnsInfo{Domain: di.Domain, Container: di.Container, ExpectedIP: expectedIP}
-				// 复用 loadCurrentIPsWithRecords 本轮已查到的记录：不再对同一
+				// 复用 LoadCurrentIPsWithRecords 本轮已查到的记录：不再对同一
 				// 批域名发起第二轮串行 CF 查询。查不到 = 记录缺失（rec=nil，
 				// 展示为 mismatch），仅当本轮完全没查过（map 无键且非失败缓存）
 				// 时才兜底补查。
@@ -237,10 +234,10 @@ func rollbackDomainAAAARecords(entries []dnsRollbackEntry) (bool, error) {
 	return true, nil
 }
 
-// startupRotateIPv6 restores the DNS-published rotating IPv6 addresses on startup.
+// StartupRotateIPv6 restores the DNS-published rotating IPv6 addresses on startup.
 // It only allocates fresh addresses when DNS/current container state has no usable
 // rotating address, avoiding unnecessary DNS churn on admin restarts.
-func startupRotateIPv6(cli *client.Client) {
+func StartupRotateIPv6(cli *client.Client) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
@@ -249,7 +246,7 @@ func startupRotateIPv6(cli *client.Client) {
 
 	// 先等容器就绪——这段等待最长可达 3 分钟,绝不能持锁:轮换锁是全局互斥的,
 	// 启动窗口内任何用户请求(xray 客户端增删、服务重启)都会在
-	// restoreServiceRotatingIP 的 RLock 上挂起同样长的时间。
+	// RestoreServiceRotatingIP 的 RLock 上挂起同样长的时间。
 	var xrayID, nginxID string
 	for {
 		var xrayErr, nginxErr error
@@ -266,7 +263,7 @@ func startupRotateIPv6(cli *client.Client) {
 	}
 
 	// 仅在真正分配 IP + 写 DNS 的临界区持锁;若手动轮换 API 正在执行,
-	// 放弃本轮(ipConsistencyChecker 会兜底恢复),避免与其并发。
+	// 放弃本轮(IPConsistencyChecker 会兜底恢复),避免与其并发。
 	if !ipv6RotateMu.TryLock() {
 		log.Printf("startup rotate: rotation lock busy, skipping startup restore")
 		return
@@ -290,7 +287,7 @@ func startupRotateIPv6(cli *client.Client) {
 	xrayAssigned := platform.GetContainerIPs(ctx, cli, xrayID)
 	nginxAssigned := platform.GetContainerIPs(ctx, cli, nginxID)
 	allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
-	dnsXrayIP, dnsNginxIP := loadCurrentIPs()
+	dnsXrayIP, dnsNginxIP := LoadCurrentIPs()
 
 	xraySelection, err := selectStartupRotatingIP(
 		prefix,
@@ -357,7 +354,7 @@ func startupRotateIPv6(cli *client.Client) {
 	log.Printf("Startup IPv6 restore: xray=%s nginx=%s", xrayIP, nginxIP)
 }
 
-func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
+func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
@@ -378,7 +375,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		xrayID, err := platform.FindContainer(ctx, cli, "xray")
 		if err != nil {
-			// 服务暂时不可用（容器缺失/查询失败）而非内部错误：与 apiSyncDNS
+			// 服务暂时不可用（容器缺失/查询失败）而非内部错误：与 ApiSyncDNS
 			// 同场景的写法对齐（platform.WriteInternalError 记日志 + 通用文案），503
 			// 让客户端明确这是环境态而非代码 bug。
 			log.Printf("rotate ipv6: find xray container: %v", err)
@@ -424,7 +421,7 @@ func apiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		oldXrayIP, oldNginxIP := loadCurrentIPs()
+		oldXrayIP, oldNginxIP := LoadCurrentIPs()
 
 		// Add new IPs
 		if err := platform.AddContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
@@ -525,7 +522,7 @@ func genRandomIPv6(prefix string, exclude ...string) (string, error) {
 	return "", fmt.Errorf("failed to generate unique IPv6 after 100 attempts")
 }
 
-func apiSyncDNS(cli *client.Client) http.HandlerFunc {
+func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
@@ -550,7 +547,7 @@ func apiSyncDNS(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		oldXrayIP, oldNginxIP := loadCurrentIPs()
+		oldXrayIP, oldNginxIP := LoadCurrentIPs()
 		xrayIP := selectContainerDNSIP(ctx, cli, xrayID, platform.GetEnv("XRAY_IPV6"), oldXrayIP)
 		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, platform.GetEnv("NGINX_IPV6"), oldNginxIP)
 
@@ -608,7 +605,7 @@ func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, 
 	return staticIP
 }
 
-func restartXray(ctx context.Context, cli *client.Client) error {
+func RestartXray(ctx context.Context, cli *client.Client) error {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=xray",
@@ -627,7 +624,7 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 
 	// 始终尝试恢复轮换 IP。Docker restart 超时/cancel 时容器可能已完成重启，
 	// 不恢复会导致 DNS 指向不存在的地址。
-	restoreServiceRotatingIP(ctx, cli, id, "xray")
+	RestoreServiceRotatingIP(ctx, cli, id, "xray")
 
 	if restartErr != nil {
 		return fmt.Errorf("restart xray: %w", restartErr)
@@ -635,7 +632,7 @@ func restartXray(ctx context.Context, cli *client.Client) error {
 	return nil
 }
 
-func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, containerID, service string) {
+func RestoreServiceRotatingIP(ctx context.Context, cli *client.Client, containerID, service string) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
@@ -645,7 +642,7 @@ func restoreServiceRotatingIP(ctx context.Context, cli *client.Client, container
 		return
 	}
 	defer ipv6RotateMu.RUnlock()
-	xrayIP, nginxIP := loadCurrentIPs()
+	xrayIP, nginxIP := LoadCurrentIPs()
 	ip := xrayIP
 	if service == "nginx" {
 		ip = nginxIP

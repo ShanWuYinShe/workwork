@@ -1,4 +1,4 @@
-package main
+package accounts
 
 import (
 	"encoding/json"
@@ -142,7 +142,7 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 }
 
 func TestXrayTemplateRendersValidJSON(t *testing.T) {
-	templatePath := filepath.Join("..", "xray", "config.json.tmpl")
+	templatePath := filepath.Join("..", "..", "..", "xray", "config.json.tmpl")
 	data, err := os.ReadFile(templatePath)
 	if err != nil {
 		t.Fatalf("read template: %v", err)
@@ -228,7 +228,7 @@ func TestXrayShortIDsJSON(t *testing.T) {
 	if got != `["0123456789abcdef","abcdef"]` {
 		t.Fatalf("unexpected short IDs JSON: %s", got)
 	}
-	if shortID := xrayClientShortID(); shortID != "0123456789abcdef" {
+	if shortID := XrayClientShortID(); shortID != "0123456789abcdef" {
 		t.Fatalf("unexpected client short ID: %s", shortID)
 	}
 }

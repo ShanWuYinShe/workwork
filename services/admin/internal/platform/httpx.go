@@ -66,3 +66,11 @@ func DecodeStrictJSON(r io.Reader, dest any) error {
 	}
 	return nil
 }
+
+// IsStaticAsset 判断是否 admin SPA 静态资源路径(跳过限流/限流豁免用)。
+// isStaticAsset returns true for fingerprinted asset paths that bypass rate limiting.
+func IsStaticAsset(path string) bool {
+	return len(path) >= 8 &&
+		(path == "/favicon.svg" || path == "/icons.svg" ||
+			(len(path) > 8 && path[:8] == "/assets/"))
+}

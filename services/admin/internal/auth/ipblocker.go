@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"admin/internal/platform"
@@ -63,7 +63,7 @@ func (s *ipBlockStore) save() {
 	}
 	// 同步到 nginx 层(去抖 + 异步):让 /proxy/query、媒体 API 等非 admin 面
 	// 也执行同一封禁。只调度不阻塞——save 可能在限流热路径持锁调用。
-	scheduleBlocklistSync()
+	ScheduleBlocklistSync()
 }
 
 func (s *ipBlockStore) isBlocked(ip string) bool {
@@ -116,7 +116,7 @@ func (s *ipBlockStore) remove(ip string) {
 }
 
 // find 返回指定 IP 封禁条目的副本（锁内读，nil 表示未封禁）。
-// 供 apiBlockIP 回读「add 后实际生效」的条目——add 对已封禁 IP 是覆盖
+// 供 ApiBlockIP 回读「add 后实际生效」的条目——add 对已封禁 IP 是覆盖
 // 语义（更新 reason/时长），回读才能保证响应反映真实状态而非请求参数。
 func (s *ipBlockStore) find(ip string) *ipBlockEntry {
 	s.mu.Lock()
@@ -198,7 +198,7 @@ func forwardedForIP(raw string) net.IP {
 	return nil
 }
 
-func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service calls are authenticated by shared secret and must
 		// still work when fail2ban has just blocked an external client IP.
@@ -215,7 +215,7 @@ func ipBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func apiBlockIP() http.HandlerFunc {
+func ApiBlockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP       string `json:"ip"`
@@ -259,7 +259,7 @@ func apiBlockIP() http.HandlerFunc {
 				kind = "temporary"
 			}
 		}
-		_, actor := getUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
+		_, actor := GetUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
 		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
 			body.IP, body.Reason, body.Duration, kind, actor)
 
@@ -277,7 +277,7 @@ func apiBlockIP() http.HandlerFunc {
 	}
 }
 
-func apiUnblockIP() http.HandlerFunc {
+func ApiUnblockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP string `json:"ip"`
@@ -303,13 +303,13 @@ func apiUnblockIP() http.HandlerFunc {
 		}
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()
-		_, actor := getUserFromContext(r)
+		_, actor := GetUserFromContext(r)
 		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
-func apiBlockedIPs() http.HandlerFunc {
+func ApiBlockedIPs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		platform.WriteJSON(w, map[string]any{"entries": ipBlocker.list()})
 	}

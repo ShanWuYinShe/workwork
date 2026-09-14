@@ -1,7 +1,10 @@
 package main
 
 import (
+	"admin/internal/accounts"
+	"admin/internal/auth"
 	"admin/internal/platform"
+	"admin/internal/proxy"
 	"context"
 	"log"
 	"net/http"
@@ -28,88 +31,88 @@ func main() {
 	// 不要用 client.WithTimeout:它设置的是 http.Client.Timeout,即整个
 	// 请求-响应周期(含 body 读取)的硬墙,会把无 deadline 的长连接流掐断——
 	// 服务日志 SSE(/api/admin/services 的 logs/stream,Follow:true)会在
-	// 60s 后被硬切,ipWatcher 的 Events 流也会每 60s 断开重连。
+	// 60s 后被硬切,proxy.IPWatcher 的 Events 流也会每 60s 断开重连。
 	// 需要超时兜底的自愈调用改为在调用点显式包 context deadline(见
-	// xhttpHealthChecker 的 restartXray、ipWatcher 的 restoreServiceRotatingIP)。
+	// proxy.XhttpHealthChecker 的 proxy.RestartXray、proxy.IPWatcher 的 proxy.RestoreServiceRotatingIP)。
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
 	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
-	blocklistSyncCli = cli
-	scheduleBlocklistSync()
+	auth.SetBlocklistClient(cli)
+	auth.ScheduleBlocklistSync()
 
-	// 启动 IPv6 恢复完成后关闭此 channel，ipConsistencyChecker 等待它避免竞态。
+	// 启动 IPv6 恢复完成后关闭此 channel，proxy.IPConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
 
-	go xhttpHealthChecker(context.Background(), cli)
-	go ipWatcher(context.Background(), cli)
-	go ipConsistencyChecker(context.Background(), cli, startupRotateDone)
+	go proxy.XhttpHealthChecker(context.Background(), cli)
+	go proxy.IPWatcher(context.Background(), cli)
+	go proxy.IPConsistencyChecker(context.Background(), cli, startupRotateDone)
 
 	mux := http.NewServeMux()
 
 	// Auth — available to all authenticated users
-	mux.HandleFunc("GET /api/admin/auth/me", requireRole("viewer")(apiWhoAmI(cli)))
+	mux.HandleFunc("GET /api/admin/auth/me", auth.RequireRole("viewer")(accounts.ApiWhoAmI(cli)))
 
 	// Dashboard — viewer+ (returns role-appropriate data)
-	mux.HandleFunc("GET /api/admin/dashboard", requireRole("viewer")(apiDashboard(cli)))
-	mux.HandleFunc("GET /api/admin/services", requireRole("admin")(apiServices(cli)))
+	mux.HandleFunc("GET /api/admin/dashboard", auth.RequireRole("viewer")(apiDashboard(cli)))
+	mux.HandleFunc("GET /api/admin/services", auth.RequireRole("admin")(apiServices(cli)))
 	// 兜底：nginx 历史上曾把 /api/admin/services 301 到带斜杠路径，直接返回列表
 	// 而不是 404，避免浏览器跟随重定向后页面报错。
-	mux.HandleFunc("GET /api/admin/services/", requireRole("admin")(apiServices(cli)))
-	mux.HandleFunc("GET /api/admin/config", requireRole("viewer")(apiConfig(cli)))
+	mux.HandleFunc("GET /api/admin/services/", auth.RequireRole("admin")(apiServices(cli)))
+	mux.HandleFunc("GET /api/admin/config", auth.RequireRole("viewer")(apiConfig(cli)))
 
 	// User operations — viewer+ (read own), admin (manage all)
-	mux.HandleFunc("GET /api/admin/users", requireRole("viewer")(apiUsers(cli)))
-	mux.HandleFunc("POST /api/admin/users/password", requireRole("viewer")(apiChangePassword(cli)))
+	mux.HandleFunc("GET /api/admin/users", auth.RequireRole("viewer")(accounts.ApiUsers(cli)))
+	mux.HandleFunc("POST /api/admin/users/password", auth.RequireRole("viewer")(accounts.ApiChangePassword(cli)))
 
 	// Admin-only operations
-	mux.HandleFunc("POST /api/admin/services/{name}/{action}", requireRole("admin")(apiServiceAction(cli)))
+	mux.HandleFunc("POST /api/admin/services/{name}/{action}", auth.RequireRole("admin")(apiServiceAction(cli)))
 	// Xray client management — viewers can manage their own clients
-	mux.HandleFunc("POST /api/admin/users/xray/add", requireRole("viewer")(apiAddXray(cli)))
-	mux.HandleFunc("POST /api/admin/users/xray/delete", requireRole("viewer")(apiDeleteXray(cli)))
-	mux.HandleFunc("GET /api/admin/users/xray/config/{uuid}", requireRole("viewer")(apiXrayClientConfig()))
-	mux.HandleFunc("POST /api/admin/users/admin/add", requireRole("admin")(apiAddAdmin(cli)))
-	mux.HandleFunc("POST /api/admin/users/admin/delete", requireRole("admin")(apiDeleteAdmin(cli)))
-	mux.HandleFunc("POST /api/admin/users/roles/set", requireRole("admin")(apiSetRole(cli)))
-	mux.HandleFunc("GET /api/admin/network/status", requireRole("admin")(apiNetworkStatus(cli)))
-	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", requireRole("admin")(apiRotateIPv6(cli)))
-	mux.HandleFunc("POST /api/admin/network/sync-dns", requireRole("admin")(apiSyncDNS(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/config", requireRole("admin")(apiMediaCenterConfig()))
-	mux.HandleFunc("PUT /api/admin/media-center/config", requireRole("admin")(apiSaveMediaCenterConfig(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/credentials", requireRole("admin")(apiMediaCenterCredentials()))
-	mux.HandleFunc("PUT /api/admin/media-center/credentials", requireRole("admin")(apiSaveMediaCenterCredentials(cli)))
+	mux.HandleFunc("POST /api/admin/users/xray/add", auth.RequireRole("viewer")(accounts.ApiAddXray(cli)))
+	mux.HandleFunc("POST /api/admin/users/xray/delete", auth.RequireRole("viewer")(accounts.ApiDeleteXray(cli)))
+	mux.HandleFunc("GET /api/admin/users/xray/config/{uuid}", auth.RequireRole("viewer")(accounts.ApiXrayClientConfig()))
+	mux.HandleFunc("POST /api/admin/users/admin/add", auth.RequireRole("admin")(accounts.ApiAddAdmin(cli)))
+	mux.HandleFunc("POST /api/admin/users/admin/delete", auth.RequireRole("admin")(accounts.ApiDeleteAdmin(cli)))
+	mux.HandleFunc("POST /api/admin/users/roles/set", auth.RequireRole("admin")(accounts.ApiSetRole(cli)))
+	mux.HandleFunc("GET /api/admin/network/status", auth.RequireRole("admin")(proxy.ApiNetworkStatus(cli)))
+	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", auth.RequireRole("admin")(proxy.ApiRotateIPv6(cli)))
+	mux.HandleFunc("POST /api/admin/network/sync-dns", auth.RequireRole("admin")(proxy.ApiSyncDNS(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/config", auth.RequireRole("admin")(apiMediaCenterConfig()))
+	mux.HandleFunc("PUT /api/admin/media-center/config", auth.RequireRole("admin")(apiSaveMediaCenterConfig(cli)))
+	mux.HandleFunc("GET /api/admin/media-center/credentials", auth.RequireRole("admin")(apiMediaCenterCredentials()))
+	mux.HandleFunc("PUT /api/admin/media-center/credentials", auth.RequireRole("admin")(apiSaveMediaCenterCredentials(cli)))
 	// 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）。
-	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", requireRole("admin")(apiMediaCatalogOverview()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/items", requireRole("admin")(apiMediaCatalogItems()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/export", requireRole("admin")(apiMediaCatalogExport()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/review", requireRole("admin")(apiMediaCatalogReview()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", requireRole("admin")(apiMediaCatalogDelete()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/import", requireRole("admin")(apiMediaCatalogImport()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseGet()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release", requireRole("admin")(apiMediaAppReleaseUpload()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", auth.RequireRole("admin")(apiMediaCatalogOverview()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/items", auth.RequireRole("admin")(apiMediaCatalogItems()))
+	mux.HandleFunc("GET /api/admin/media-center/catalog/export", auth.RequireRole("admin")(apiMediaCatalogExport()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/review", auth.RequireRole("admin")(apiMediaCatalogReview()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", auth.RequireRole("admin")(apiMediaCatalogDelete()))
+	mux.HandleFunc("POST /api/admin/media-center/catalog/import", auth.RequireRole("admin")(apiMediaCatalogImport()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release", auth.RequireRole("admin")(apiMediaAppReleaseGet()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release", auth.RequireRole("admin")(apiMediaAppReleaseUpload()))
 	// 版本管理：发布历史 / 回滚 / 删除历史版本 / 管理员下载指定版本 APK。
-	mux.HandleFunc("GET /api/admin/media-center/app-release/history", requireRole("admin")(apiMediaAppReleaseHistory()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release/download", requireRole("admin")(apiMediaAppReleaseDownload()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", requireRole("admin")(apiMediaAppReleaseRollback()))
-	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", requireRole("admin")(apiMediaAppReleaseVersionDelete()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release/history", auth.RequireRole("admin")(apiMediaAppReleaseHistory()))
+	mux.HandleFunc("GET /api/admin/media-center/app-release/download", auth.RequireRole("admin")(apiMediaAppReleaseDownload()))
+	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", auth.RequireRole("admin")(apiMediaAppReleaseRollback()))
+	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", auth.RequireRole("admin")(apiMediaAppReleaseVersionDelete()))
 	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
-	mux.HandleFunc("GET /api/admin/music-library", requireRole("admin")(apiMusicLibraryList()))
-	mux.HandleFunc("POST /api/admin/music-library/upload", requireRole("admin")(apiMusicLibraryUpload()))
+	mux.HandleFunc("GET /api/admin/music-library", auth.RequireRole("admin")(apiMusicLibraryList()))
+	mux.HandleFunc("POST /api/admin/music-library/upload", auth.RequireRole("admin")(apiMusicLibraryUpload()))
 	// 分片上传（大文件绕过 CF 单请求 100MB 上限 + 断点续传）
-	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", requireRole("admin")(apiMusicChunkUpload()))
-	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", requireRole("admin")(apiMusicChunkQuery()))
-	mux.HandleFunc("DELETE /api/admin/music-library", requireRole("admin")(apiMusicLibraryDelete()))
+	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(apiMusicChunkUpload()))
+	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(apiMusicChunkQuery()))
+	mux.HandleFunc("DELETE /api/admin/music-library", auth.RequireRole("admin")(apiMusicLibraryDelete()))
 	// 网易云账号扫码登录：二维码生成 / 轮询（成功写 cookie 文件）/ 状态 / 登出
-	mux.HandleFunc("POST /api/admin/music/netease/login/start", requireRole("admin")(apiNeteaseLoginStart()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/poll", requireRole("admin")(apiNeteaseLoginPoll()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/state", requireRole("admin")(apiNeteaseLoginState()))
-	mux.HandleFunc("POST /api/admin/music/netease/login/logout", requireRole("admin")(apiNeteaseLoginLogout()))
+	mux.HandleFunc("POST /api/admin/music/netease/login/start", auth.RequireRole("admin")(apiNeteaseLoginStart()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/poll", auth.RequireRole("admin")(apiNeteaseLoginPoll()))
+	mux.HandleFunc("GET /api/admin/music/netease/login/state", auth.RequireRole("admin")(apiNeteaseLoginState()))
+	mux.HandleFunc("POST /api/admin/music/netease/login/logout", auth.RequireRole("admin")(apiNeteaseLoginLogout()))
 	// IP block management (Go-level, works behind Cloudflare)
-	mux.HandleFunc("GET /api/admin/security/blocked", requireRole("admin")(apiBlockedIPs()))
-	mux.HandleFunc("POST /api/admin/security/block", requireRole("admin")(apiBlockIP()))
-	mux.HandleFunc("POST /api/admin/security/unblock", requireRole("admin")(apiUnblockIP()))
+	mux.HandleFunc("GET /api/admin/security/blocked", auth.RequireRole("admin")(auth.ApiBlockedIPs()))
+	mux.HandleFunc("POST /api/admin/security/block", auth.RequireRole("admin")(auth.ApiBlockIP()))
+	mux.HandleFunc("POST /api/admin/security/unblock", auth.RequireRole("admin")(auth.ApiUnblockIP()))
 
 	// Health check (no auth required)
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -122,33 +125,33 @@ func main() {
 	})
 
 	// Claude Code downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/claude-code/releases", requireRole("admin")(apiClaudeCodeReleases()))
-	mux.HandleFunc("POST /api/admin/claude-code/refresh", requireRole("admin")(apiClaudeCodeRefresh()))
-	mux.HandleFunc("GET /api/admin/claude-code/platforms/{version}", requireRole("admin")(apiClaudeCodePlatforms()))
-	mux.HandleFunc("GET /api/admin/claude-code/stored", requireRole("viewer")(apiClaudeCodeStored()))
-	mux.HandleFunc("POST /api/admin/claude-code/download", requireRole("admin")(apiClaudeCodeDownload()))
-	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", requireRole("viewer")(apiClaudeCodeServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", requireRole("admin")(apiClaudeCodeDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", requireRole("admin")(apiClaudeCodeDeleteDownload()))
+	mux.HandleFunc("GET /api/admin/claude-code/releases", auth.RequireRole("admin")(apiClaudeCodeReleases()))
+	mux.HandleFunc("POST /api/admin/claude-code/refresh", auth.RequireRole("admin")(apiClaudeCodeRefresh()))
+	mux.HandleFunc("GET /api/admin/claude-code/platforms/{version}", auth.RequireRole("admin")(apiClaudeCodePlatforms()))
+	mux.HandleFunc("GET /api/admin/claude-code/stored", auth.RequireRole("viewer")(apiClaudeCodeStored()))
+	mux.HandleFunc("POST /api/admin/claude-code/download", auth.RequireRole("admin")(apiClaudeCodeDownload()))
+	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", auth.RequireRole("viewer")(apiClaudeCodeServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
+	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", auth.RequireRole("admin")(apiClaudeCodeDeleteDownload()))
 	// Service logs
-	mux.HandleFunc("GET /api/admin/services/{name}/logs", requireRole("admin")(apiServiceLogs(cli)))
-	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", requireRole("admin")(apiServiceLogStream(cli)))
+	mux.HandleFunc("GET /api/admin/services/{name}/logs", auth.RequireRole("admin")(apiServiceLogs(cli)))
+	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", auth.RequireRole("admin")(apiServiceLogStream(cli)))
 	// Xray downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/xray/releases", requireRole("admin")(apiXrayReleases()))
-	mux.HandleFunc("POST /api/admin/xray/refresh", requireRole("admin")(apiXrayRefresh()))
-	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", requireRole("admin")(apiXrayPlatforms()))
-	mux.HandleFunc("GET /api/admin/xray/stored", requireRole("viewer")(apiXrayStored()))
-	mux.HandleFunc("POST /api/admin/xray/download", requireRole("admin")(apiXrayDownload()))
-	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", requireRole("viewer")(apiXrayServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads", requireRole("admin")(apiXrayDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads/", requireRole("admin")(apiXrayDeleteDownload()))
+	mux.HandleFunc("GET /api/admin/xray/releases", auth.RequireRole("admin")(apiXrayReleases()))
+	mux.HandleFunc("POST /api/admin/xray/refresh", auth.RequireRole("admin")(apiXrayRefresh()))
+	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", auth.RequireRole("admin")(apiXrayPlatforms()))
+	mux.HandleFunc("GET /api/admin/xray/stored", auth.RequireRole("viewer")(apiXrayStored()))
+	mux.HandleFunc("POST /api/admin/xray/download", auth.RequireRole("admin")(apiXrayDownload()))
+	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", auth.RequireRole("viewer")(apiXrayServeDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads", auth.RequireRole("admin")(apiXrayDeleteDownload()))
+	mux.HandleFunc("DELETE /api/admin/xray/downloads/", auth.RequireRole("admin")(apiXrayDeleteDownload()))
 	// Rate limit management (admin only)
-	mux.HandleFunc("GET /api/admin/security/rate-limit", requireRole("admin")(apiRateLimitStatus()))
-	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", requireRole("admin")(apiRateLimitUnblock()))
+	mux.HandleFunc("GET /api/admin/security/rate-limit", auth.RequireRole("admin")(auth.ApiRateLimitStatus()))
+	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", auth.RequireRole("admin")(auth.ApiRateLimitUnblock()))
 	// File transfer station — viewer+ uploads/lists, public download via share code
-	mux.HandleFunc("POST /api/admin/transfer/upload", requireRole("viewer")(apiTransferUpload()))
-	mux.HandleFunc("GET /api/admin/transfer/files", requireRole("viewer")(apiTransferList()))
-	mux.HandleFunc("DELETE /api/admin/transfer/files", requireRole("viewer")(apiTransferDelete()))
+	mux.HandleFunc("POST /api/admin/transfer/upload", auth.RequireRole("viewer")(apiTransferUpload()))
+	mux.HandleFunc("GET /api/admin/transfer/files", auth.RequireRole("viewer")(apiTransferList()))
+	mux.HandleFunc("DELETE /api/admin/transfer/files", auth.RequireRole("viewer")(apiTransferDelete()))
 	// Public transfer download — no auth required
 	mux.HandleFunc("GET /api/transfer/{code}", apiTransferPublicDownload())
 
@@ -177,26 +180,26 @@ func main() {
 		// Static assets: /assets/ 是指纹文件名(内容哈希),可永久缓存;
 		// favicon.svg / icons.svg 非指纹,更新后需尽快生效,只给短缓存。
 		// 两者都跳过 rate limit(高频低价值)。
-		if isStaticAsset(r.URL.Path) {
+		if platform.IsStaticAsset(r.URL.Path) {
 			if strings.HasPrefix(r.URL.Path, "/assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
 			} else {
 				w.Header().Set("Cache-Control", "public, max-age=3600")
 			}
-			ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+			auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 				mux.ServeHTTP(w2, r2)
 			})(w, r)
 			return
 		}
 
-		rateLimitMiddleware(ipBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		auth.RateLimitMiddleware(auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		}))(w, r)
 	})
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: requestLogMiddleware(handler),
+		Handler: auth.RequestLogMiddleware(handler),
 		// 大文件上传（transfer 2GB / APK 300MB）需要长时间读取请求体，30s 单一
 		// 读截止时间会让慢速上传被服务端掐断；读超时交由 nginx 层管理，
 		// ReadHeaderTimeout 仍防止慢连接头攻击，请求体大小由 MaxBytesReader 限制。
@@ -206,7 +209,7 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	authRateLimiter.start()
+	auth.StartRateLimiter()
 
 	// Graceful shutdown — context 创建在 cleanup goroutine 之前，
 	// 这样 transferCleanupLoop 能响应 SIGTERM 信号优雅退出。
@@ -214,7 +217,7 @@ func main() {
 	defer stop()
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
-	defer authRateLimiter.stop()
+	defer auth.StopRateLimiter()
 
 	cleanupOrphanTransferTempFiles()
 	go transferCleanupLoop(ctx)
@@ -233,11 +236,11 @@ func main() {
 		defer close(startupRotateDone)
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[startup] panic in startupRotateIPv6: %v", r)
+				log.Printf("[startup] panic in proxy.StartupRotateIPv6: %v", r)
 			}
 		}()
 		time.Sleep(10 * time.Second)
-		startupRotateIPv6(cli)
+		proxy.StartupRotateIPv6(cli)
 	}()
 
 	<-ctx.Done()
@@ -252,13 +255,6 @@ func main() {
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "/app/ui/index.html")
-}
-
-// isStaticAsset returns true for fingerprinted asset paths that bypass rate limiting.
-func isStaticAsset(path string) bool {
-	return len(path) >= 8 &&
-		(path == "/favicon.svg" || path == "/icons.svg" ||
-			(len(path) > 8 && path[:8] == "/assets/"))
 }
 
 // bodyLimitExempt 列出豁免全局 1MB 请求体上限的大上传端点;各自 handler 内

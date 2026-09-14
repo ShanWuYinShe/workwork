@@ -1,13 +1,14 @@
-package main
+package auth
 
 import (
+	"admin/internal/platform"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 )
 
-// requestLogMiddleware 记录每个进入 admin 服务的 HTTP 请求的结构化访问日志。
+// RequestLogMiddleware 记录每个进入 admin 服务的 HTTP 请求的结构化访问日志。
 //
 // **为什么需要它**:在此之前 admin 零请求日志,完全依赖 nginx 反代日志。
 // nginx 看不到应用层细节(handler 内部错误、内部令牌请求、basic-auth 之外
@@ -22,7 +23,7 @@ import (
 // 按 status 分级:2xx/3xx → Info,4xx → Warn,5xx → Error。
 // 静态资源(/assets/ 等)高频低价值,降级为 Debug 避免刷屏。
 // 不记录请求体/响应体(隐私 + 体积)。
-func requestLogMiddleware(next http.Handler) http.Handler {
+func RequestLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -31,7 +32,7 @@ func requestLogMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start).Milliseconds()
 		level := slog.LevelInfo
 		switch {
-		case isStaticAsset(r.URL.Path):
+		case platform.IsStaticAsset(r.URL.Path):
 			level = slog.LevelDebug
 		case rec.status >= 500:
 			level = slog.LevelError
