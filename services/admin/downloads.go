@@ -26,12 +26,22 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// maxDownloadSize caps the size of a single binary download (Xray, Claude Code).
+// Prevents a malicious or compromised CDN from filling the container's disk.
+const maxDownloadSize = 500 << 20 // 500 MiB
+
+// safeVersionTag 校验 GitHub release tag 只能包含安全字符。tag 会拼进下载
+// 文件名直达文件系统路径;恶意/被攻陷仓库的 tag 含 "/" 等字符时,阻止其
+// 变成路径穿越/子目录写入。
+var safeVersionTag = regexp.MustCompile(`^[0-9A-Za-z.+_-]+$`)
 
 // githubClient / downloadClient 供两个下载面共用（原各文件顶层变量）。
 var (
