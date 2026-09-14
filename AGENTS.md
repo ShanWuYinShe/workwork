@@ -12,6 +12,17 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 ## 构建 & 部署
 
+### Makefile（部署/验证的可执行入口）
+
+根目录 `Makefile` 把本节命令与部署映射封装为规则，AI 与人工优先用 make，避免每次凭记忆拼写：
+
+- `make check` — 本地门禁：gofmt / go vet / go test / 前端构建（admin 改动的最低验证项）
+- `make build <svc...>` / `make up <svc...>` / `make restart <svc...>` / `make logs <svc...>` — compose 薄封装
+- `make submodule` — 子模块同步到主仓库记录的指针
+- `make deploy-changed` — 服务器一键部署（逻辑在 `scripts/deploy-changed.sh`）：工作区校验 → `git pull --ff-only` → **子模块强制同步**（缺失子模块会被 Docker 把挂载源建成目录，必须先于任何 up）→ 按变更推导受影响服务 → 最小 build/up；支持 `scripts/deploy-changed.sh <old-commit>` 复跑模式
+
+路径 → 服务映射在 `scripts/deploy-changed.sh` 与本节注释两处维护，改动映射时必须同步。
+
 ### JDK 约定（media_app 涉及）
 
 JDK 说明见全局。构建命令：
@@ -49,15 +60,21 @@ go test -C services/music_player/music_server ./...
 # netease_api(网易云上游):纯 Dockerfile 打包 npm 包,无本地源码,验证即 compose build
 
 # 部署（git push 后在服务器执行；用户明确要求时，agent 可执行 SSH 部署）
+# 首选：ssh workwork-server "cd workwork && make deploy-changed"
+#   （等价于 scripts/deploy-changed.sh：pull + 子模块同步 + 按变更最小 build/up）
 # 原则：先判断 git pull 带来的文件变更，只 build / recreate 受影响服务；
 # 禁止无脑 --no-cache 全量 build 或 docker compose up -d 全量重建。
+# 注意：git pull 不会更新子模块指针，手动部署时必须补
+#   git submodule update --init --recursive
+# 并用 git submodule status 检查漂移（行首 + 号 = 指针对应源码有更新），
+# 否则 build 出的仍是旧子模块源码。
 #
 # 权限注意：
 #   .wework/ 和 logs/ 必须归 uid=1001 (workuser) 所有（admin 以 user:1001:1001 运行）
 #   但 logs/nginx/ 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
 #   首次部署或权限异常时：
 #     sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/
-ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+ssh workwork-server "cd workwork && make deploy-changed"
 
 # 根据变更选择最小部署命令（通常不加 --no-cache；除非依赖缓存明确异常）：
 # - 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md
