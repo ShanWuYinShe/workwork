@@ -1,4 +1,4 @@
-package main
+package downloads
 
 import (
 	"os"
@@ -32,7 +32,7 @@ func TestPurgeStaleDownloadTemps(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	purgeStaleDownloadTemps()
+	PurgeStaleDownloadTemps()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

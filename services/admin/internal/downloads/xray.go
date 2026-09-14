@@ -1,4 +1,4 @@
-package main
+package downloads
 
 // Xray 工具下载管理：平台表、资产解析规则与 HTTP handler。
 // 机制（manifest/下载/清理/校验/版本比较）在 downloads.go。
@@ -55,7 +55,7 @@ var xrayDownloads = &downloadService{
 }
 
 // GET /api/admin/xray/releases
-func apiXrayReleases() http.HandlerFunc {
+func ApiXrayReleases() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		releases, err := xrayDownloads.fetchVersions()
 		if err != nil {
@@ -80,7 +80,7 @@ func apiXrayReleases() http.HandlerFunc {
 }
 
 // GET /api/admin/xray/platforms/{version}
-func apiXrayPlatforms() http.HandlerFunc {
+func ApiXrayPlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
@@ -109,7 +109,7 @@ func apiXrayPlatforms() http.HandlerFunc {
 }
 
 // GET /api/admin/xray/stored
-func apiXrayStored() http.HandlerFunc {
+func ApiXrayStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		stored := xrayDownloads.listStored()
 		if stored == nil {
@@ -120,7 +120,7 @@ func apiXrayStored() http.HandlerFunc {
 }
 
 // POST /api/admin/xray/refresh
-func apiXrayRefresh() http.HandlerFunc {
+func ApiXrayRefresh() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		xrayDownloads.invalidateCache()
 		releases, err := xrayDownloads.fetchVersions()
@@ -134,16 +134,16 @@ func apiXrayRefresh() http.HandlerFunc {
 }
 
 // POST /api/admin/xray/download
-func apiXrayDownload() http.HandlerFunc {
+func ApiXrayDownload() http.HandlerFunc {
 	return handleToolDownload(xrayDownloads)
 }
 
 // GET /api/admin/xray/downloads/{filename}
-func apiXrayServeDownload() http.HandlerFunc {
+func ApiXrayServeDownload() http.HandlerFunc {
 	return serveToolDownload(xrayDownloads, "application/zip")
 }
 
 // DELETE /api/admin/xray/downloads
-func apiXrayDeleteDownload() http.HandlerFunc {
+func ApiXrayDeleteDownload() http.HandlerFunc {
 	return deleteToolDownload(xrayDownloads)
 }

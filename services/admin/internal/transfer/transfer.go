@@ -1,4 +1,4 @@
-package main
+package transfer
 
 import (
 	"admin/internal/auth"
@@ -120,9 +120,9 @@ func transferFilePath(code, filename string) string {
 	return filepath.Join(transferDir, code+ext)
 }
 
-// cleanupOrphanTransferTempFiles 清理进程崩溃遗留的 multipart 上传临时文件
+// CleanupOrphanTempFiles 清理进程崩溃遗留的 multipart 上传临时文件
 // （.upload-*.tmp）。正常路径会在请求结束时 RemoveAll，只有异常退出会残留。
-func cleanupOrphanTransferTempFiles() {
+func CleanupOrphanTempFiles() {
 	entries, err := os.ReadDir(transferDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -180,8 +180,8 @@ func cleanupExpiredTransferFiles() {
 	}
 }
 
-// transferCleanupLoop 后台每小时清理过期文件
-func transferCleanupLoop(ctx context.Context) {
+// StartCleanupLoop 后台每小时清理过期文件
+func StartCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -195,7 +195,7 @@ func transferCleanupLoop(ctx context.Context) {
 }
 
 // POST /api/admin/transfer/upload — viewer+ 可上传
-func apiTransferUpload() http.HandlerFunc {
+func ApiTransferUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, username := auth.GetUserFromContext(r)
 
@@ -393,7 +393,7 @@ func apiTransferUpload() http.HandlerFunc {
 }
 
 // GET /api/admin/transfer/files — viewer+ 查看列表
-func apiTransferList() http.HandlerFunc {
+func ApiTransferList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
@@ -426,7 +426,7 @@ func apiTransferList() http.HandlerFunc {
 }
 
 // DELETE /api/admin/transfer/files — viewer+ 删除文件
-func apiTransferDelete() http.HandlerFunc {
+func ApiTransferDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
@@ -482,7 +482,7 @@ func apiTransferDelete() http.HandlerFunc {
 }
 
 // GET /api/transfer/{code} — 公开下载，无需认证
-func apiTransferPublicDownload() http.HandlerFunc {
+func ApiTransferPublicDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.PathValue("code")
 		if code == "" || len(code) != transferCodeLen {

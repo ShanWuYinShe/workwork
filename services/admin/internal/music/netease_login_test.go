@@ -1,4 +1,4 @@
-package main
+package music
 
 import (
 	"encoding/json"
@@ -61,14 +61,14 @@ func TestNeteaseLoginFlow(t *testing.T) {
 
 	// 初始未登录。
 	rec := httptest.NewRecorder()
-	apiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
+	ApiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
 	if !strings.Contains(rec.Body.String(), `"loggedIn":false`) {
 		t.Fatalf("expect logged out initially, got %s", rec.Body.String())
 	}
 
 	// start 拿二维码。
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginStart().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/start", nil))
+	ApiNeteaseLoginStart().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/start", nil))
 	if !strings.Contains(rec.Body.String(), "test-key-1") || !strings.Contains(rec.Body.String(), "base64") {
 		t.Fatalf("start: %s", rec.Body.String())
 	}
@@ -77,7 +77,7 @@ func TestNeteaseLoginFlow(t *testing.T) {
 	poll := httptest.NewRequest(http.MethodGet, "/poll?key=test-key-1", nil)
 	for _, want := range []string{"801", "802"} {
 		rec = httptest.NewRecorder()
-		apiNeteaseLoginPoll().ServeHTTP(rec, poll)
+		ApiNeteaseLoginPoll().ServeHTTP(rec, poll)
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("poll expect %s, got %s", want, rec.Body.String())
 		}
@@ -86,7 +86,7 @@ func TestNeteaseLoginFlow(t *testing.T) {
 
 	// 确认 803:写 cookie 文件,只存 MUSIC_U。
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginPoll().ServeHTTP(rec, poll)
+	ApiNeteaseLoginPoll().ServeHTTP(rec, poll)
 	if !strings.Contains(rec.Body.String(), `"code":803`) || !strings.Contains(rec.Body.String(), "测试用户") {
 		t.Fatalf("poll 803: %s", rec.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestNeteaseLoginFlow(t *testing.T) {
 
 	// state:已登录 + 昵称(带 cookie 校验上游)。
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
+	ApiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
 	var st struct {
 		Data struct {
 			LoggedIn bool   `json:"loggedIn"`
@@ -116,16 +116,16 @@ func TestNeteaseLoginFlow(t *testing.T) {
 
 	// key 一次性:803 后再 poll 报过期。
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginPoll().ServeHTTP(rec, poll)
+	ApiNeteaseLoginPoll().ServeHTTP(rec, poll)
 	if rec.Code != http.StatusGone {
 		t.Fatalf("expect 410 for reused key, got %d", rec.Code)
 	}
 
 	// 登出:删文件回未登录。
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginLogout().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/logout", nil))
+	ApiNeteaseLoginLogout().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/logout", nil))
 	rec = httptest.NewRecorder()
-	apiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
+	ApiNeteaseLoginState().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/state", nil))
 	if !strings.Contains(rec.Body.String(), `"loggedIn":false`) {
 		t.Fatalf("expect logged out after logout, got %s", rec.Body.String())
 	}

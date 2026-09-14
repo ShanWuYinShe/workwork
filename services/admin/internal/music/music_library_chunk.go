@@ -1,4 +1,4 @@
-package main
+package music
 
 // 音乐曲库分片上传:大文件(>Cloudflare 单请求 100MB 上限)按 8MB 分片逐请求
 // 上传,绕过边缘限制并支持断点续传。与一次性 multipart 上传(music_library.go)
@@ -110,8 +110,8 @@ func receivedChunks(uploadID string) ([]int, error) {
 	return out, nil
 }
 
-// apiMusicChunkQuery 续传查询:返回已收分片与元信息;无会话时 received 为空。
-func apiMusicChunkQuery() http.HandlerFunc {
+// ApiMusicChunkQuery 续传查询:返回已收分片与元信息;无会话时 received 为空。
+func ApiMusicChunkQuery() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uploadID := r.URL.Query().Get("uploadId")
 		if !validUploadID(uploadID) {
@@ -133,8 +133,8 @@ func apiMusicChunkQuery() http.HandlerFunc {
 	}
 }
 
-// apiMusicChunkUpload 接收单片;全部收齐时自动按序合并入库。
-func apiMusicChunkUpload() http.HandlerFunc {
+// ApiMusicChunkUpload 接收单片;全部收齐时自动按序合并入库。
+func ApiMusicChunkUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, musicChunkBodyLimit)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
@@ -373,8 +373,8 @@ func mustJSON(v any) []byte {
 	return data
 }
 
-// cleanupExpiredChunkUploads 清理超过 TTL 的孤儿分片会话(上传中断不再继续)。
-func cleanupExpiredChunkUploads() {
+// CleanupExpiredChunkUploads 清理超过 TTL 的孤儿分片会话(上传中断不再继续)。
+func CleanupExpiredChunkUploads() {
 	entries, err := os.ReadDir(uploadChunksDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -399,14 +399,14 @@ func cleanupExpiredChunkUploads() {
 	}
 }
 
-// chunkCleanupLoop 每小时执行一次过期清理,随进程退出终止(同 transferCleanupLoop)。
-func chunkCleanupLoop(ctx context.Context) {
+// StartChunkCleanupLoop 每小时执行一次过期清理,随进程退出终止(同 transferCleanupLoop)。
+func StartChunkCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			cleanupExpiredChunkUploads()
+			CleanupExpiredChunkUploads()
 		case <-ctx.Done():
 			return
 		}
