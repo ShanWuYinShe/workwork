@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 type JSONResp struct {
@@ -73,4 +74,14 @@ func IsStaticAsset(path string) bool {
 	return len(path) >= 8 &&
 		(path == "/favicon.svg" || path == "/icons.svg" ||
 			(len(path) > 8 && path[:8] == "/assets/"))
+}
+
+// sanitizeHeaderValue 移除 HTTP header 值中的危险字符
+func SanitizeHeaderValue(s string) string {
+	// 先转义反斜杠再转义双引号，否则第一步插入的 \ 会被第二步二次转义
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
 }

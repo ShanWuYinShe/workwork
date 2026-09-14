@@ -541,7 +541,7 @@ func apiTransferPublicDownload() http.HandlerFunc {
 			}
 		}
 		filePath := transferFilePath(code, target.Filename)
-		filename := sanitizeHeaderValue(target.Filename)
+		filename := platform.SanitizeHeaderValue(target.Filename)
 
 		// 在锁内打开文件获得 FD:ServeContent 基于已打开的 FD 提供内容,
 		// 并发删除只移除目录项,FD 仍可完整读取——消除 unlock→ServeFile
@@ -629,14 +629,4 @@ func formatBytes(b int64) string {
 		return fmt.Sprintf("%.0f MB", float64(b)/float64(1<<20))
 	}
 	return fmt.Sprintf("%d B", b)
-}
-
-// sanitizeHeaderValue 移除 HTTP header 值中的危险字符
-func sanitizeHeaderValue(s string) string {
-	// 先转义反斜杠再转义双引号，否则第一步插入的 \ 会被第二步二次转义
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "")
-	s = strings.ReplaceAll(s, "\r", "")
-	return s
 }

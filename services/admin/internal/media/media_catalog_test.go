@@ -1,4 +1,4 @@
-package main
+package media
 
 import (
 	"admin/internal/auth"
@@ -119,7 +119,7 @@ func TestApiMediaCatalogReviewInjectsReviewer(t *testing.T) {
 	r = auth.WithTestUser(r, &auth.UserInfo{}, "alice")
 	rec := httptest.NewRecorder()
 
-	apiMediaCatalogReview()(rec, r)
+	ApiMediaCatalogReview()(rec, r)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -154,7 +154,7 @@ func TestApiMediaCatalogImportProxiesJSON(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(reqBody))
 	r = auth.WithTestUser(r, &auth.UserInfo{}, "alice")
 	rec := httptest.NewRecorder()
-	apiMediaCatalogImport()(rec, r)
+	ApiMediaCatalogImport()(rec, r)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
@@ -185,7 +185,7 @@ func TestApiMediaCatalogExportProxies(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/api/admin/media-center/catalog/export?category=movies&status=approved", nil)
 	rec := httptest.NewRecorder()
-	apiMediaCatalogExport()(rec, r)
+	ApiMediaCatalogExport()(rec, r)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
@@ -219,7 +219,7 @@ func TestApiMediaCatalogDeleteProxies(t *testing.T) {
 	reqBody := `{"categoryId":"movies","provider":"bilibili","nativeId":"BV1"}`
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/delete", strings.NewReader(reqBody))
 	rec := httptest.NewRecorder()
-	apiMediaCatalogDelete()(rec, r)
+	ApiMediaCatalogDelete()(rec, r)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
@@ -236,7 +236,7 @@ func TestApiMediaCatalogDeleteRejectsBadJSON(t *testing.T) {
 	t.Setenv("MEDIA_SERVER_INTERNAL_TOKEN", "tok")
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/delete", strings.NewReader("not json"))
 	rec := httptest.NewRecorder()
-	apiMediaCatalogDelete()(rec, r)
+	ApiMediaCatalogDelete()(rec, r)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad json: want 400, got %d", rec.Code)
 	}
@@ -245,7 +245,7 @@ func TestApiMediaCatalogDeleteRejectsBadJSON(t *testing.T) {
 func TestApiMediaCatalogImportRejectsTopLevelArray(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/admin/media-center/catalog/import", strings.NewReader(`[]`))
 	rec := httptest.NewRecorder()
-	apiMediaCatalogImport()(rec, r)
+	ApiMediaCatalogImport()(rec, r)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())

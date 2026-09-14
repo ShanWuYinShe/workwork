@@ -1,4 +1,4 @@
-package main
+package media
 
 import (
 	"admin/internal/platform"
@@ -36,7 +36,7 @@ type mediaAppReleaseManifest struct {
 	PublishedAt  string `json:"publishedAt,omitempty"`
 }
 
-func apiMediaAppReleaseGet() http.HandlerFunc {
+func ApiMediaAppReleaseGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 与发布/回滚/删除同锁：并发发布时避免返回"新 manifest + 旧 APK 未就位"
 		// 的混合视图（仅影响展示，但读侧一致性与写侧统一更可预期）。
@@ -78,7 +78,7 @@ type releaseHistoryEntry struct {
 }
 
 // GET /api/admin/media-center/app-release/history?variant=X
-func apiMediaAppReleaseHistory() http.HandlerFunc {
+func ApiMediaAppReleaseHistory() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		variant := strings.TrimSpace(r.URL.Query().Get("variant"))
 		mediaAppReleaseMu.Lock()
@@ -121,7 +121,7 @@ func apiMediaAppReleaseHistory() http.HandlerFunc {
 // POST /api/admin/media-center/app-release/rollback — body: {variant, versionCode}
 // 把当前发布指针切回历史中的某个版本。已安装更高版本的客户端不会降级
 // （客户端按 versionCode 单调比较），回滚只影响尚未升级的设备。
-func apiMediaAppReleaseRollback() http.HandlerFunc {
+func ApiMediaAppReleaseRollback() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Variant     string `json:"variant"`
@@ -181,7 +181,7 @@ func apiMediaAppReleaseRollback() http.HandlerFunc {
 
 // DELETE /api/admin/media-center/app-release/history — body: {variant, versionCode}
 // 从历史中移除一条记录并尽力删除其 APK 文件。当前正在发布的版本不允许删除。
-func apiMediaAppReleaseVersionDelete() http.HandlerFunc {
+func ApiMediaAppReleaseVersionDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Variant     string `json:"variant"`
@@ -241,7 +241,7 @@ func apiMediaAppReleaseVersionDelete() http.HandlerFunc {
 
 // GET /api/admin/media-center/app-release/download?variant=&versionCode=
 // 把指定版本（缺省为当前发布版本）的 APK 流式发给管理员浏览器。
-func apiMediaAppReleaseDownload() http.HandlerFunc {
+func ApiMediaAppReleaseDownload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		variant := sanitizeVariant(strings.TrimSpace(r.URL.Query().Get("variant")))
 		versionRaw := strings.TrimSpace(r.URL.Query().Get("versionCode"))
@@ -304,12 +304,12 @@ func apiMediaAppReleaseDownload() http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", sanitizeHeaderValue(filename)))
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", platform.SanitizeHeaderValue(filename)))
 		http.ServeContent(w, r, filename, info.ModTime(), f)
 	}
 }
 
-func apiMediaAppReleaseUpload() http.HandlerFunc {
+func ApiMediaAppReleaseUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxMediaAppAPKSize+2<<20)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
@@ -321,7 +321,7 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 		defer r.MultipartForm.RemoveAll()
 
 		variant := strings.TrimSpace(r.FormValue("variant"))
-		apkPath := mediaCenterAppUpdateAPKPath(variant)
+		apkPath := appUpdateAPKPath(variant)
 
 		versionCode, err := strconv.Atoi(strings.TrimSpace(r.FormValue("versionCode")))
 		if err != nil || versionCode <= 0 {
@@ -439,7 +439,7 @@ func apiMediaAppReleaseUpload() http.HandlerFunc {
 }
 
 func readMediaAppReleaseManifest(variant string) (mediaAppReleaseManifest, bool, error) {
-	data, err := os.ReadFile(mediaCenterAppUpdateManifestPath(variant))
+	data, err := os.ReadFile(appUpdateManifestPath(variant))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return mediaAppReleaseManifest{}, false, nil
@@ -459,13 +459,13 @@ func writeMediaAppReleaseManifest(manifest mediaAppReleaseManifest, variant stri
 		return err
 	}
 	data = append(data, '\n')
-	return platform.AtomicWriteFile(mediaCenterAppUpdateManifestPath(variant), data, 0644)
+	return platform.AtomicWriteFile(appUpdateManifestPath(variant), data, 0644)
 }
 
 // readMediaAppReleaseHistory 读取变体的发布历史。文件不存在视为空历史；
 // JSON 损坏返回错误（调用方按内部错误处理，绝不静默清空历史）。
 func readMediaAppReleaseHistory(variant string) ([]mediaAppReleaseManifest, error) {
-	data, err := os.ReadFile(mediaCenterAppUpdateHistoryPath(variant))
+	data, err := os.ReadFile(appUpdateHistoryPath(variant))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []mediaAppReleaseManifest{}, nil
@@ -477,7 +477,7 @@ func readMediaAppReleaseHistory(variant string) ([]mediaAppReleaseManifest, erro
 	}
 	var records []mediaAppReleaseManifest
 	if err := json.Unmarshal(data, &records); err != nil {
-		return nil, fmt.Errorf("parse app release history %q: %w", filepath.Base(mediaCenterAppUpdateHistoryPath(variant)), err)
+		return nil, fmt.Errorf("parse app release history %q: %w", filepath.Base(appUpdateHistoryPath(variant)), err)
 	}
 	return records, nil
 }
@@ -494,7 +494,7 @@ func writeMediaAppReleaseHistory(variant string, records []mediaAppReleaseManife
 		return err
 	}
 	data = append(data, '\n')
-	return platform.AtomicWriteFile(mediaCenterAppUpdateHistoryPath(variant), data, 0644)
+	return platform.AtomicWriteFile(appUpdateHistoryPath(variant), data, 0644)
 }
 
 // upsertMediaAppReleaseHistory 追加（或按 versionCode 覆盖）一条发布记录并落盘。
@@ -559,7 +559,7 @@ func mediaAppReleaseFilename(versionCode int, checksum string) string {
 // 尚未写盘,必须显式保留,否则会被其他请求的 prune 误删);此外最近 30 秒内
 // 修改的文件一律跳过,作为 rename→manifest 写盘窗口的兜底。
 func pruneOrphanAppAPKs(freshlyPublished ...string) {
-	pruneOrphanAppAPKsInDir(filepath.Dir(mediaCenterAppUpdateAPKPath("")), freshlyPublished)
+	pruneOrphanAppAPKsInDir(filepath.Dir(appUpdateAPKPath("")), freshlyPublished)
 }
 
 // pruneOrphanAppAPKsInDir 是可注入目录的核心实现，便于用 t.TempDir() 做集成测试。
@@ -629,7 +629,7 @@ func pruneOrphanAppAPKsInDir(dir string, freshlyPublished []string) {
 func mediaAppReleaseAPKPath(manifest mediaAppReleaseManifest, variant string) string {
 	name := filepath.Base(strings.TrimSpace(manifest.APKFilename))
 	if name == "." || name == string(filepath.Separator) || name == "" {
-		return mediaCenterAppUpdateAPKPath(variant)
+		return appUpdateAPKPath(variant)
 	}
-	return filepath.Join(filepath.Dir(mediaCenterAppUpdateAPKPath(variant)), name)
+	return filepath.Join(filepath.Dir(appUpdateAPKPath(variant)), name)
 }

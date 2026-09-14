@@ -1,4 +1,4 @@
-package main
+package infra
 
 import (
 	"admin/internal/accounts"
@@ -10,7 +10,7 @@ import (
 	"net/http"
 )
 
-func apiDashboard(cli *client.Client) http.HandlerFunc {
+func ApiDashboard(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
