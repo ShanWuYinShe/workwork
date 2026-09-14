@@ -29,12 +29,12 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | 组件 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
-| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理 |
+| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理；IPv4 直连 443 由 **xray-forward** 转发容器发布 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
 | **media_server** | Go | 8787 | 合规公开视频聚合 API |
+| **vod_extractor** | Python (yt-dlp) | 8790 | YouTube 搜索/播放解析（仅内网，media_server 调用；需宿主机 cookies） |
 | **music_server** | Go | 8790 | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
 | **netease_api** | Node(Bun) | 3000 | 网易云 API 上游（仅内网，music_server 调用） |
-|
 Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。Music Player 源码通过 submodule 引入到 [`services/music_player`](./services/music_player)（仓库 [`music_player`](https://github.com/ShanWuYinShe/music_player)，HarmonyOS 客户端 `music_app/` + Go 服务端 `music_server/`，组织方式同 media_center）。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
@@ -117,49 +117,57 @@ docker compose ps
 
 ```
 workwork/
-├── docker-compose.yml        # 生产环境 Docker Compose
+├── docker-compose.yml        # 生产环境 Docker Compose（8 服务）
+├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
+├── scripts/
+│   └── deploy-changed.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
-├── setup-networks.sh        # 创建 ipvlan 网络
+├── setup-networks.sh         # 创建 ipvlan 网络
 │
 ├── services/
-│   ├── admin/                # Go 管理面板后端
-│   │   ├── main.go          # HTTP 路由、中间件链
-│   │   ├── api.go          # 核心 API（用户、服务、网络）
-│   │   ├── middleware.go   # 认证、角色检查
-│   │   ├── xray.go         # Xray 下载管理
-│   │   ├── xray_clients.go # 客户端配置生成
-│   │   ├── deploy.go       # 启动时配置生成
-│   │   ├── cloudflare.go   # Cloudflare DNS
-│   │   ├── claude.go       # Claude Code 下载
-│   │   └── handlers/       # 请求处理器
+│   ├── admin/                # Go 管理面板后端（package main 分文件按功能域组织）
+│   │   ├── main.go          # HTTP 路由注册、中间件链、后台任务启动
+│   │   ├── api.go           # 核心 API（用户、服务、网络、IPv6/DNS）
+│   │   ├── middleware.go    # 认证、角色检查、限流
+│   │   ├── deploy.go        # 启动时配置生成（模板 → .wework/generated/）
+│   │   ├── xray.go / xray_clients.go      # Xray 二进制下载 / 客户端持久化
+│   │   ├── media_center.go / media_catalog.go / media_app_release.go  # 媒体中心管理
+│   │   ├── music_library.go / netease_login.go                # 曲库与网易云登录
+│   │   ├── transfer.go / downloads.go / claude.go             # 文件中转 / 二进制下载
+│   │   ├── cloudflare.go / ipv6_rotation.go                   # DNS 与 IPv6 轮换
+│   │   └── handlers/        # Xray 客户端配置生成器（GenerateClientConfig）
 │   │
-│   ├── xray/                # Xray 代理配置
+│   ├── xray/                # Xray 代理（config.json.tmpl 由 admin 渲染）
 │   │   ├── config.json.tmpl
 │   │   ├── entrypoint.sh
-│   │   └── Dockerfile
+│   │   ├── Dockerfile / Dockerfile.forward   # xray 主容器 / IPv4 443 转发容器
 │   │
-│   ├── nginx/               # Nginx 反向代理
+│   ├── nginx/               # Nginx 反向代理（nginx.conf.tmpl 由 admin 渲染）
 │   │   ├── nginx.conf.tmpl
-│   │   ├── fail2ban/
+│   │   ├── config/fail2ban/
 │   │   └── Dockerfile
 │   │
-│   ├── media_center/        # Media Center 子模块
-│   │   ├── media_app/       # Android TV 客户端
+│   ├── media_center/        # git submodule（独立产品仓库）
+│   │   ├── media_app/       # Android TV 客户端（版本号由子仓 git tag 驱动）
+│   │   ├── media_app_legacy/ # Android 4.4.2 兼容变体
 │   │   ├── media_server/    # Go 聚合后端
+│   │   └── vod_extractor/   # YouTube yt-dlp 解析服务
 │   │
-│   ├── music_player/        # Music Player 子模块
+│   ├── music_player/        # git submodule（独立产品仓库）
 │   │   ├── music_app/       # HarmonyOS 客户端
-│   │   └── music_server/    # Go 在线音乐服务(本地曲库+网易网络源)
+│   │   ├── music_server/    # Go 在线音乐服务(本地曲库+网易网络源)
+│   │   ├── tools/           # 子仓内部工具
+│   │   └── shader_playground/ # 子仓实验项目
 │   │
-│   ├── netease_api/         # 网易云 API 上游(Bun 运行 npm 包)
+│   └── netease_api/         # 网易云 API 上游(Bun 运行 npm 包)
 │
-├── ui/                      # Svelte 5 管理面板前端
+├── ui/                      # Svelte 5 管理面板前端（构建产物打进 admin 镜像）
 │   └── src/routes/          # 各页面组件
 │
 ├── cert/                    # TLS 证书（不提交）
 ├── logs/                    # 日志输出
-└── .wework/                # 运行时数据（不提交）
+└── .wework/                # 运行时数据（不提交；generated/ 下为 admin 生成的配置）
 ```
 
 ## 安全机制
@@ -189,41 +197,39 @@ workwork/
 ## 常用命令
 
 ```bash
-# 按服务构建并重建（通常不要加 --no-cache）
+# 推荐：根目录 Makefile（compose 薄封装）
+make build admin nginx      # 构建镜像
+make up admin               # 重建容器（--no-deps）
+make restart admin          # 重启容器
+make logs nginx             # 跟踪日志
+make check                  # 本地门禁：gofmt/vet/test + 前端构建
+
+# 等价的原始命令
 docker compose build admin
 docker compose up -d --no-deps admin
-
-# 查看日志
-docker compose logs -f admin
-docker compose logs -f nginx
-docker compose logs -f xray
-docker compose logs -f media_server
-# 重启服务
-docker compose restart admin
 docker compose restart xray
-docker compose restart media_server
+docker compose logs -f media_server
 ```
 
 ## 部署流程
 
 ```bash
-# 1. 本地开发并提交
-git add .
-git commit -m "描述"
+# 1. 本地开发（worktree 分支）合并进 main 并推送
 git push origin main
 
-# 2. 服务器拉取并查看变更
-ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git diff --name-only \$old HEAD"
+# 2. 服务器一键部署（推荐）：pull + 子模块同步 + 按变更最小 build/up
+ssh workwork-server "cd workwork && make deploy-changed"
+# 复跑/指定基线: scripts/deploy-changed.sh <old-commit>
 
-# 3. 按变更选择最小部署命令，例如：
-# services/admin/** 或 ui/**
-docker compose build admin && docker compose up -d --no-deps admin
-# services/nginx/**
-docker compose build nginx && docker compose up -d --no-deps nginx
-# services/xray/**
-docker compose build xray && docker compose up -d --no-deps xray
-# services/media_center/media_server/**
-docker compose build media_server && docker compose up -d --no-deps media_server
+# 2'. 手动部署时务必同步子模块（git pull 不会更新子模块指针，
+#     跳过这步会用旧子模块源码构建而不自知）：
+ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git submodule update --init --recursive && git diff --name-only \$old HEAD && git submodule status"
+
+# 3. 按变更选择最小部署命令（或直接用 make），例如：
+make build admin && make up admin          # services/admin/** 或 ui/**
+make build nginx && make up nginx          # services/nginx/**
+make build xray xray-forward && make up xray xray-forward   # services/xray/**
+make build media_server && make up media_server             # services/media_center/media_server/**
 ```
 
 ## 环境变量
