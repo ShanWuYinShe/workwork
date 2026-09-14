@@ -6,8 +6,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"admin/handlers"
 )
 
 var (
@@ -249,5 +247,5 @@ func migrateXrayClientsFromConfig() []xrayClientEntry {
 func readXrayClientMaps() ([]map[string]string, error) {
 	xrayClientsMu.Lock()
 	defer xrayClientsMu.Unlock()
-	return handlers.ReadXrayClients()
+	return ReadXrayClients()
 }
