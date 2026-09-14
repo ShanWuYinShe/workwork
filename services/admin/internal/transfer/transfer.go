@@ -9,10 +9,10 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,8 +71,24 @@ var (
 	transferMu sync.Mutex
 )
 
-// validTransferFilename 只允许安全的文件名字符，禁止路径穿越
-var validTransferFilename = regexp.MustCompile(`^[a-zA-Z0-9_\-. ]+$`)
+// validTransferFilename 校验上传文件名:拒绝路径分隔符与控制字符,其余
+// (含中文等 Unicode)放行。落盘名是"分享码+扩展名"(transferFilePath),
+// 原文件名只进 manifest 与下载响应头;响应头经 mime.FormatMediaType 做
+// RFC 5987 编码,非 ASCII 与引号等特殊字符均被安全转义。
+func validTransferFilename(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > 255 {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
 
 func loadTransferManifestLocked() transferManifest {
 	var m transferManifest
@@ -227,9 +243,9 @@ func ApiTransferUpload() http.HandlerFunc {
 		defer file.Close()
 
 		// 校验文件名
-		name := filepath.Base(header.Filename)
-		if !validTransferFilename.MatchString(name) || len(name) > 255 {
-			platform.WriteError(w, "文件名不合法（仅允许字母数字、下划线、连字符、点、空格，最长 255 字符）", 400)
+		name := strings.TrimSpace(filepath.Base(header.Filename))
+		if !validTransferFilename(name) {
+			platform.WriteError(w, "文件名不合法（不允许路径分隔符或控制字符，最长 255 字符）", 400)
 			return
 		}
 
@@ -541,7 +557,13 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 			}
 		}
 		filePath := transferFilePath(code, target.Filename)
-		filename := platform.SanitizeHeaderValue(target.Filename)
+		// mime.FormatMediaType 生成 RFC 5987 编码(非 ASCII 文件名输出
+		// filename*=utf-8''...,ASCII 输出普通 filename="..."),各浏览器
+		// 都能以原文件名保存;非法输入返回空串时退化为纯 attachment。
+		disposition := mime.FormatMediaType("attachment", map[string]string{"filename": target.Filename})
+		if disposition == "" {
+			disposition = "attachment"
+		}
 
 		// 在锁内打开文件获得 FD:ServeContent 基于已打开的 FD 提供内容,
 		// 并发删除只移除目录项,FD 仍可完整读取——消除 unlock→ServeFile
@@ -568,12 +590,12 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 		transferMu.Unlock()
 		defer f.Close()
 
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		w.Header().Set("Content-Disposition", disposition)
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Cache-Control", "no-store, no-transform")
 		w.Header().Set("Accept-Ranges", "bytes")
-		http.ServeContent(w, r, filename, info.ModTime(), f)
+		http.ServeContent(w, r, target.Filename, info.ModTime(), f)
 	}
 }
 
