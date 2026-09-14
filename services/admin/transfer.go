@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"context"
 	"crypto/rand"
@@ -196,7 +197,7 @@ func transferCleanupLoop(ctx context.Context) {
 // POST /api/admin/transfer/upload — viewer+ 可上传
 func apiTransferUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, username := getUserFromContext(r)
+		_, username := auth.GetUserFromContext(r)
 
 		// 请求体硬上限（单文件 2GB + multipart 开销）。ParseMultipartForm 会把
 		// 全部 file part 先无上限 spool 到磁盘才返回，header.Size 预检与配额
@@ -394,7 +395,7 @@ func apiTransferUpload() http.HandlerFunc {
 // GET /api/admin/transfer/files — viewer+ 查看列表
 func apiTransferList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 
 		transferMu.Lock()
 		m := loadTransferManifestLocked()
@@ -427,7 +428,7 @@ func apiTransferList() http.HandlerFunc {
 // DELETE /api/admin/transfer/files — viewer+ 删除文件
 func apiTransferDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 
 		var body struct {
 			Code string `json:"code"`

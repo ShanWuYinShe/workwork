@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/netip"
 	"strings"
+	"time"
 )
 
 // ipv6RotateMu 保护 IPv6 轮转操作，防止并发轮转。
@@ -122,3 +123,6 @@ func ContainerExec(ctx context.Context, cli *client.Client, containerID string, 
 	}
 	return nil
 }
+
+// restart/轮转类长流程（stop+start+健康等待）的整体收敛时限。
+const RestartTimeout = 2 * time.Minute

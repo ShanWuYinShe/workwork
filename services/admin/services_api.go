@@ -2,6 +2,7 @@ package main
 
 import (
 	"admin/internal/platform"
+	"admin/internal/proxy"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,7 +37,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		// 容器操作不随客户端断开而取消:restart 请求发出后若客户端断连,
 		// 请求 context 取消可能只完成 stop 未完成 start,服务停在 down 状态。
 		// 与 IPv6 轮转/DNS 同步一致,用不受取消影响的 context + 超时。
-		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
 		defer cancel()
 		containers, err := cli.ContainerList(opCtx, container.ListOptions{
 			All: true,
@@ -56,7 +57,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 		case "start":
 			err = cli.ContainerStart(opCtx, containers[0].ID, container.StartOptions{})
 			if err == nil && (name == "xray" || name == "nginx") {
-				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
+				proxy.RestoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		case "stop":
 			t := platform.DockerStopTimeoutSeconds
@@ -66,7 +67,7 @@ func apiServiceAction(cli *client.Client) http.HandlerFunc {
 			err = cli.ContainerRestart(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
 			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
 			if name == "xray" || name == "nginx" {
-				restoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
+				proxy.RestoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		default:
 			platform.WriteError(w, "Unknown action", 400)
@@ -88,7 +89,7 @@ func apiConfig(cli *client.Client) http.HandlerFunc {
 			"configStatus": "-",
 		}
 		var raw []byte
-		for _, path := range []string{xrayConfigPath, legacyXrayConfigPath} {
+		for _, path := range []string{proxy.XrayConfigPath, proxy.LegacyXrayConfigPath} {
 			fileData, err := os.ReadFile(path)
 			if err == nil {
 				raw = fileData

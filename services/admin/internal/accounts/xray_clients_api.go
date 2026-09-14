@@ -1,7 +1,9 @@
-package main
+package accounts
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
+	"admin/internal/proxy"
 	"context"
 	"github.com/docker/docker/client"
 	"log"
@@ -10,9 +12,9 @@ import (
 	"strings"
 )
 
-func apiAddXray(cli *client.Client) http.HandlerFunc {
+func ApiAddXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 
 		var body struct {
 			UUID string `json:"uuid"`
@@ -35,16 +37,16 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 		body.UUID = strings.ToLower(body.UUID)
 		// internal 伪用户(X-Internal-Token 调用)不建 proxy 密码:否则
 		// users.json 出现 role 为空的 "internal" 条目,并在 .htpasswd-proxy
-		// 留下有效凭证行(与 proxyAuthForUser 的排除逻辑对齐)。
+		// 留下有效凭证行(与 auth.ProxyAuthForUser 的排除逻辑对齐)。
 		if username != "internal" {
-			if _, err := getOrCreateProxyPassword(username); err != nil {
+			if _, err := auth.GetOrCreateProxyPassword(username); err != nil {
 				log.Printf("Failed to create proxy password for %s: %v", username, err)
 				platform.WriteInternalError(w, err)
 				return
 			}
 		}
 
-		// requireRole 保证 userInfo 非 nil(死分支不复存在)
+		// auth.RequireRole 保证 userInfo 非 nil(死分支不复存在)
 		isAdmin := userInfo.Role == "admin"
 		entry := xrayClientEntry{ID: body.UUID, Owner: username, Email: username}
 		var err error
@@ -68,17 +70,17 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// genXrayConfig() reads clients under xrayClientsMu and releases it before
+		// GenXrayConfig() reads clients under xrayClientsMu and releases it before
 		// generating the config, so add/delete operations are not blocked.
-		if err := genXrayConfig(); err != nil {
+		if err := GenXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: %v", err)
 			platform.WriteInternalError(w, err)
 			return
 		}
 		// 重启不随客户端断开而取消：与 apiServiceAction 一致，避免 add 请求断连后
 		// 只完成配置落盘、Xray 停在未加载状态。
-		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
-		if err := restartXray(restartCtx, cli); err != nil {
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
+		if err := proxy.RestartXray(restartCtx, cli); err != nil {
 			cancel()
 			// 配置已落盘但 xray 未加载:必须明确报错,否则用户看到"成功"而代理
 			// 实际不可用;配置保留在磁盘,用户重试会撞 409 无法自愈,因此文案
@@ -92,9 +94,9 @@ func apiAddXray(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func apiDeleteXray(cli *client.Client) http.HandlerFunc {
+func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 
 		var body struct {
 			UUID string `json:"uuid"`
@@ -107,11 +109,11 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "UUID required", 400)
 			return
 		}
-		// 与 apiAddXray 的规范化一致:UUID 不区分大小写。
+		// 与 ApiAddXray 的规范化一致:UUID 不区分大小写。
 		body.UUID = strings.ToLower(body.UUID)
 
 		// deleteXrayClientIfOwner 原子地检查所有权并删除，避免 TOCTOU 竞态
-		// requireRole 保证 userInfo 非 nil(死分支不复存在)
+		// auth.RequireRole 保证 userInfo 非 nil(死分支不复存在)
 		isAdmin := userInfo.Role == "admin"
 		ownerFilter := ""
 		if !isAdmin {
@@ -136,16 +138,16 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// genXrayConfig() reads clients under xrayClientsMu and releases it before
+		// GenXrayConfig() reads clients under xrayClientsMu and releases it before
 		// generating the config, so add/delete operations are not blocked.
-		if err := genXrayConfig(); err != nil {
+		if err := GenXrayConfig(); err != nil {
 			log.Printf("Failed to regenerate xray config: %v", err)
 			platform.WriteInternalError(w, err)
 			return
 		}
-		// 重启不随客户端断开而取消（与 apiAddXray 一致）。
-		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), restartTimeout)
-		if err := restartXray(restartCtx, cli); err != nil {
+		// 重启不随客户端断开而取消（与 ApiAddXray 一致）。
+		restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
+		if err := proxy.RestartXray(restartCtx, cli); err != nil {
 			cancel()
 			log.Printf("ERROR: failed to restart xray after delete: %v", err)
 			platform.WriteError(w, "客户端已删除，但 Xray 重启失败，代理配置可能未生效", http.StatusBadGateway)
@@ -157,16 +159,16 @@ func apiDeleteXray(cli *client.Client) http.HandlerFunc {
 }
 
 // GET /api/admin/users/xray/config/{uuid} — generate config for a specific client
-func apiXrayClientConfig() http.HandlerFunc {
+func ApiXrayClientConfig() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := getUserFromContext(r)
+		userInfo, username := auth.GetUserFromContext(r)
 		uuid := strings.ToLower(r.PathValue("uuid"))
 		if uuid == "" {
 			platform.WriteError(w, "UUID required", 400)
 			return
 		}
 
-		allClients, err := readXrayClientMaps()
+		allClients, err := ReadXrayClientMaps()
 		if err != nil {
 			log.Printf("Failed to read clients: %v", err)
 			platform.WriteInternalError(w, err)
@@ -190,15 +192,15 @@ func apiXrayClientConfig() http.HandlerFunc {
 			return
 		}
 
-		// 只读端点:用 proxyAuthForUserRead 拿已有密码,绝不在这里懒创建
+		// 只读端点:用 auth.ProxyAuthForUserRead 拿已有密码,绝不在这里懒创建
 		// (生成密码 + 重写 htpasswd 是写副作用,并发 GET 会写放大,且写失败
-		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 apiUsers 一致。
-		proxyAuth := proxyAuthForUserRead(client["owner"])
+		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 auth.ApiUsers 一致。
+		proxyAuth := auth.ProxyAuthForUserRead(client["owner"])
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
 			RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
 			RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
 			RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
-			RealityShortID:    xrayClientShortID(),
+			RealityShortID:    XrayClientShortID(),
 			XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
 			XHTTPProxyAuth:    proxyAuth,
 		})

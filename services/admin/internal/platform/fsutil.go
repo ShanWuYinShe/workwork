@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
@@ -72,6 +73,21 @@ func SaveJSONFile(path string, v any) error {
 	}
 	if err := AtomicWriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// EnsurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
+// AtomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
+func EnsurePerm(path string, want os.FileMode) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() != want.Perm() {
+		log.Printf("Fixing permissions: %s %o -> %o", path, info.Mode().Perm(), want.Perm())
+		// os.Chmod 受 umask 影响，先用 syscall 确保精确权限
+		return syscall.Chmod(path, uint32(want.Perm()))
 	}
 	return nil
 }

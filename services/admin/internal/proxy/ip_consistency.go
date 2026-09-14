@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"admin/internal/platform"
@@ -11,15 +11,15 @@ import (
 
 const ipConsistencyInterval = 3 * time.Minute
 
-// ipConsistencyChecker 定期验证 xray/nginx 容器是否持有 DNS 中记录的轮换 IPv6 地址。
+// IPConsistencyChecker 定期验证 xray/nginx 容器是否持有 DNS 中记录的轮换 IPv6 地址。
 // 如果缺失（如 admin 宕机期间容器被重启、Docker daemon 重启导致容器重建等），
 // 自动补上。这是事件监听器之外的兜底机制。
-func ipConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <-chan struct{}) {
+func IPConsistencyChecker(ctx context.Context, cli *client.Client, startupDone <-chan struct{}) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
 
-	// 等待 startupRotateIPv6 完成，避免与启动恢复竞态：
+	// 等待 StartupRotateIPv6 完成，避免与启动恢复竞态：
 	// startup 会先确认 DNS 当前 IP 是否需要补回容器，再登记旧 IP 延迟清理。
 	select {
 	case <-ctx.Done():
@@ -61,7 +61,7 @@ func checkIPConsistency(ctx context.Context, cli *client.Client) {
 	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	xrayIP, nginxIP := loadCurrentIPs()
+	xrayIP, nginxIP := LoadCurrentIPs()
 
 	for _, svc := range []struct {
 		name   string

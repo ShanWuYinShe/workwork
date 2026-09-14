@@ -2,6 +2,7 @@ package main
 
 import (
 	"admin/internal/platform"
+	"admin/internal/proxy"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -905,7 +906,7 @@ func restartComposeService(ctx context.Context, cli *client.Client, service stri
 	// 无论 restart/start 是否返回错误，都尝试恢复轮换 IP。
 	// 容器实际未运行时 platform.AddContainerIP 会静默失败，不影响正确性。
 	if service == "xray" || service == "nginx" {
-		restoreServiceRotatingIP(ctx, cli, id, service)
+		proxy.RestoreServiceRotatingIP(ctx, cli, id, service)
 	}
 	if restartErr != nil {
 		return false, restartErr
