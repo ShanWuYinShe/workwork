@@ -19,6 +19,10 @@ else
   fi
   old=$(git rev-parse HEAD)
   git pull --ff-only origin main
+  # pull 可能替换本脚本文件:若继续执行,bash 会按旧字节偏移读新内容,
+  # 执行错乱(实测 admin 漏建、版本导出失效)。以磁盘上的新版本重新执行
+  # 自己——转入复跑模式($1 已设,跳过 pull,无递归风险)。
+  exec bash "$0" "$old"
 fi
 new=$(git rev-parse HEAD)
 
