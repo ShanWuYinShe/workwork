@@ -170,6 +170,24 @@ workwork/
 └── .wework/                # 运行时数据（不提交；generated/ 下为 admin 生成的配置）
 ```
 
+## 版本排查
+
+所有线上组件的版本号在构建期烙进产物，健康端点与镜像标签均可查：
+
+```bash
+# 服务端健康端点(自带版本号)
+curl -s https://yinghuoren.com/api/media/health   # {"status":"ok","version":"v1.7.0"}
+curl -s https://yinghuoren.com/api/music/health   # music_server 版本
+docker compose exec nginx curl -s http://admin:8318/api/admin/health   # admin 版本
+curl -s http://内网地址:8790/health                # vod_extractor(含 yt-dlp 版本)
+
+# 镜像构建源(OCI revision 标签)
+docker image inspect workwork-media_server --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+
+# 服务启动日志首行均打印版本
+docker compose logs admin media_server music_server vod_extractor | head
+```
+
 ## 安全机制
 
 ### 多层防护
