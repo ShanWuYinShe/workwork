@@ -199,6 +199,8 @@ services:
     build:
       context: ./services/media_center/media_server
       dockerfile: Dockerfile
+      args:
+        GIT_VERSION: ${MEDIA_CENTER_VERSION:-dev}
     restart: unless-stopped
     init: true
     deploy:
@@ -261,6 +263,8 @@ services:
     build:
       context: ./services/media_center/vod_extractor
       dockerfile: Dockerfile
+      args:
+        GIT_VERSION: ${MEDIA_CENTER_VERSION:-dev}
     restart: unless-stopped
     init: true
     deploy:
@@ -344,6 +348,8 @@ services:
     build:
       context: ./services/music_player/music_server
       dockerfile: Dockerfile
+      args:
+        GIT_VERSION: ${MUSIC_PLAYER_VERSION:-dev}
     restart: unless-stopped
     init: true
     # 以 uid 1001(workuser)运行:曲库音频(admin 1001 上传/手动投放,0600)与
@@ -399,6 +405,7 @@ services:
         BUN_VERSION: ${BUN_VERSION:-1.3.14}
         GO_VERSION: ${GO_VERSION:-1.26.5}
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+        GIT_VERSION: ${GIT_VERSION:-dev}
     restart: unless-stopped
     init: true
     deploy:

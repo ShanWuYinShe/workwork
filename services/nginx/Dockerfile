@@ -1,4 +1,6 @@
 ARG NGINX_VERSION=1.30.4
+# GIT_VERSION(workwork git describe)标识本镜像携带的配置模板/脚本版本。
+ARG GIT_VERSION=dev
 
 FROM nginx:${NGINX_VERSION}-alpine
 
@@ -30,5 +32,7 @@ VOLUME ["/var/log/nginx", "/var/lib/fail2ban/data"]
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
+
+LABEL org.opencontainers.image.revision="${GIT_VERSION}"
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
