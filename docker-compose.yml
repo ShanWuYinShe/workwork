@@ -2,6 +2,9 @@ name: workwork
 
 services:
   nginx:
+    # 不可变版本 tag：deploy-changed.sh 导出 IMAGE_TAG 后构建，
+    # 回滚 = IMAGE_TAG=<旧tag> up -d（默认 latest 保持本地习惯）。
+    image: workwork-nginx:${IMAGE_TAG:-latest}
     build:
       context: ./services/nginx
       dockerfile: Dockerfile
@@ -78,6 +81,7 @@ services:
       start_period: 10s
 
   xray:
+    image: workwork-xray:${IMAGE_TAG:-latest}
     build:
       context: ./services/xray
       dockerfile: Dockerfile
@@ -147,6 +151,7 @@ services:
   # xray 同时连接 ipvlan 时 Docker(29.x) 会把 ipvlan 选为 gwep4,端口映射
   # 整体失效(与连接顺序无关),因此 IPv4 入站由这个纯 bridge 容器发布。
   xray-forward:
+    image: workwork-xray-forward:${IMAGE_TAG:-latest}
     build:
       context: ./services/xray
       dockerfile: Dockerfile.forward
@@ -196,6 +201,7 @@ services:
       start_period: 10s
 
   media_server:
+    image: workwork-media_server:${IMAGE_TAG:-latest}
     build:
       context: ./services/media_center/media_server
       dockerfile: Dockerfile
@@ -260,6 +266,7 @@ services:
   # 播放硬前提:YouTube 对数据中心 IP 一律 bot 检测,必须在宿主机放置 cookies:
   #   .wework/vod_extractor/youtube-cookies.txt (Netscape 格式,只读挂载为 /config)
   vod_extractor:
+    image: workwork-vod_extractor:${IMAGE_TAG:-latest}
     build:
       context: ./services/media_center/vod_extractor
       dockerfile: Dockerfile
@@ -313,6 +320,7 @@ services:
   # 网易云 API 上游(NeteaseCloudMusicApi Enhanced,非官方接口仅限个人使用):
   # 仅容器内网,供 music_server 聚合搜索与流解析;不对外暴露端口。
   netease_api:
+    image: workwork-netease_api:${IMAGE_TAG:-latest}
     build:
       context: ./services/netease_api
       dockerfile: Dockerfile
@@ -345,6 +353,7 @@ services:
   # 暴露,认证模型同 media API(边缘 CF mTLS)。网络源音频由本服务代理转发。
   # 服务源码在 music_player 子模块内(客户端+服务端同仓库,组织方式同 media_center)。
   music_server:
+    image: workwork-music_server:${IMAGE_TAG:-latest}
     build:
       context: ./services/music_player/music_server
       dockerfile: Dockerfile
@@ -398,6 +407,7 @@ services:
       start_period: 10s
 
   admin:
+    image: workwork-admin:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: ./services/admin/Dockerfile

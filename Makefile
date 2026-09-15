@@ -9,6 +9,8 @@ SERVICES := admin xray xray-forward nginx media_server vod_extractor netease_api
 export GIT_VERSION ?= $(shell git describe --always --tags --dirty 2>/dev/null || echo dev)
 export MEDIA_CENTER_VERSION ?= $(shell git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)
 export MUSIC_PLAYER_VERSION ?= $(shell git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)
+# 不可变镜像 tag（与 deploy-changed.sh 一致）：回滚 = IMAGE_TAG=<旧tag> make up <svc...>。
+export IMAGE_TAG ?= $(GIT_VERSION)
 
 .DEFAULT_GOAL := help
 .PHONY: help $(SERVICES) build up restart logs ps submodule check deploy-changed
