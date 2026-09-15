@@ -4,6 +4,7 @@ ARG ALPINE_VERSION=3.24.1
 # 全员升级前不可升级服务端。
 ARG XRAY_VERSION=26.6.27
 ARG XRAY_LINUX_64_SHA256=b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf
+ARG GIT_VERSION=dev
 
 FROM alpine:${ALPINE_VERSION} AS downloader
 ARG XRAY_VERSION
@@ -25,4 +26,7 @@ COPY --from=downloader /tmp/xray/geosite.dat /usr/local/bin/geosite.dat
 COPY --from=downloader /tmp/xray/geoip.dat /usr/local/bin/geoip.dat
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+LABEL org.opencontainers.image.version="${XRAY_VERSION}" \
+      org.opencontainers.image.revision="${GIT_VERSION}"
 ENTRYPOINT ["/entrypoint.sh"]

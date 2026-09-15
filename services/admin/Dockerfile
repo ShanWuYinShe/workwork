@@ -25,7 +25,10 @@ RUN go mod download
 
 COPY services/admin/ ./
 # -trimpath -ldflags "-s -w": 去掉本地路径与符号表(与 media/music 镜像一致)。
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o admin .
+# GIT_VERSION(workwork git describe)由编排层传入,烙进二进制并经
+# /api/admin/health 与启动日志暴露;未传时为 "dev"。
+ARG GIT_VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${GIT_VERSION}" -o admin .
 
 FROM alpine:${ALPINE_VERSION}
 
@@ -44,6 +47,10 @@ COPY --from=ui-builder /ui/dist /app/ui
 # 配置模板由 admin 消费(启动时渲染到 .wework/generated/),随镜像分发:
 # 模板版本与二进制版本原子对应,回滚镜像即回滚模板。
 COPY services/admin/configs/ /app/configs/
+
+# ARG 按阶段作用域:最终阶段需重新声明才能用于 LABEL。
+ARG GIT_VERSION=dev
+LABEL org.opencontainers.image.revision="${GIT_VERSION}"
 
 WORKDIR /app
 USER appuser

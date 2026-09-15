@@ -22,6 +22,10 @@ import (
 	"github.com/docker/docker/client"
 )
 
+// version 由构建期注入(-ldflags -X main.version,值为 workwork 仓库
+// git describe),经 /api/admin/health 与启动日志暴露,未注入时为 "dev"。
+var version = "dev"
+
 func main() {
 	port := platform.GetEnv("ADMIN_PORT")
 	if port == "" {
@@ -126,7 +130,7 @@ func main() {
 			platform.WriteError(w, "Not ready", http.StatusServiceUnavailable)
 			return
 		}
-		platform.WriteJSON(w, map[string]string{"status": "ok"})
+		platform.WriteJSON(w, map[string]string{"status": "ok", "version": version})
 	})
 
 	// Claude Code downloads — admin manages, viewer can see + download stored
@@ -230,7 +234,7 @@ func main() {
 	go music.StartChunkCleanupLoop(ctx)
 
 	go func() {
-		log.Printf("Admin panel listening on %s", srv.Addr)
+		log.Printf("admin %s listening on %s", version, srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed: %v", err)
 		}

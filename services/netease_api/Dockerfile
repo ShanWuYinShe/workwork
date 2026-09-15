@@ -20,6 +20,8 @@ ENV HOST=0.0.0.0 \
 
 USER apiuser
 
+LABEL org.opencontainers.image.version="${API_VERSION}"
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

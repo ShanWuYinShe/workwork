@@ -45,6 +45,9 @@ services/admin/admin
 # SPA build output
 ui/dist/
 
+# AI 工具目录
+.v2c/
+
 # AI worktrees
 .worktrees/
 .claude/
