@@ -42,42 +42,7 @@ jobs:
           bun install --cwd services/admin/ui --frozen-lockfile
           bun run --cwd services/admin/ui build
 
-  media:
-    name: Media Center (submodule)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.5'
-          cache: true
-          cache-dependency-path: services/media_center/media_server/go.sum
-
-      - name: media_server build/vet/test
-        run: |
-          go build -C services/media_center/media_server -o /dev/null .
-          go vet -C services/media_center/media_server ./...
-          go test -C services/media_center/media_server ./...
-
-  music:
-    name: Music Server (submodule)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.5'
-          cache: true
-          cache-dependency-path: services/music_player/music_server/go.sum
-
-      - name: music_server build/vet/test
-        run: |
-          go build -C services/music_player/music_server -o /dev/null .
-          go vet -C services/music_player/music_server ./...
-          go test -C services/music_player/music_server ./...
+  # 注意：media_center / music_player 以 git submodule 引入，且均为私有仓库，
+  # 本仓库的 GITHUB_TOKEN 无权 clone（SSH 更无 key），故不在此测它们。
+  # 两仓库各自的 CI 门禁覆盖 media_server / music_server / vod_extractor；
+  # 集成形态（compose 构建）由部署时 docker compose build 保证。
