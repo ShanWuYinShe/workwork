@@ -4,6 +4,12 @@
 COMPOSE := docker compose
 SERVICES := admin xray xray-forward nginx media_server vod_extractor netease_api music_server
 
+# 版本号自动导出,compose build args 读取后烙进各服务二进制/镜像并经
+# 健康端点暴露;调用方显式传入时以传入值为准。
+export GIT_VERSION ?= $(shell git describe --always --tags --dirty 2>/dev/null || echo dev)
+export MEDIA_CENTER_VERSION ?= $(shell git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)
+export MUSIC_PLAYER_VERSION ?= $(shell git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)
+
 .DEFAULT_GOAL := help
 .PHONY: help $(SERVICES) build up restart logs ps submodule check deploy-changed
 

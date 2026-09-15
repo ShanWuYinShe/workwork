@@ -89,6 +89,12 @@ if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; th
   echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"
 fi
 
+# 版本号烙进镜像(经健康端点暴露);子模块刚同步,describe 即本次部署版本。
+export GIT_VERSION="$(git describe --always --tags --dirty 2>/dev/null || echo dev)"
+export MEDIA_CENTER_VERSION="$(git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)"
+export MUSIC_PLAYER_VERSION="$(git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)"
+echo "版本: workwork=$GIT_VERSION media_center=$MEDIA_CENTER_VERSION music_player=$MUSIC_PLAYER_VERSION"
+
 # ---------- 执行最小部署 ----------
 if [ -z "${services// /}" ]; then
   echo "无受影响容器服务"
