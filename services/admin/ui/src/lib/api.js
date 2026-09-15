@@ -69,6 +69,11 @@ export async function getCurrentUser() {
   return req('/auth/me');
 }
 
+/** 服务端健康信息(含构建版本):面板页脚展示,排障时报版本用。 */
+export async function getHealth() {
+  return req('/health');
+}
+
 export async function getDashboard() {
   return req('/dashboard');
 }
