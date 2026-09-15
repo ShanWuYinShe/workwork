@@ -93,7 +93,9 @@ fi
 export GIT_VERSION="$(git describe --always --tags --dirty 2>/dev/null || echo dev)"
 export MEDIA_CENTER_VERSION="$(git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)"
 export MUSIC_PLAYER_VERSION="$(git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)"
-echo "版本: workwork=$GIT_VERSION media_center=$MEDIA_CENTER_VERSION music_player=$MUSIC_PLAYER_VERSION"
+# 不可变镜像 tag：同一产物可回滚；回滚 = IMAGE_TAG=<旧tag> up -d。
+export IMAGE_TAG="$GIT_VERSION"
+echo "版本: workwork=$GIT_VERSION media_center=$MEDIA_CENTER_VERSION music_player=$MUSIC_PLAYER_VERSION (IMAGE_TAG=$IMAGE_TAG)"
 
 # ---------- 执行最小部署 ----------
 if [ -z "${services// /}" ]; then
@@ -103,9 +105,50 @@ fi
 
 echo
 echo "=== 受影响服务:$services ==="
+# 记录部署前各服务镜像(含 tag)，部署后打印精确回滚命令。
+# 用临时文件而不用关联数组：保持 bash 3 兼容（macOS 本地复跑）。
+prev_file="$(mktemp)"
+trap 'rm -f "$prev_file"' EXIT
+for svc in $services; do
+  cid="$(docker compose ps -q "$svc" 2>/dev/null || true)"
+  if [ -n "$cid" ]; then
+    echo "$svc $(docker inspect "$cid" --format '{{.Config.Image}}' 2>/dev/null || true)" >>"$prev_file"
+  fi
+done
 # shellcheck disable=SC2086
 docker compose build $services
 # shellcheck disable=SC2086
 docker compose up -d --no-deps $services
 echo
 docker compose ps
+
+# ---------- 部署后自校验：等 healthy + 核对版本指纹 ----------
+echo
+echo "=== 健康校验 ==="
+fail=""
+for svc in $services; do
+  ok=""
+  for _ in $(seq 1 30); do
+    state="$(docker inspect "$(docker compose ps -q "$svc")" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
+    if [ "$state" = "healthy" ]; then ok=1; break; fi
+    sleep 5
+  done
+  if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
+done
+# 版本指纹：各服务健康端点自报构建期烙入的版本（与 compose healthcheck 同端点）。
+docker compose exec -T admin wget -qO- http://localhost:8318/api/admin/health 2>/dev/null | head -c 300 || true; echo
+if printf '%s\n' $services | grep -qx media_server; then
+  docker compose exec -T media_server wget -qO- http://localhost:8787/health 2>/dev/null | head -c 300 || true; echo
+fi
+if printf '%s\n' $services | grep -qx music_server; then
+  docker compose exec -T music_server wget -qO- http://localhost:8790/health 2>/dev/null | head -c 300 || true; echo
+fi
+if [ -n "$fail" ]; then
+  echo "!! 部署校验未通过:$fail"
+  echo "回滚（部署前镜像）："
+  cat "$prev_file" | sed 's/^/  /'
+  echo "执行：逐个 IMAGE_TAG=<旧tag> docker compose up -d --no-deps <svc>"
+  echo "（旧 tag 镜像须仍在本地：勿对它们 docker image prune）"
+  exit 1
+fi
+echo "部署校验通过 ✅（回滚：IMAGE_TAG=<旧tag> docker compose up -d --no-deps$services）"
