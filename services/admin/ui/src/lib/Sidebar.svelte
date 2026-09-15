@@ -1,6 +1,8 @@
 <script>
+  import { onMount } from 'svelte';
   import { navSections } from './routes.js';
   import { t, toggleLang, getLang } from './i18n.svelte.js';
+  import { getHealth } from './api.js';
 
   // sidebarCollapsed / mobileMenuOpen 由本组件写回父级（折叠切换、移动端
   // 导航后收起），必须 $bindable：普通 prop 的本地赋值不会同步到 App.svelte，
@@ -13,6 +15,17 @@
     isAdmin,
     mobileMenuOpen = $bindable(false),
   } = $props();
+
+  // 后端构建版本(workwork git describe):页脚展示,排障时报版本用
+  let backendVersion = '';
+  onMount(async () => {
+    try {
+      const health = await getHealth();
+      backendVersion = health?.version || '';
+    } catch {
+      backendVersion = '';
+    }
+  });
 
   function handleNav(path) {
     navigate(path);
@@ -188,6 +201,9 @@
           </div>
         {/if}
       </div>
+    {/if}
+    {#if !sidebarCollapsed && backendVersion}
+      <div class="build-version" title="后端构建版本">build {backendVersion}</div>
     {/if}
   </div>
 </aside>
