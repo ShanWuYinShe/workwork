@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 服务器部署入口：同步 main 与子模块后，按两次提交间的文件变更推导受影响服务，
-# 执行最小化 build + up。路径映射与 AGENTS.md「构建 & 部署」保持一致，两处须同步修改。
+# 执行最小化 build + up。路径 → 服务映射的唯一来源是本脚本（AGENTS.md/README 只描述行为，不复述映射表）。
 #
 # 用法:
 #   scripts/deploy-changed.sh          # 完整流程: 校验工作区 → pull → 子模块同步 → 按变更部署
