@@ -190,6 +190,19 @@ docker image inspect workwork-media_server --format '{{index .Config.Labels "org
 docker compose logs admin media_server music_server vod_extractor | head
 ```
 
+## 备份与恢复
+
+所有运行时状态（登录凭据、配置、曲库、cookies 凭证、catalog.db）都在单机 `.wework/`
+与 named volume，必须定期备份且异机存放：
+
+```bash
+make backup                    # 打包 .wework/ + cert/ + .env + media_center_data volume
+BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 rsync（推荐，cron 配置见 docs/operations.md）
+```
+
+恢复步骤与每季度恢复演练清单见 [docs/operations.md](./docs/operations.md)，证书轮换
+与 git 历史敏感信息处理也在该手册。
+
 ## 安全机制
 
 ### 多层防护
@@ -281,6 +294,7 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
 | `CF_API_TOKEN` | Cloudflare API Token | - |
 | `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
+| `INTERNAL_TOKEN_ALLOWED_PREFIXES` | 可选：internal token 的路径前缀白名单（逗号分隔）。配置后该 token 只能豁免这些前缀，其余路径退回正常认证，被拒请求以 `[security]` 留痕；留空保持全权 | `/api/admin/security,/api/admin/dashboard` |
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
 | `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
