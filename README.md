@@ -40,8 +40,10 @@ Media Center 源码通过 git submodule 引入到 [`services/media_center`](./se
 ### 网络架构
 
 - **ipvlan_docker** (external): IPv6 L3 出口，分配 `/64` 子网
-- **internal_docker** (bridge): Docker 内部网络，`172.20.0.0/16`
+- **internal_docker** (bridge): Docker 内部网络（网段由 Docker 默认地址池动态分配）
 - **xray_egress** (bridge): Xray 专用 IPv4 egress/NAT 网络，不加入 admin/media 内网
+
+完整服务说明见 [docs/architecture.md](./docs/architecture.md)。
 
 ## 快速开始
 
