@@ -1,0 +1,30 @@
+# 依赖自动更新。子模块（media_center/music_player）与 netease_api（Bun 运行的
+# npm 包，Dependabot 不支持 bun 锁文件）不在本仓库治理范围：前者由各自仓库的
+# CI/流程跟进，后者升级即换 ARG 版本号人工验证。
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /services/admin
+    schedule:
+      interval: weekly
+    groups:
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/admin
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/nginx
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/xray
+    schedule:
+      interval: weekly
