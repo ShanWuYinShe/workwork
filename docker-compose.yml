@@ -442,6 +442,9 @@ services:
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-workwork}
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
+      # 可选:internal token 路径前缀白名单(逗号分隔)。配置后 X-Internal-Token
+      # 只能豁免这些前缀,其余路径退回正常认证;留空保持全权(兼容外部自动化)。
+      - INTERNAL_TOKEN_ALLOWED_PREFIXES=${INTERNAL_TOKEN_ALLOWED_PREFIXES:-}
       - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-}
       - TRUSTED_PROXY_HOSTS=${TRUSTED_PROXY_HOSTS:-}
       # IPv6 轮换（startupRotateIPv6 必需）

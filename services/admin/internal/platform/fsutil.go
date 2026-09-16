@@ -78,7 +78,8 @@ func SaveJSONFile(path string, v any) error {
 }
 
 // EnsurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
-// AtomicWriteFile 的内容比较会跳过写入，导致权限不更新。此函数补上 chmod。
+// 调用方自做的"内容未变化跳过写入"（writeMediaCenterCategoriesFileIfChanged
+// 等）会让写入乃至 chmod 时机被跳过。此函数独立补上 chmod，与写入路径解耦。
 func EnsurePerm(path string, want os.FileMode) error {
 	info, err := os.Stat(path)
 	if err != nil {
