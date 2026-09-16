@@ -31,10 +31,10 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
 | **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理；IPv4 直连 443 由 **xray-forward** 转发容器发布 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
-| **media_server** | Go | 8787 | 合规公开视频聚合 API |
-| **vod_extractor** | Python (yt-dlp) | 8790 | YouTube 搜索/播放解析（仅内网，media_server 调用；需宿主机 cookies） |
-| **music_server** | Go | 8790 | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
-| **netease_api** | Node(Bun) | 3000 | 网易云 API 上游（仅内网，music_server 调用） |
+| **media_server** | Go | 8787（容器内，仅内网；对外经 nginx `/api/media`） | 合规公开视频聚合 API |
+| **vod_extractor** | Python (yt-dlp) | 8790（容器内，仅内网，media_server 调用；需宿主机 cookies） | YouTube 搜索/播放解析 |
+| **music_server** | Go | 8790（容器内，仅内网；对外经 nginx `/api/music`，与 vod_extractor 同端口但不同容器，不冲突） | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
+| **netease_api** | Node(Bun) | 3000（容器内，仅内网，music_server 调用） | 网易云 API 上游 |
 Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。Music Player 源码通过 submodule 引入到 [`services/music_player`](./services/music_player)（仓库 [`music_player`](https://github.com/ShanWuYinShe/music_player)，HarmonyOS 客户端 `music_app/` + Go 服务端 `music_server/`，组织方式同 media_center）。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
