@@ -55,9 +55,15 @@ func main() {
 	// 启动 IPv6 恢复完成后关闭此 channel，proxy.IPConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
 
-	go proxy.XhttpHealthChecker(context.Background(), cli)
-	go proxy.IPWatcher(context.Background(), cli)
-	go proxy.IPConsistencyChecker(context.Background(), cli, startupRotateDone)
+	// 信号 ctx 必须先于守护 goroutine 创建：三个 proxy 守护（xhttp 自愈 /
+	// IP watcher / IP 一致性检查）都监听 ctx.Done()，传 Background 会让它们
+	// 在优雅关闭时无法退出（SSE/docker 流被进程消亡硬切）。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go proxy.XhttpHealthChecker(ctx, cli)
+	go proxy.IPWatcher(ctx, cli)
+	go proxy.IPConsistencyChecker(ctx, cli, startupRotateDone)
 
 	mux := http.NewServeMux()
 
@@ -220,10 +226,8 @@ func main() {
 
 	auth.StartRateLimiter()
 
-	// Graceful shutdown — context 创建在 cleanup goroutine 之前，
-	// 这样 transfer.StartCleanupLoop 能响应 SIGTERM 信号优雅退出。
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// Graceful shutdown — 信号 ctx 已在守护 goroutine 启动前创建（见上方
+	// proxy 三守护），transfer/music 的 cleanup loop 与它们共享同一 ctx。
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
 	defer auth.StopRateLimiter()

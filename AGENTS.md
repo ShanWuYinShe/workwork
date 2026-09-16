@@ -100,7 +100,7 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 - 文档单一来源：架构"是什么"只写在 `docs/architecture.md`，AGENTS 不复述实现细节。文档与可验证实现冲突时以代码为准并修正文档，不要按错误描述继续。
 - 配置字段核对: Xray、Nginx、Docker 等配置以官方源码/文档为准；优先读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档确认字段名大小写、合法值范围和字段语义。
 - Never use `RemoteAddr` for auth — 所有流量经 Docker bridge，看起来都是内网地址。
-- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/.fail2ban-token`）。
+- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/.fail2ban-token`）。`INTERNAL_TOKEN` 默认全权（仓库内无消费者，服务于外部自动化，默认收紧会静默破坏它们）；配置 `INTERNAL_TOKEN_ALLOWED_PREFIXES`（逗号分隔路径前缀）后只豁免白名单内路径，白名单外的使用会以 `[security]` 留痕——新部署建议按日志逐步收敛。
 - Secrets: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
 - Xray 客户端归属: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
 - 配置文件写入：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。

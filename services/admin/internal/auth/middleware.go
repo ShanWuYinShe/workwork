@@ -387,10 +387,60 @@ func isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
+// internalTokenAllowedPrefixes 返回 INTERNAL_TOKEN_ALLOWED_PREFIXES 配置的路径
+// 前缀白名单（逗号分隔）。空表示未配置——internal token 保持全权（兼容既有
+// 外部自动化）；配置后 internal token 只能豁免白名单前缀内的路径，其余路径
+// 一律退回正常认证（无凭证即 401），fail-closed。
+func internalTokenAllowedPrefixes() []string {
+	raw := strings.TrimSpace(platform.GetEnv("INTERNAL_TOKEN_ALLOWED_PREFIXES"))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if !strings.HasPrefix(p, "/") {
+			log.Printf("WARNING: ignoring bad INTERNAL_TOKEN_ALLOWED_PREFIXES entry %q (must start with /)", p)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// internalTokenPrefixMatch 判断路径是否落在前缀白名单内。前缀按路径段边界
+// 匹配："/api/admin/security" 命中 "/api/admin/security/block" 与自身，但不命中
+// "/api/admin/security-evil"。
+func internalTokenPrefixMatch(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		base := strings.TrimSuffix(p, "/")
+		if path == base || strings.HasPrefix(path, base+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func isInternalRequest(r *http.Request) bool {
 	tok := getInternalToken()
-	return tok != "" &&
-		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(tok)) == 1
+	if tok == "" ||
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(tok)) != 1 {
+		return false
+	}
+	prefixes := internalTokenAllowedPrefixes()
+	if len(prefixes) == 0 {
+		return true
+	}
+	if internalTokenPrefixMatch(r.URL.Path, prefixes) {
+		return true
+	}
+	// 拒绝必须留痕：运维据此发现外部自动化实际需要的最小前缀集合，
+	// 再把它们配进 INTERNAL_TOKEN_ALLOWED_PREFIXES。
+	log.Printf("[security] internal-token rejected: path %s not in INTERNAL_TOKEN_ALLOWED_PREFIXES", r.URL.Path)
+	return false
 }
 
 func isFail2BanRequest(r *http.Request) bool {
@@ -469,6 +519,10 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			if !ok {
 				userLevel = 0
 			}
+			// 认证成功即落审计身份（含 403 Forbidden 的请求）：外层
+			// RequestLogMiddleware 在 next 返回后读取同一 holder，把 user
+			// 写进访问日志——回答"谁在何时调用了什么"。
+			markAuditUser(r.Context(), username)
 			if userLevel < requiredLevel {
 				platform.WriteError(w, "Forbidden", 403)
 				return

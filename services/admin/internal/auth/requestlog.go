@@ -2,6 +2,7 @@ package auth
 
 import (
 	"admin/internal/platform"
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -19,15 +20,34 @@ import (
 // 复用 middleware.go 中已带 trusted-proxy 守卫的 clientIP(r),正确解析
 // nginx 转发的真实客户端 IP,且不盲信可被伪造的 X-Forwarded-For。
 //
-// 记录字段:method、path、status、duration_ms、client_ip、bytes。
+// 记录字段:method、path、status、duration_ms、client_ip、bytes、user。
 // 按 status 分级:2xx/3xx → Info,4xx → Warn,5xx → Error。
 // 静态资源(/assets/ 等)高频低价值,降级为 Debug 避免刷屏。
 // 不记录请求体/响应体(隐私 + 体积)。
+
+// auditCtxKey / requestAudit 让内层 RequireRole 把解析出的用户名带给外层
+// 本中间件。context 不可变,故用指针 holder:中间件在 next.ServeHTTP 返回后
+// 读取同一结构——认证成功(含 403)的请求日志带 user 字段,未认证的为空,
+// 回答"谁在何时调用了什么"。internal/fail2ban 以伪身份名出现在日志里,
+// 与真人操作可区分。
+type auditCtxKey struct{}
+
+type requestAudit struct {
+	user string
+}
+
+func markAuditUser(ctx context.Context, username string) {
+	if a, ok := ctx.Value(auditCtxKey{}).(*requestAudit); ok && a != nil {
+		a.user = username
+	}
+}
+
 func RequestLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r)
+		audit := &requestAudit{}
+		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditCtxKey{}, audit)))
 
 		duration := time.Since(start).Milliseconds()
 		level := slog.LevelInfo
@@ -39,7 +59,7 @@ func RequestLogMiddleware(next http.Handler) http.Handler {
 		case rec.status >= 400:
 			level = slog.LevelWarn
 		}
-		slog.Default().LogAttrs(r.Context(), level, "request",
+		attrs := []slog.Attr{
 			slog.String("method", r.Method),
 			slog.String("path", redactRequestPath(r)),
 			slog.Int("status", rec.status),
@@ -47,7 +67,11 @@ func RequestLogMiddleware(next http.Handler) http.Handler {
 			slog.String("client_ip", clientIP(r)),
 			slog.Int("bytes", rec.bytes),
 			slog.String("user_agent", r.UserAgent()),
-		)
+		}
+		if audit.user != "" {
+			attrs = append(attrs, slog.String("user", audit.user))
+		}
+		slog.Default().LogAttrs(r.Context(), level, "request", attrs...)
 	})
 }
 
