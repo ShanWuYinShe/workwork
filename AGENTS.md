@@ -154,7 +154,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/media_center/media_server/ — Media Center 目录服务（git submodule）
 
-目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。播放按 provider 分发：bilibili 由 App 端 WBI 签名本地解析；youtube 由 server 端两个受控实时端点处理（`/api/providers/youtube/search` 走 Data API 搜索、`/api/providers/youtube/resolve` 代理 `vod_extractor` 解析播放直链，均要求 X-App-Token + 独立限流，见 `media_server/youtube.go`）。不做 asset 代理。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
+目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。播放按 provider 分发：bilibili 由 App 端 WBI 签名本地解析；youtube 由 server 端两个受控实时端点处理（`/api/providers/youtube/search` 经 `vod_extractor`（yt-dlp ytsearch）实时搜索、`/api/providers/youtube/resolve` 代理 `vod_extractor` 解析播放直链，均要求 X-App-Token + 独立限流，见 `media_server/youtube.go`）。不做 asset 代理。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
 
 ### docker-compose.yml
 
