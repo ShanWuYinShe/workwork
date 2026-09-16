@@ -231,13 +231,20 @@ docker compose restart xray
 docker compose logs -f media_server
 ```
 
-## 部署流程
+## 部署流程（先本地验证，再发布）
 
 ```bash
+# 0. 本地验证（硬性前置，未通过禁止 push 与上线；完整门禁见 AGENTS.md「发布门禁」）
+make check                  # 本地门禁：gofmt/vet/test + 前端构建
+make build <受影响服务...>   # 受影响服务本地构建通过（版本号自动烙入）
+# 本地能独立启动的服务：make up <svc...> 后等 healthy 并核对版本指纹（见「版本排查」）
+# nginx / xray / xray-forward / vod_extractor 全链路本地不具备启动条件，以构建通过为准
+
 # 1. 本地开发（worktree 分支）合并进 main 并推送
 git push origin main
 
-# 2. 服务器一键部署（推荐）：pull + 子模块同步 + 按变更最小 build/up
+# 2. 服务器一键部署（推荐）：pull + 子模块同步 + 按变更最小 build/up，
+#    部署后自带健康自校验（等 healthy + 版本指纹核对，不通过即 fail 并给出回滚命令）
 ssh workwork-server "cd workwork && make deploy-changed"
 # 复跑/指定基线: scripts/deploy-changed.sh <old-commit>
 
@@ -250,6 +257,18 @@ make build admin && make up admin          # services/admin/**（含 ui 与配�
 make build nginx && make up nginx          # services/nginx/**
 make build xray xray-forward && make up xray xray-forward   # services/xray/**
 make build media_server && make up media_server             # services/media_center/media_server/**
+
+# 4. media_app（Android APK，normal + legacy 两变体；源码在子模块 services/media_center，
+#    版本号由子模块 git tag 驱动，构建前先在子模块打 tag；Gradle 一律加 --no-daemon；
+#    release 变体已配 debug 签名 + R8 minify；JAVA_HOME 以全局「本机环境」为准）：
+#    normal 变体（legacy 变体把 media_app 换成 media_app_legacy）：
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleRelease --no-daemon && \
+scp services/media_center/media_app/app/build/outputs/apk/release/app-release.apk \
+  workwork-server:workwork/.wework/generated/media_center/media-center-app-v<vc>-<sha12>.apk
+# 上传后手写 app-update.json / app-update-legacy.json（含 versionCode/versionName/
+# apkFilename/sizeBytes/sha256/releaseNotes），或在管理面板“Android TV App 更新发布”
+# 页选变体后上传（admin 自动写 manifest + APK）。
 ```
 
 ## 环境变量
