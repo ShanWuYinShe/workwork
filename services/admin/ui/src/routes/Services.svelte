@@ -50,7 +50,10 @@
 
   async function act(name, action) {
     const displayName = serviceDisplayName(name);
-    if (!(await showConfirm(t(confirmKey(action), { name: displayName })))) return;
+    // 停止/重启会中断在跑的代理与面板服务，与全站其余破坏性操作一致用红色
+    // 确认按钮；启动是无破坏动作保持普通样式。
+    const danger = action !== 'start';
+    if (!(await showConfirm(t(confirmKey(action), { name: displayName }), { danger }))) return;
     actingService = name;
     try {
       const d = await serviceAction(name, action);

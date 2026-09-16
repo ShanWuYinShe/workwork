@@ -393,6 +393,12 @@ const zh = {
   catalogRankInvalid: '排序值需为非负整数',
   errIpRequired: '请输入 IP 地址',
   errIpFormat: 'IP 格式不正确',
+  errUsernameRequired: '用户名不能为空',
+  errUsernameFormat: '用户名只能包含字母、数字、_、-（最长 64 字符）',
+  errPasswordRequired: '密码不能为空',
+  errOldPasswordRequired: '请输入旧密码',
+  logoutBlockedWarning:
+    '登出未完全生效：浏览器仍保留本站登录凭证。请关闭全部本站窗口，或在浏览器设置中清除本站数据。',
   ipUnblocked: 'IP {ip} 已解封。',
   // Transfer
   transfer: '文件中转站',
@@ -916,6 +922,12 @@ const en = {
   catalogRankInvalid: 'Rank must be a non-negative integer',
   errIpRequired: 'Enter an IP address',
   errIpFormat: 'Invalid IP address format',
+  errUsernameRequired: 'Username is required',
+  errUsernameFormat: 'Username may only contain letters, digits, _ and - (max 64 chars)',
+  errPasswordRequired: 'Password is required',
+  errOldPasswordRequired: 'Old password is required',
+  logoutBlockedWarning:
+    'Logout may not be complete: the browser still holds credentials for this site. Close all windows of this site, or clear its site data in browser settings.',
   ipUnblocked: 'IP {ip} unblocked.',
   // Transfer
   transfer: 'File Transfer',
