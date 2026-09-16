@@ -13,11 +13,18 @@ export MUSIC_PLAYER_VERSION ?= $(shell git -C services/music_player describe --t
 export IMAGE_TAG ?= $(GIT_VERSION)
 
 .DEFAULT_GOAL := help
-.PHONY: help $(SERVICES) build up restart logs ps submodule check deploy-changed
+.PHONY: help $(SERVICES) build up restart logs ps submodule check backup deploy-changed
 
-# 变长服务名目标的兜底规则（make build admin 中的 "admin" 不是 make 目标）
+KNOWN_TARGETS := help build up restart logs ps submodule check backup deploy-changed
+
+# 变长服务名目标的兜底规则（make build admin 中的 "admin" 不是 make 目标）。
+# 必须校验：无守卫时拼错目标（make buil admin）会静默成功退出 0。
+# 用 $@ 而非 $*：GNU Make 在 %: 兜底规则里 $* 不保证展开（实测为空）。
 %:
-	@:
+	@if ! echo " $(KNOWN_TARGETS) $(SERVICES) " | grep -q " $@ "; then \
+		echo "make: *** 未知目标 '$@'。可用: make {build|up|restart|logs} <服务> 或 $(KNOWN_TARGETS)"; \
+		exit 1; \
+	fi
 
 help: ## 显示帮助
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36mmake %-22s\033[0m %s\n",$$1,$$2}'
@@ -41,12 +48,16 @@ ps: ## 查看服务状态
 submodule: ## 同步子模块到主仓库记录的指针
 	git submodule update --init --recursive
 
-check: ## 本地门禁: gofmt / go vet / go test / 前端构建
+check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	@test -z "$$(gofmt -l services/admin/)" || { echo 'gofmt 未通过:'; gofmt -l services/admin/; exit 1; }
 	go vet -C services/admin ./...
 	go test -C services/admin ./...
-	bun install --cwd services/admin/ui
+	bun install --frozen-lockfile --cwd services/admin/ui
+	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui build
+
+backup: ## 备份运行时数据: scripts/backup.sh（BACKUP_DIR/BACKUP_RSYNC_TARGET 见脚本头）
+	./scripts/backup.sh
 
 deploy-changed: ## 服务器部署: pull + 子模块同步 + 按变更最小 build/up
 	./scripts/deploy-changed.sh
