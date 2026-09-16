@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentUser } from './lib/api.js';
   import { t } from './lib/i18n.svelte.js';
+  import { toast } from './lib/toast.svelte.js';
   import { routes, routeTitles } from './lib/routes.js';
   import { nav, navigate, syncPath } from './lib/nav.svelte.js';
   import Sidebar from './lib/Sidebar.svelte';
@@ -20,6 +21,12 @@
     authError = null;
     try {
       userInfo = await getCurrentUser();
+      // 登出标记仍在且 /me 成功 = 浏览器没有清除凭证（覆盖失败），如实告知
+      // 而不是假装已登出；认证失败的分支会清掉标记（用户即将重新登录）。
+      if (sessionStorage.getItem('ww_logout_pending')) {
+        sessionStorage.removeItem('ww_logout_pending');
+        toast(t('logoutBlockedWarning'), 'error', 10000);
+      }
     } catch (e) {
       // Don't silently swallow — surface the failure so the user can
       // retry or report a broken auth backend. Without this, an admin
@@ -27,6 +34,7 @@
       // forbidden screen.
       authError = e?.message || String(e);
       userInfo = null;
+      sessionStorage.removeItem('ww_logout_pending');
     } finally {
       authLoading = false;
     }

@@ -28,6 +28,8 @@
   let showNewPass = $state(false);
   let showOldPass = $state(false);
   let showPwPass = $state(false);
+  let addUserError = $state('');
+  let pwError = $state('');
 
   onMount(async () => {
     try {
@@ -44,12 +46,30 @@
     }
   });
 
+  // 字段级校验：与后端 IsValidUsername（^[a-zA-Z0-9_-]+$，≤64）对齐，
+  // 空字段给出明确提示而不是静默 return。
+  function validateNewUser() {
+    const name = newUser.trim();
+    if (!name) return t('errUsernameRequired');
+    if (!/^[a-zA-Z0-9_-]+$/.test(name) || name.length > 64) return t('errUsernameFormat');
+    if (!newPass) return t('errPasswordRequired');
+    return '';
+  }
+
+  function validatePwForm() {
+    if (!pwUser.trim()) return t('errUsernameRequired');
+    if (!isAdmin && !oldPass) return t('errOldPasswordRequired');
+    if (!pwPass) return t('errPasswordRequired');
+    return '';
+  }
+
   async function addUser() {
-    if (!newUser || !newPass || addingUser) return;
+    addUserError = validateNewUser();
+    if (addUserError || addingUser) return;
     addingUser = true;
     try {
-      await addAdminUser(newUser, newPass, newRole);
-      toast(t('userAdded', { user: newUser }), 'success');
+      await addAdminUser(newUser.trim(), newPass, newRole);
+      toast(t('userAdded', { user: newUser.trim() }), 'success');
       newUser = '';
       newPass = '';
       newRole = 'viewer';
@@ -75,10 +95,11 @@
   }
 
   async function changePw() {
-    if (!pwUser || !pwPass || changingPw) return;
+    pwError = validatePwForm();
+    if (pwError || changingPw) return;
     changingPw = true;
     try {
-      await changePassword(pwUser, oldPass, pwPass);
+      await changePassword(pwUser.trim(), oldPass, pwPass);
       toast(t('passwordChanged', { user: pwUser }), 'success');
       oldPass = '';
       pwPass = '';
@@ -138,7 +159,7 @@
                           ? 'table-avatar table-avatar-admin'
                           : 'table-avatar'}
                       >
-                        {u.username[0].toUpperCase()}
+                        {(u.username || '?')[0].toUpperCase()}
                       </div>
                       <span class="cell-strong">{u.username}</span>
                     </div>
@@ -189,7 +210,14 @@
       <div class="form-row">
         <div class="form-group">
           <label for="add-user">{t('username')}</label>
-          <input id="add-user" type="text" bind:value={newUser} class="input-w-sm" />
+          <input
+            id="add-user"
+            type="text"
+            bind:value={newUser}
+            class="input-w-sm"
+            aria-invalid={addUserError ? 'true' : undefined}
+            aria-describedby={addUserError ? 'add-user-error' : undefined}
+          />
         </div>
         <div class="form-group password-field">
           <label for="add-pass">{t('newPassword')}</label>
@@ -199,6 +227,7 @@
               type={showNewPass ? 'text' : 'password'}
               bind:value={newPass}
               class="input-w-sm"
+              aria-invalid={addUserError ? 'true' : undefined}
             />
             <button
               class="eye-btn"
@@ -220,6 +249,9 @@
           >{addingUser ? t('saving') : t('add')}</button
         >
       </div>
+      {#if addUserError}
+        <p class="field-error" id="add-user-error" role="alert">{addUserError}</p>
+      {/if}
     </div>
   {/if}
 
@@ -230,7 +262,14 @@
     <div class="form-row">
       <div class="form-group">
         <label for="pw-user">{t('username')}</label>
-        <input id="pw-user" type="text" bind:value={pwUser} class="input-w-md" />
+        <input
+          id="pw-user"
+          type="text"
+          bind:value={pwUser}
+          class="input-w-md"
+          aria-invalid={pwError ? 'true' : undefined}
+          aria-describedby={pwError ? 'pw-error' : undefined}
+        />
       </div>
       {#if !isAdmin}
         <div class="form-group">
@@ -274,5 +313,8 @@
         >{changingPw ? t('saving') : t('change')}</button
       >
     </div>
+    {#if pwError}
+      <p class="field-error" id="pw-error" role="alert">{pwError}</p>
+    {/if}
   </div>
 </div>
