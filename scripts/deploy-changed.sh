@@ -8,6 +8,20 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# ---------- 并发部署防护 ----------
+# cron 与人工同时触发会交错执行 build/up。锁经 fd 9 在下方 re-exec 时保持
+# 持有;macOS 无 flock CLI(仅服务器 Linux 有),缺席时降级为只告警不拦截。
+lockfile="${TMPDIR:-/tmp}/workwork-deploy.lock"
+exec 9>"$lockfile"
+if command -v flock >/dev/null 2>&1; then
+  if ! flock -n 9; then
+    echo "错误: 另一个 deploy-changed 正在进行(锁: $lockfile),拒绝并发部署" >&2
+    exit 1
+  fi
+else
+  echo "⚠ flock 不可用，跳过并发部署防护（仅本地复跑会出现）"
+fi
+
 # ---------- 输入与前置校验 ----------
 old=${1:-}
 if [ -n "$old" ]; then
@@ -122,7 +136,7 @@ docker compose up -d --no-deps $services
 echo
 docker compose ps
 
-# ---------- 部署后自校验：等 healthy + 核对版本指纹 ----------
+# ---------- 部署后自校验：等 healthy + 核对版本指纹（不通过即自动回滚） ----------
 echo
 echo "=== 健康校验 ==="
 fail=""
@@ -135,20 +149,72 @@ for svc in $services; do
   done
   if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
 done
-# 版本指纹：各服务健康端点自报构建期烙入的版本（与 compose healthcheck 同端点）。
-docker compose exec -T admin wget -qO- http://localhost:8318/api/admin/health 2>/dev/null | head -c 300 || true; echo
-if printf '%s\n' $services | grep -qx media_server; then
-  docker compose exec -T media_server wget -qO- http://localhost:8787/health 2>/dev/null | head -c 300 || true; echo
-fi
-if printf '%s\n' $services | grep -qx music_server; then
-  docker compose exec -T music_server wget -qO- http://localhost:8790/health 2>/dev/null | head -c 300 || true; echo
-fi
+
+# 版本指纹：健康端点自报的构建期烙入版本必须等于本次期望版本。不一致说明
+# 容器仍在跑旧镜像（build 失败/up 未生效），同样是校验失败。三个服务健康
+# JSON 同形：{"status":"ok","version":"..."}。
+expected_version() {
+  case "$1" in
+    admin) echo "$GIT_VERSION" ;;
+    media_server) echo "$MEDIA_CENTER_VERSION" ;;
+    music_server) echo "$MUSIC_PLAYER_VERSION" ;;
+    *) return 0 ;;
+  esac
+}
+health_version() {
+  case "$1" in
+    admin) url="http://localhost:8318/api/admin/health" ;;
+    media_server) url="http://localhost:8787/health" ;;
+    music_server) url="http://localhost:8790/health" ;;
+    *) return 0 ;;
+  esac
+  docker compose exec -T "$1" wget -qO- "$url" 2>/dev/null |
+    grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4 || true
+}
+echo
+echo "=== 版本指纹核对 ==="
+for svc in $services; do
+  exp="$(expected_version "$svc")"
+  [ -z "$exp" ] && continue
+  got="$(health_version "$svc")"
+  echo "  $svc: 期望 $exp，实际 ${got:-<无响应>}"
+  if [ "$got" != "$exp" ]; then
+    echo "!! $svc 版本指纹不匹配"
+    fail="$fail $svc"
+  fi
+done
+
 if [ -n "$fail" ]; then
   echo "!! 部署校验未通过:$fail"
-  echo "回滚（部署前镜像）："
-  cat "$prev_file" | sed 's/^/  /'
-  echo "执行：逐个 IMAGE_TAG=<旧tag> docker compose up -d --no-deps <svc>"
-  echo "（旧 tag 镜像须仍在本地：勿对它们 docker image prune）"
+  echo "=== 自动回滚（到部署前镜像） ==="
+  rolled_back=1
+  for svc in $fail; do
+    prev_image="$(awk -v s="$svc" '$1==s{print $2}' "$prev_file")"
+    if [ -z "$prev_image" ]; then
+      echo "  $svc: 部署前未运行，无回滚目标（人工处理: docker compose up -d --no-deps $svc 或 down）"
+      rolled_back=""
+      continue
+    fi
+    prev_tag="${prev_image##*:}"
+    if [ "$prev_tag" = "$IMAGE_TAG" ]; then
+      # 复跑同一 commit 时新旧 tag 相同，重建已覆盖回滚目标
+      echo "  $svc: 前后镜像 tag 相同($IMAGE_TAG)，旧镜像已被覆盖，无法自动回滚"
+      rolled_back=""
+      continue
+    fi
+    echo "  $svc: 回滚 → $prev_image"
+    if IMAGE_TAG="$prev_tag" docker compose up -d --no-deps "$svc"; then
+      echo "  $svc 已回滚"
+    else
+      echo "  !! $svc 回滚失败，需人工介入: IMAGE_TAG=$prev_tag docker compose up -d --no-deps $svc"
+      rolled_back=""
+    fi
+  done
+  if [ -n "$rolled_back" ]; then
+    echo "全部失败服务已回滚到部署前版本"
+  else
+    echo "存在未能自动回滚的服务，见上方日志（旧 tag 镜像须仍在本地:勿对它们 docker image prune）"
+  fi
   exit 1
 fi
 echo "部署校验通过 ✅（回滚：IMAGE_TAG=<旧tag> docker compose up -d --no-deps$services）"
