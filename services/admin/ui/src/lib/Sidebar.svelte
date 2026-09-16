@@ -32,6 +32,25 @@
     if (mobileMenuOpen !== undefined) mobileMenuOpen = false;
   }
 
+  async function doLogout() {
+    // Basic Auth 没有服务端会话，"登出"只能是尽力覆盖浏览器的凭证缓存：
+    // 发一个携带错误凭证的同源请求，覆盖成功的浏览器在下一次导航时会重新
+    // 要求登录。覆盖是否生效因浏览器而异——导航后 App.svelte 会检查
+    // ww_logout_pending 标记，仍持有有效凭证时如实提示用户，而不是假装
+    // 已登出（旧的 logout:logout@host userinfo 导航在现行浏览器上会被
+    // 拦截而静默失效，且假凭证会写进历史记录）。
+    sessionStorage.setItem('ww_logout_pending', '1');
+    try {
+      await fetch('/api/admin/auth/me', {
+        headers: { Authorization: 'Basic ' + btoa(`logout:${Date.now()}`) },
+        cache: 'no-store',
+      });
+    } catch {
+      // 覆盖请求失败也继续导航
+    }
+    window.location.href = '/admin/';
+  }
+
   const icons = {
     grid: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z"/>',
     box: '<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"/>',
@@ -171,9 +190,7 @@
           </span>
           <button
             class="logout-overlay"
-            onclick={() =>
-              (window.location.href =
-                `${window.location.protocol}//logout:logout@` + window.location.host + '/admin/')}
+            onclick={doLogout}
             title={t('logout')}
             aria-label={t('logout')}
           >
