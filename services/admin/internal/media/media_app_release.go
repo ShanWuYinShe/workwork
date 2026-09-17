@@ -1,6 +1,7 @@
 package media
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"crypto/sha256"
 	"encoding/hex"
@@ -175,6 +176,8 @@ func ApiMediaAppReleaseRollback() http.HandlerFunc {
 			return
 		}
 		log.Printf("app release rollback: variant=%q versionCode=%d", variant, target.VersionCode)
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] app-release rollback variant=%s versionCode=%d by=%s", variant, target.VersionCode, actor)
 		platform.WriteJSON(w, map[string]any{"manifest": target})
 	}
 }
@@ -235,6 +238,8 @@ func ApiMediaAppReleaseVersionDelete() http.HandlerFunc {
 		// 被删记录引用的 APK 若不再被任何 manifest/历史引用，会被 prune 清理。
 		pruneOrphanAppAPKs()
 		log.Printf("app release history delete: variant=%q versionCode=%d remaining=%d", variant, body.VersionCode, len(filtered))
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] app-release history delete variant=%s versionCode=%d by=%s", variant, body.VersionCode, actor)
 		platform.WriteJSON(w, map[string]any{"removed": true, "remaining": len(filtered)})
 	}
 }
@@ -432,6 +437,8 @@ func ApiMediaAppReleaseUpload() http.HandlerFunc {
 		// 尽力清理不再被任何变体 manifest/历史引用的历史 APK,避免确定性文件名无限堆积。
 		pruneOrphanAppAPKs(filepath.Base(finalAPKPath))
 		log.Printf("app release publish: variant=%q versionCode=%d size=%d", variant, versionCode, written)
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] app-release publish variant=%s versionCode=%d size=%d by=%s", variant, versionCode, written, actor)
 		platform.WriteJSON(w, map[string]any{
 			"manifest": manifest,
 		})

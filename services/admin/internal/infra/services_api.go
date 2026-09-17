@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"context"
@@ -77,6 +78,8 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] service action service=%s action=%s by=%s", name, action, actor)
 		svcs := listServicesJSON(r.Context(), cli)
 		platform.WriteJSON(w, map[string]any{"services": svcs})
 	}

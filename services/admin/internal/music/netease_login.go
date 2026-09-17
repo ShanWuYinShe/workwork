@@ -6,6 +6,7 @@ package music
 // cookie 不落日志、不返回给前端。
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"encoding/json"
 	"fmt"
@@ -244,6 +245,8 @@ func ApiNeteaseLoginLogout() http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] netease logout by=%s", actor)
 		platform.WriteJSON(w, map[string]bool{"ok": true})
 	}
 }

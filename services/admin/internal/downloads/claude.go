@@ -5,11 +5,13 @@ package downloads
 // claude 特有的参数与接口层。
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 )
 
@@ -136,6 +138,8 @@ func ApiClaudeCodeRefresh() http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] tool refresh tool=claude-code count=%d by=%s", len(releases), actor)
 		platform.WriteJSON(w, map[string]any{"status": "ok", "count": len(releases)})
 	}
 }
@@ -268,6 +272,9 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		if !sendEvent(map[string]any{"type": "done", "filename": filename, "size": size, "checksum": checksum}) {
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] tool download tool=%s version=%s plat=%s file=%s by=%s",
+			filepath.Base(s.dir), body.Version, body.Plat, filename, actor)
 	}
 }
 
@@ -310,6 +317,8 @@ func deleteToolDownload(s *downloadService) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] tool download delete tool=%s file=%s by=%s", filepath.Base(s.dir), body.Filename, actor)
 		platform.WriteJSON(w, map[string]any{"status": "ok"})
 	}
 }

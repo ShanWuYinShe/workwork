@@ -1,6 +1,7 @@
 package media
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"bytes"
@@ -163,6 +164,9 @@ func ApiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] media-center config save sources=%d categories=%d by=%s",
+			len(cfg.Sources), len(cfg.Categories), actor)
 		platform.WriteJSON(w, map[string]any{
 			"config":    cfg,
 			"restarted": restarted,
@@ -219,6 +223,9 @@ func ApiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] media-center credentials save providers=%d by=%s",
+			len(normalized.Credentials), actor)
 		platform.WriteJSON(w, map[string]any{
 			"credentials": normalized.Credentials,
 			"restarted":   restarted,

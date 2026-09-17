@@ -145,6 +145,7 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		log.Printf("[security] password change user=%s by=%s", body.Username, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -365,6 +366,8 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				log.Printf("ERROR: restart xray after user delete: %v", err)
 			}
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] user delete user=%s xray_clients_removed=%d by=%s", body.Username, removed, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -430,6 +433,8 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "User not found", 404)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] role set user=%s role=%s by=%s", body.Username, body.Role, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
