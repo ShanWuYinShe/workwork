@@ -136,6 +136,9 @@ func (rl *rateLimiter) allow(ip string) bool {
 		// Also add to persistent IP blocker (outside the lock)
 		ipBlocker.add(blockAfterUnlock, "rate limit exceeded", rl.banTime)
 		ipBlocker.save()
+		platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip, map[string]string{
+			"ip": ip, "duration": rl.banTime.String(),
+		})
 		return false
 	}
 

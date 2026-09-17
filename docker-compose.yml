@@ -393,6 +393,9 @@ services:
       - NETEASE_MUSIC_COOKIE=${NETEASE_MUSIC_COOKIE:-}
       # 管理面板扫码登录写入的 cookie(热加载);目录与 admin 共享(.wework)
       - NETEASE_COOKIE_FILE=/data/netease/netease-cookie.txt
+      # 可选应用层鉴权:配置后业务端点要求 X-App-Token(与 media_server 的
+      # MEDIA_SERVER_APP_API_TOKEN 同构);空 = 依赖边缘 CF mTLS,不鉴权。
+      - MUSIC_SERVER_APP_API_TOKEN=${MUSIC_SERVER_APP_API_TOKEN:-}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - ./.wework/music-library:/data/library:ro
@@ -456,6 +459,9 @@ services:
       - MEDIA_CENTER_INTERNAL_URL=${MEDIA_CENTER_INTERNAL_URL:-http://media_server:8787}
       # 网易云扫码登录：admin 调 netease_api 上游
       - NETEASE_API_BASE=${NETEASE_API_BASE:-http://netease_api:3000}
+      # 可选:关键事件通知(Security 封禁/解封、限流自动封禁、xhttp 自愈达上限),
+      # admin 异步 POST JSON,失败只记日志;部署失败通知也读同名变量。
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - /var/run/docker.sock:/var/run/docker.sock
