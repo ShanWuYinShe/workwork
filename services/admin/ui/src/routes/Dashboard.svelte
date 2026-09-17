@@ -17,7 +17,6 @@
     arch: '-',
   });
   let services = $state([]);
-  let role = $state('');
   let username = $state('');
   let myClients = $state([]);
   let generatedJSON = $state('');
@@ -40,12 +39,12 @@
     try {
       const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
       isAdmin = user.role === 'admin';
-      role = d.role || user.role;
       username = d.username || user.username;
 
       if (isAdmin) {
         stats = d.stats || stats;
         const raw = d.services || [];
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部去重表,非响应式状态
         const seen = new Set();
         services = raw.filter((s) => {
           if (seen.has(s.name)) return false;
@@ -89,7 +88,7 @@
 
   {#if loading}
     <div class="stats">
-      {#each Array(4) as _}
+      {#each Array(4) as _, i (i)}
         <div class="stat"><div class="loading-skeleton" style="height:80px;"></div></div>
       {/each}
     </div>
@@ -156,7 +155,7 @@
         </div>
       </div>
       <div class="quick-actions">
-        {#each quickActions as action}
+        {#each quickActions as action (action.path)}
           <a
             class="quick-action"
             class:primary={action.primary}
@@ -188,7 +187,7 @@
             <thead><tr><th>{t('service')}</th><th>{t('state')}</th><th>{t('image')}</th></tr></thead
             >
             <tbody>
-              {#each services as s}
+              {#each services as s (s.name)}
                 <tr>
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
@@ -226,7 +225,7 @@
         </div>
       </div>
       <div class="quick-actions">
-        {#each quickActions as action}
+        {#each quickActions as action (action.path)}
           <a
             class="quick-action"
             class:primary={action.primary}
@@ -273,7 +272,7 @@
           <table>
             <thead><tr><th>{t('uuid')}</th><th>{t('protocols')}</th></tr></thead>
             <tbody>
-              {#each myClients as c}
+              {#each myClients as c (c.id)}
                 <tr>
                   <td class="td-mono" title={c.id}>{c.id.slice(0, 16)}...</td>
                   <td>

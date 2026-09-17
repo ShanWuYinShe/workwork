@@ -176,7 +176,7 @@
             ></thead
           >
           <tbody>
-            {#each net.dns_records as dns}
+            {#each net.dns_records as dns (dns.domain)}
               <tr>
                 <td class="cell-strong">{dns.domain}</td>
                 <td class="td-mono">{dns.record?.content || '—'}</td>

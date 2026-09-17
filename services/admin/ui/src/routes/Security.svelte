@@ -157,7 +157,7 @@
             ></thead
           >
           <tbody>
-            {#each entries as e}
+            {#each entries as e (e.ip)}
               <tr>
                 <td class="td-mono">{e.ip}</td>
                 <td class="td-muted">{e.reason || '—'}</td>

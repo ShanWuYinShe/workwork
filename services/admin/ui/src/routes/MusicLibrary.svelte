@@ -260,6 +260,7 @@
     } catch {
       // 查询失败不阻断:按全新上传继续。
     }
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 断点续传的局部索引集,非响应式状态
     const received = new Set(state.total === total ? state.received : []);
     let doneBytes = 0;
     for (const i of received) doneBytes += chunkBytes(file, i);
@@ -459,12 +460,15 @@
 
   <!-- 扫码弹层 -->
   {#if qr}
-    <div class="qr-overlay" onclick={closeQr} role="presentation">
+    <!-- 背景点击关闭仅指针便利;Esc 走组件顶层 onQrKeydown,背景层 aria-hidden 退出可访问树 -->
+    <div class="qr-overlay">
+      <div class="qr-backdrop" aria-hidden="true" onclick={closeQr}></div>
       <div
         class="qr-modal"
-        onclick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-label={t('neteaseScanTitle')}
+        tabindex="-1"
       >
         <div class="qr-title">{t('neteaseScanTitle')}</div>
         <div class="qr-hint">{t('neteaseScanHint')}</div>
@@ -606,7 +610,7 @@
       <div class="skip-box">
         <div class="skip-title">{t('musicSkippedTitle', { n: lastSkipped.length })}</div>
         <ul class="skip-list">
-          {#each lastSkipped as s}
+          {#each lastSkipped as s, i (i)}
             <li class="skip-item" title={s}>{s}</li>
           {/each}
         </ul>
@@ -721,6 +725,10 @@
     justify-content: center;
     z-index: 100;
   }
+  .qr-backdrop {
+    position: absolute;
+    inset: 0;
+  }
   .qr-modal {
     background: var(--c-bg-elevated);
     border: 1px solid var(--c-border-strong);
@@ -729,6 +737,7 @@
     text-align: center;
     max-width: 320px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+    position: relative;
   }
   .qr-title {
     color: var(--c-text-heading);
