@@ -41,10 +41,12 @@ jobs:
         with:
           bun-version: '1.3.14'
 
-      - name: ui format + build（与 make check 对齐）
+      - name: ui lint + check + format + build（与 make check 对齐）
         run: |
           bun install --cwd services/admin/ui --frozen-lockfile
           bun run --cwd services/admin/ui format:check
+          bun run --cwd services/admin/ui lint
+          bun run --cwd services/admin/ui check
           bun run --cwd services/admin/ui build
 
   # 注意：media_center / music_player 以 git submodule 引入，且均为私有仓库，

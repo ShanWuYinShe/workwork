@@ -22,7 +22,6 @@
 
   let tab = $state('claude');
   let releases = $state([]);
-  let platforms = $state([]);
   let stored = $state([]);
   let loading = $state(true);
   let isAdmin = $state(false);
@@ -58,28 +57,24 @@
           const d = await getClaudeReleases();
           if (seq !== tabLoadSeq) return;
           releases = d.releases || [];
-          platforms = d.platforms || [];
           stored = d.stored || [];
         } else {
           const s = await getClaudeStored();
           if (seq !== tabLoadSeq) return;
           stored = s.stored || [];
           releases = [];
-          platforms = [];
         }
       } else {
         if (isAdmin) {
           const d = await getXrayReleases();
           if (seq !== tabLoadSeq) return;
           releases = d.releases || [];
-          platforms = d.platforms || [];
           stored = d.stored || [];
         } else {
           const s = await getXrayStored();
           if (seq !== tabLoadSeq) return;
           stored = s.stored || [];
           releases = [];
-          platforms = [];
         }
       }
       if (seq !== tabLoadSeq) return;
@@ -98,7 +93,6 @@
     // 参数改名 next：原名 t 会遮蔽 i18n 翻译函数 t
     tab = next;
     releases = [];
-    platforms = [];
     stored = [];
     versionPlatforms = {};
     await loadTabData();
@@ -276,7 +270,7 @@
             ></thead
           >
           <tbody>
-            {#each stored as s}
+            {#each stored as s (s.filename)}
               <tr>
                 <td class="cell-strong">
                   <a
@@ -336,7 +330,7 @@
               ></thead
             >
             <tbody>
-              {#each latestReleases as rel}
+              {#each latestReleases as rel (rel.version)}
                 {@const vPlats = versionPlatforms[rel.version]}
                 <tr>
                   <td class="cell-strong">
@@ -358,7 +352,7 @@
                       <span class="badge badge-red">{t('noPlatforms')}</span>
                     {:else}
                       <div class="badge-list">
-                        {#each vPlats as p}
+                        {#each vPlats as p (p.plat)}
                           {@const key = rel.version + '-' + p.plat}
                           {#if alreadyDownloaded.has(key)}
                             <span class="badge badge-green">{p.label}</span>

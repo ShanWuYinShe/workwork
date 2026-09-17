@@ -594,6 +594,7 @@
       errors.push(t('tooManyCategories', { max: limits.max_categories }));
     }
 
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部查重表,非响应式状态
     const seenIDs = new Map();
     categories.forEach((category, index) => {
       const number = index + 1;
@@ -685,7 +686,9 @@
     const sourceIDs = new Set(
       (config.sources || []).map((source) => `${source.id || ''}`.trim()).filter(Boolean),
     );
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部收集表,非响应式状态
     const duplicateIDs = new Set();
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部查重表,非响应式状态
     const seenIDs = new Set();
     for (const category of config.categories || []) {
       const id = `${category.id || ''}`.trim();
@@ -744,7 +747,7 @@
       <div class="card warning-card">
         <div class="card-title">{t('warnings')}</div>
         <ul>
-          {#each warnings as warning}
+          {#each warnings as warning, i (i)}
             <li>{warning}</li>
           {/each}
         </ul>
@@ -755,7 +758,7 @@
       <div class="card validation-card" role="alert">
         <div class="card-title">{t('validationErrors')}</div>
         <ul>
-          {#each validationErrors as error}
+          {#each validationErrors as error, i (i)}
             <li>{error}</li>
           {/each}
         </ul>
@@ -763,7 +766,7 @@
     {/if}
 
     <nav class="media-tab-bar tab-bar" aria-label={t('mediaCenter')}>
-      {#each mediaTabs as tab}
+      {#each mediaTabs as tab (tab.id)}
         <button
           class="tab-btn media-tab-btn"
           class:active={activeTab === tab.id}
@@ -1100,7 +1103,7 @@
         </div>
 
         <div class="source-grid">
-          {#each config.sources || [] as source, index}
+          {#each config.sources || [] as source, index (source.id)}
             <section class="source-card" class:source-on={source.enabled}>
               <div class="source-top">
                 <div class="source-id-row">
@@ -1274,7 +1277,7 @@
                         {t('sourceSpecificQueriesDesc')}
                       </div>
                       <div class="source-query-grid advanced-panel-body">
-                        {#each config.sources.filter((source) => source.enabled) as source}
+                        {#each config.sources.filter((source) => source.enabled) as source (source.id)}
                           <div class="form-group">
                             <label for={`category-${category._uid}-source-${source.id}`}>
                               {t('sourceSearchQuery', { source: source.title || source.id })}
@@ -1365,6 +1368,7 @@
                           onclick={() => toggleCredShow(f.id)}
                           aria-label={credShow[f.id] ? t('hidePassword') : t('showPassword')}
                         >
+                          <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
                           {@html eyeIcon(credShow[f.id])}
                         </button>
                       </div>

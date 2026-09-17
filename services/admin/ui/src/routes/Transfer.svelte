@@ -385,7 +385,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each files as f}
+            {#each files as f (f.code)}
               <tr>
                 <td class="cell-strong cell-ellipsis" title={f.filename}>
                   {f.filename}

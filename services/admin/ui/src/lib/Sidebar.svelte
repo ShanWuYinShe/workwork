@@ -16,8 +16,10 @@
     mobileMenuOpen = $bindable(false),
   } = $props();
 
-  // 后端构建版本(workwork git describe):页脚展示,排障时报版本用
-  let backendVersion = '';
+  // 后端构建版本(workwork git describe):页脚展示,排障时报版本用。
+  // 必须 $state:onMount 异步赋值发生在首次渲染之后,普通变量不触发更新,
+  // 页脚会一直是空串。
+  let backendVersion = $state('');
   onMount(async () => {
     try {
       const health = await getHealth();
@@ -146,13 +148,13 @@
   </div>
 
   <nav class="sidebar-nav">
-    {#each navSections as section}
+    {#each navSections as section (section.key)}
       {#if section.items.filter((item) => !item.adminOnly || isAdmin).length > 0}
         <div class="nav-section">
           {#if !sidebarCollapsed}
             <div class="nav-section-label">{t(section.key)}</div>
           {/if}
-          {#each section.items as item}
+          {#each section.items as item (item.path)}
             {#if !item.adminOnly || isAdmin}
               <button
                 class="nav-item"
@@ -167,7 +169,9 @@
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="1.5">{@html getIcon(item.icon)}</svg
+                  stroke-width="1.5"
+                  ><!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(图标 SVG 路径表),非用户输入 -->
+                  {@html getIcon(item.icon)}</svg
                 >
                 {#if !sidebarCollapsed}
                   <span class="nav-label">{t(item.key)}</span>

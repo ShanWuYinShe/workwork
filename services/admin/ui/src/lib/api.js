@@ -49,7 +49,7 @@ async function parseJSONResponse(response) {
     return await response.json();
   } catch (error) {
     if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
+      throw new Error(`${response.status} ${response.statusText}`, { cause: error });
     }
     throw error;
   }

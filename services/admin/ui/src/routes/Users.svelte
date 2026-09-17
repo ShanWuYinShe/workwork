@@ -150,7 +150,7 @@
               ></thead
             >
             <tbody>
-              {#each adminUsers as u}
+              {#each adminUsers as u (u.username)}
                 <tr>
                   <td>
                     <div class="user-line">
@@ -234,6 +234,7 @@
               onclick={() => (showNewPass = !showNewPass)}
               aria-label={showNewPass ? t('hidePassword') : t('showPassword')}
             >
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
               {@html eyeIcon(showNewPass)}
             </button>
           </div>
@@ -286,6 +287,7 @@
               onclick={() => (showOldPass = !showOldPass)}
               aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
             >
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
               {@html eyeIcon(showOldPass)}
             </button>
           </div>
@@ -305,6 +307,7 @@
             onclick={() => (showPwPass = !showPwPass)}
             aria-label={showPwPass ? t('hidePassword') : t('showPassword')}
           >
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
             {@html eyeIcon(showPwPass)}
           </button>
         </div>

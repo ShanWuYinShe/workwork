@@ -40,6 +40,7 @@
           stroke="currentColor"
           stroke-width="1.5"
         >
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(图标 SVG 路径表),非用户输入 -->
           {@html typeIcons[t.type] || typeIcons.info}
         </svg>
         <span class="toast-msg">{t.message}</span>

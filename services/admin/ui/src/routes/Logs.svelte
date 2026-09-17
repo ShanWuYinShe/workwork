@@ -191,7 +191,7 @@
     <div class="card">
       <div class="log-toolbar">
         <div class="log-services">
-          {#each services as s}
+          {#each services as s (s.name)}
             <button
               class="btn btn-sm"
               class:btn-primary={selectedService === s.name}
@@ -233,7 +233,7 @@
             {search ? t('noMatchingLogs') : t('noLogEntries')}
           </span>
         {:else}
-          {#each filtered as line}
+          {#each filtered as line, i (i)}
             <div class="log-line {levelClass(line)}">{line}</div>
           {/each}
         {/if}

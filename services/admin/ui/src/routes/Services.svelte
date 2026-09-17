@@ -137,7 +137,7 @@
               ></thead
             >
             <tbody>
-              {#each services as s}
+              {#each services as s (s.name)}
                 <tr>
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>

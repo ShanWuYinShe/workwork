@@ -424,7 +424,7 @@
         </div>
         <div class="review-toolbar">
           <div class="status-tabs">
-            {#each statusOptions as s}
+            {#each statusOptions as s (s)}
               <button
                 class="chip"
                 class:chip-on={statusFilter === s}
