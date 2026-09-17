@@ -90,6 +90,7 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		cancel()
+		log.Printf("[security] xray client add uuid=%s owner=%s by=%s", body.UUID, username, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -154,6 +155,7 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		cancel()
+		log.Printf("[security] xray client delete uuid=%s by=%s", body.UUID, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

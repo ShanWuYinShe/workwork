@@ -400,6 +400,7 @@ func ApiTransferUpload() http.HandlerFunc {
 			return
 		}
 
+		log.Printf("[security] transfer upload code=%s file=%s size=%d by=%s", code, entry.Filename, entry.Size, username)
 		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
 			"code":   code,
@@ -493,6 +494,7 @@ func ApiTransferDelete() http.HandlerFunc {
 			platform.WriteInternalError(w, fmt.Errorf("persist transfer manifest: %w", err))
 			return
 		}
+		log.Printf("[security] transfer delete code=%s by=%s", body.Code, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

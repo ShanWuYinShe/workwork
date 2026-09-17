@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"context"
 	"crypto/rand"
@@ -464,6 +465,8 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
 		retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] rotate-ipv6 xray_ip=%s nginx_ip=%s domains=%d by=%s", xrayIP, nginxIP, len(updated), actor)
 		platform.WriteJSON(w, map[string]any{
 			"xray_ip":               xrayIP,
 			"nginx_ip":              nginxIP,
@@ -566,6 +569,8 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		saveCurrentIPs(xrayIP, nginxIP)
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] sync-dns records=%d xray_ip=%s nginx_ip=%s by=%s", len(results), xrayIP, nginxIP, actor)
 		platform.WriteJSON(w, map[string]any{"results": results})
 	}
 }

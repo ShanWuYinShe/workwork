@@ -10,6 +10,7 @@ package music
 // 写入走临时文件 + rename 原子落盘,同名覆盖(重传修正版语义)。
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"errors"
 	"io"
@@ -119,6 +120,8 @@ func ApiMusicLibraryUpload() http.HandlerFunc {
 			saved = append(saved, name)
 		}
 		log.Printf("music library upload: %d saved, %d skipped", len(saved), len(skipped))
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] music library upload saved=%d skipped=%d by=%s", len(saved), len(skipped), actor)
 		platform.WriteJSON(w, map[string]any{"saved": saved, "skipped": skipped})
 	}
 }
@@ -186,6 +189,8 @@ func ApiMusicLibraryDelete() http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] music library delete file=%s by=%s", name, actor)
 		platform.WriteJSON(w, map[string]string{"deleted": name})
 	}
 }

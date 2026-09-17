@@ -4,6 +4,7 @@ package downloads
 // 机制（manifest/下载/清理/校验/版本比较）在 downloads.go。
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"log"
 	"net/http"
@@ -129,6 +130,8 @@ func ApiXrayRefresh() http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
+		log.Printf("[security] tool refresh tool=xray count=%d by=%s", len(releases), actor)
 		platform.WriteJSON(w, map[string]any{"status": "ok", "count": len(releases)})
 	}
 }

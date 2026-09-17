@@ -95,15 +95,17 @@ func mediaCenterInternalErrorMessage(payload []byte, status int) string {
 
 // proxyMediaCenterInternal 调用内部接口并把结果转写为 admin 统一信封：
 // 成功时把上游 JSON 原样作为 data 透传;失败时提取上游消息用 platform.WriteError 返回对应状态码。
-func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method, path string, query url.Values, body []byte) {
+// proxyMediaCenterInternal 转发内部管理请求并把上游响应写回客户端,
+// 返回上游状态码(错误路径写完响应后返回该状态,供调用方做成功审计)。
+func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method, path string, query url.Values, body []byte) int {
 	status, payload, err := callMediaCenterInternal(ctx, method, path, query, body)
 	if err != nil {
 		if errors.Is(err, errMediaCenterInternalDisabled) {
 			platform.WriteError(w, "媒体中心内部管理接口未启用：请在 .env 配置 MEDIA_SERVER_INTERNAL_TOKEN 并重建 admin/media_server", http.StatusServiceUnavailable)
-			return
+			return http.StatusServiceUnavailable
 		}
 		platform.WriteInternalError(w, err)
-		return
+		return http.StatusInternalServerError
 	}
 	if status < 200 || status >= 300 {
 		// 上游 5xx 一律按内部错误处理:错误消息可能含表名/SQL/内部路径等实现细节,
@@ -111,20 +113,21 @@ func proxyMediaCenterInternal(w http.ResponseWriter, ctx context.Context, method
 		if status >= 500 {
 			log.Printf("media center internal %s %s: status=%d body=%s", method, path, status, string(payload))
 			platform.WriteInternalError(w, errors.New("media center internal API error"))
-			return
+			return status
 		}
 		platform.WriteError(w, mediaCenterInternalErrorMessage(payload, status), status)
-		return
+		return status
 	}
 	if len(bytes.TrimSpace(payload)) == 0 {
 		platform.WriteJSON(w, struct{}{})
-		return
+		return status
 	}
 	if !json.Valid(payload) {
 		platform.WriteInternalError(w, errors.New("media center internal API returned non-JSON body"))
-		return
+		return status
 	}
 	platform.WriteJSON(w, json.RawMessage(payload))
+	return status
 }
 
 // ApiMediaCatalogOverview 代理 GET /internal/catalog/overview：各分类审校计数 + 快照概况 + 维护操作状态。
@@ -203,7 +206,9 @@ func ApiMediaCatalogReview() http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/review", nil, body)
+		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/review", nil, body); status >= 200 && status < 300 {
+			log.Printf("[security] media-catalog review by=%s", username)
+		}
 	}
 }
 
@@ -220,9 +225,12 @@ func ApiMediaCatalogDelete() http.HandlerFunc {
 			platform.WriteError(w, "请求体不是合法 JSON", http.StatusBadRequest)
 			return
 		}
+		_, actor := auth.GetUserFromContext(r)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/delete", nil, bytes.TrimSpace(raw))
+		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/delete", nil, bytes.TrimSpace(raw)); status >= 200 && status < 300 {
+			log.Printf("[security] media-catalog delete by=%s", actor)
+		}
 	}
 }
 
@@ -260,6 +268,8 @@ func ApiMediaCatalogImport() http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
-		proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body)
+		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body); status >= 200 && status < 300 {
+			log.Printf("[security] media-catalog import by=%s", username)
+		}
 	}
 }
