@@ -49,6 +49,28 @@ jobs:
           bun run --cwd services/admin/ui check
           bun run --cwd services/admin/ui build
 
+  # gosec 静态安全扫描（报告模式）：-no-fail 不阻塞合并，输出进 CI 日志供
+  # 巡检。存量 96 项发现已逐类甄别为扫描器误报或刻意设计（G101=路径常量、
+  # G301/302=nginx 组读取的刻意权限、G304/G703=正则约束后的路径、G104=idiomatic
+  # f.Close），升级为阻断门禁需先把误报类别换成精确的逐行豁免并复核。
+  security-scan:
+    name: Security scan (gosec, report-only)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: true
+          cache-dependency-path: services/admin/go.sum
+      - name: gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          gosec -no-fail -quiet -fmt text ./...
+        working-directory: services/admin
+
   # 注意：media_center / music_player 以 git submodule 引入，且均为私有仓库，
   # 本仓库的 GITHUB_TOKEN 无权 clone（SSH 更无 key），故不在此测它们。
   # 两仓库各自的 CI 门禁覆盖 media_server / music_server / vod_extractor；

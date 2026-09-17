@@ -1,3 +1,4 @@
+// -check
 const zh = {
   overview: '概览',
   dailyOps: '常用操作',

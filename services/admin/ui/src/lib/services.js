@@ -1,3 +1,4 @@
+// -check
 // 与 docker-compose.yml 的服务清单对齐；缺失的条目会在
 // Services/Logs 页面直接显示原始服务 id（如 music_server）。
 const SERVICE_LABELS = {
