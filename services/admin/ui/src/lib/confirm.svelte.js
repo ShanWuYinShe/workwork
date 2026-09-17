@@ -1,3 +1,4 @@
+// -check
 let resolveCallback = null;
 
 export const confirmState = $state({

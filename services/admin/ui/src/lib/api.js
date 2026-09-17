@@ -1,3 +1,11 @@
+// @ts-check
+/**
+ * @typedef {Object} ApiEnvelope
+ * @property {boolean} [success]
+ * @property {string} [error]
+ * @property {string} [error_code]
+ * @property {any} [data]
+ */
 const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
 const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
@@ -6,6 +14,10 @@ const APK_UPLOAD_TIMEOUT = 30 * 60 * 1000;
 // ApiError 保留服务端 error_code 与原始响应体，供 UI 按业务分支展示。
 // message 始终是服务端 error 原文（原始错误信息完整透传，不被统一文案覆盖）。
 export class ApiError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ code?: string, details?: any }} [opts]
+   */
   constructor(message, { code = '', details = null } = {}) {
     super(message);
     this.name = 'ApiError';
@@ -14,6 +26,11 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * @param {string} path
+ * @param {{ headers?: Record<string, string>, body?: BodyInit, method?: string, timeout?: number, signal?: AbortSignal }} [opts]
+ * @returns {Promise<any>}
+ */
 async function req(path, opts = {}) {
   const hasBody = opts.body !== undefined;
   const headers = { ...opts.headers };
@@ -44,6 +61,7 @@ async function req(path, opts = {}) {
   }
 }
 
+/** @param {Response} response @returns {Promise<ApiEnvelope>} */
 async function parseJSONResponse(response) {
   try {
     return await response.json();
@@ -55,6 +73,7 @@ async function parseJSONResponse(response) {
   }
 }
 
+/** @param {Response} response @returns {Promise<string>} */
 async function responseErrorMessage(response) {
   try {
     const json = await response.json();
@@ -322,6 +341,7 @@ async function streamDownload(path, body, onProgress) {
   });
   clearTimeout(timeout);
   if (!r.ok) throw new Error(await responseErrorMessage(r));
+  if (!r.body) throw new Error('Empty response body');
 
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
@@ -333,7 +353,7 @@ async function streamDownload(path, body, onProgress) {
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split('\n');
-    buf = lines.pop();
+    buf = lines.pop() ?? '';
     for (const line of lines) {
       if (!line.trim()) continue;
       let data;

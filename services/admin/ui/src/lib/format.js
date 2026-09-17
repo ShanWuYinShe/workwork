@@ -1,3 +1,4 @@
+// -check
 // 全站统一的时间/大小格式化工具。
 // 此前各页面各自实现（Downloads/Transfer/MusicLibrary/MediaCenter 各一份），
 // 行为不一致：日期有 UTC slice 也有 toLocaleString，大小单位有 MB 也有 MiB。
