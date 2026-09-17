@@ -306,3 +306,5 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `MEDIA_SERVER_APP_API_TOKEN` | 凭证接口令牌，与 App 构建时注入的 `APP_API_TOKEN` 一致；为空则凭证接口 401 | `openssl rand -hex 32` |
 | `MEDIA_SERVER_ALLOWED_HOSTS` | 未配置 PUBLIC_URL 时允许推导下载地址的公网域名白名单（逗号分隔） | `yinghuoren.com` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
+| `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志 | `https://notify.example.com/hook` |
+| `MUSIC_SERVER_APP_API_TOKEN` | 可选：music_server 应用层鉴权令牌，配置后业务端点要求 `X-App-Token` 头；为空不鉴权（依赖边缘 mTLS） | `openssl rand -hex 32` |

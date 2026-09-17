@@ -262,6 +262,9 @@ func ApiBlockIP() http.HandlerFunc {
 		_, actor := GetUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
 		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
 			body.IP, body.Reason, body.Duration, kind, actor)
+		platform.NotifyWebhook("security.block", "IP 封禁: "+body.IP, map[string]string{
+			"ip": body.IP, "reason": body.Reason, "kind": kind, "by": actor,
+		})
 
 		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
@@ -305,6 +308,9 @@ func ApiUnblockIP() http.HandlerFunc {
 		ipBlocker.save()
 		_, actor := GetUserFromContext(r)
 		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
+		platform.NotifyWebhook("security.unblock", "IP 解封: "+body.IP, map[string]string{
+			"ip": body.IP, "by": actor,
+		})
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

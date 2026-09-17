@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,6 +67,14 @@ func XhttpHealthChecker(ctx context.Context, cli *client.Client) {
 				restartHistory = kept
 				if recent >= maxRestartsPerHour {
 					log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", bad, total, maxRestartsPerHour)
+					// 自愈打满仍不健康 = 需要人工介入,外发通知;这里只在本
+					// 轮探测命中时触发一次,不会每小时连发(打满后每轮 skip
+					// 都会进来,但 webhook 失败也不影响探测循环)。
+					platform.NotifyWebhook("xhttp.selfheal.capped", "xhttp 自愈达到每小时重启上限,代理可能仍不健康", map[string]string{
+						"bad_post": strconv.Itoa(bad),
+						"total":    strconv.Itoa(total),
+						"limit":    strconv.Itoa(maxRestartsPerHour),
+					})
 					continue
 				}
 				log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)

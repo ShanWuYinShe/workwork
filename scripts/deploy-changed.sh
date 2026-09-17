@@ -8,6 +8,13 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# WEBHOOK_URL:优先取调用方环境,否则从 .env 单独提取（docker compose 能读到
+# .env 但 shell 不会,部署失败通知需要它;只提取单变量,避免 source 整个 .env
+# 踩到非 shell 安全的行）。
+if [ -z "${WEBHOOK_URL:-}" ] && [ -f .env ]; then
+  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+fi
+
 # ---------- 并发部署防护 ----------
 # cron 与人工同时触发会交错执行 build/up。锁经 fd 9 在下方 re-exec 时保持
 # 持有;macOS 无 flock CLI(仅服务器 Linux 有),缺席时降级为只告警不拦截。
@@ -214,6 +221,13 @@ if [ -n "$fail" ]; then
     echo "全部失败服务已回滚到部署前版本"
   else
     echo "存在未能自动回滚的服务，见上方日志（旧 tag 镜像须仍在本地:勿对它们 docker image prune）"
+  fi
+  # 外发失败通知（WEBHOOK_URL,与 admin 事件通知同源;未配置为 no-op）。
+  if [ -n "${WEBHOOK_URL:-}" ]; then
+    payload=$(printf '{"event":"deploy.failure","summary":"部署校验未通过:%s","details":{"services":"%s","commit":"%s"},"time":"%s"}' \
+      "$fail" "$fail" "$new" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+    curl -fsS --max-time 5 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
+      echo "⚠ webhook 通知发送失败（不影响回滚结果）" >&2
   fi
   exit 1
 fi
