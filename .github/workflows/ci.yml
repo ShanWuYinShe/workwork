@@ -17,6 +17,7 @@ jobs:
   admin:
     name: Admin (Go + UI)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -31,11 +32,18 @@ jobs:
       - name: go vet
         run: go vet -C services/admin ./...
       - name: go test
-        run: go test -C services/admin ./...
-      - name: shell syntax
+        run: go test -race -C services/admin ./...
+      - name: shell syntax + shellcheck（覆盖全部 .sh）
         run: |
-          bash -n scripts/deploy-changed.sh
-          bash -n scripts/backup.sh
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          find scripts setup-networks.sh services/nginx services/xray \
+            -name '*.sh' -type f 2>/dev/null | while read -r sh; do
+            echo "== bash -n + shellcheck: $sh"
+            bash -n "$sh"
+            shellcheck -S warning "$sh"
+          done
+      - name: compose config 校验（无 .env，仅验结构与插值合法性）
+        run: docker compose config -q
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -56,6 +64,7 @@ jobs:
   security-scan:
     name: Security scan (gosec, report-only)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -70,6 +79,52 @@ jobs:
           go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
           gosec -no-fail -quiet -fmt text ./...
         working-directory: services/admin
+
+  # 已知漏洞扫描（Go 标准库 + 依赖）。报告模式:当前命中的 2 项均为
+  # docker/docker v27 客户端库携带的 daemon 侧漏洞且 Fixed in: N/A(升级
+  # 客户端大版本才能消除),阻断会让门禁永久红;升依赖后此处应转阻断。
+  govulncheck:
+    name: Vulnerability scan (govulncheck, report-only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: true
+          cache-dependency-path: services/admin/go.sum
+      - name: govulncheck
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          govulncheck ./...
+        working-directory: services/admin
+
+  # 密钥泄露扫描（阻断模式）:git 历史里发生过 cert 私钥入库事故
+  # （docs/operations.md 有复盘），此类事故必须由门禁拦截而非人工发现。
+  # 历史已甄别发现按指纹豁免于 .gitleaksignore(不含秘密内容),项目级
+  # 误报豁免在 .gitleaks.toml;两者之外的新发现即 fail。
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # 全量历史扫描
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          cache: true
+      - name: gitleaks
+        run: |
+          go install github.com/gitleaks/gitleaks/v8@v8.30.1
+          gitleaks git . -c .gitleaks.toml
 
   # 注意：media_center / music_player 以 git submodule 引入，且均为私有仓库，
   # 本仓库的 GITHUB_TOKEN 无权 clone（SSH 更无 key），故不在此测它们。

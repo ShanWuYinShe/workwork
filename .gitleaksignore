@@ -1,0 +1,16 @@
+# gitleaks 历史发现指纹(只含指纹,不含秘密内容)。
+# 逐条甄别记录见 docs/operations.md「git 历史敏感信息」:
+#   - cert/server_cert.key(f2662eb):真实泄露事故,已换钥,历史清理待办
+#   - configs/xray-reality*.json:旧版 Reality 配置模板,文件早已删除
+#   - services/admin/security_test.go:测试夹具假 token
+#   - docs/superpowers/plans/...:历史文档示例值
+# 除此之外的任何新发现都会让 CI 的 gitleaks job 失败。
+626815574785c7d05837da4420e4f063ea5838e2:services/admin/security_test.go:generic-api-key:72
+626815574785c7d05837da4420e4f063ea5838e2:services/admin/security_test.go:generic-api-key:78
+6325311bb80ce4f8b51ad2e1b87f952a69e01dff:configs/xray-reality.json:generic-api-key:80
+71e99b16c21585c6882f47abeb11f0cda727c9e5:docs/superpowers/plans/2026-04-27-cliproxyapi-integration.md:generic-api-key:184
+f2662eb4fe2e00d218a3b13a84308d6227adc24e:cert/server_cert.key:private-key:1
+f2662eb4fe2e00d218a3b13a84308d6227adc24e:configs/xray-reality-liusai.json:generic-api-key:47
+f2662eb4fe2e00d218a3b13a84308d6227adc24e:configs/xray-reality-liyou.json:generic-api-key:46
+f2662eb4fe2e00d218a3b13a84308d6227adc24e:configs/xray-reality-template.json:generic-api-key:47
+fc98c2354e8ad899285d2a61dee84da86c153453:configs/xray-reality.json:generic-api-key:80

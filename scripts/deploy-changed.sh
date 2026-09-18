@@ -12,8 +12,21 @@ cd "$(git rev-parse --show-toplevel)"
 # .env 但 shell 不会,部署失败通知需要它;只提取单变量,避免 source 整个 .env
 # 踩到非 shell 安全的行）。
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f .env ]; then
-  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
+
+# 外发部署失败通知(与 admin 事件通知同源;未配置为 no-op)。构建失败此前
+# set -e 直接退出、无任何告警——cron 触发的部署夜间挂掉无人知晓。
+notify_deploy_failure() {
+  local reason=$1
+  if [ -n "${WEBHOOK_URL:-}" ]; then
+    local payload
+    payload=$(printf '{"event":"deploy.failure","summary":"部署失败:%s","details":{"services":"%s","commit":"%s"},"time":"%s"}' \
+      "$reason" "${services:-}" "${new:-$(git rev-parse --short HEAD 2>/dev/null || echo '?')}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+    curl -fsS --max-time 5 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
+      echo "⚠ webhook 通知发送失败（不影响部署流程）" >&2
+  fi
+}
 
 # ---------- 并发部署防护 ----------
 # cron 与人工同时触发会交错执行 build/up。锁经 fd 9 在下方 re-exec 时保持
@@ -111,9 +124,12 @@ if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; th
 fi
 
 # 版本号烙进镜像(经健康端点暴露);子模块刚同步,describe 即本次部署版本。
-export GIT_VERSION="$(git describe --always --tags --dirty 2>/dev/null || echo dev)"
-export MEDIA_CENTER_VERSION="$(git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)"
-export MUSIC_PLAYER_VERSION="$(git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)"
+# 先赋值再 export(SC2155):export 与赋值同行时,命令替换的失败码会被
+# export 的成功掩盖,退化逻辑依赖不了 $?。
+GIT_VERSION="$(git describe --always --tags --dirty 2>/dev/null || echo dev)"
+MEDIA_CENTER_VERSION="$(git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)"
+MUSIC_PLAYER_VERSION="$(git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)"
+export GIT_VERSION MEDIA_CENTER_VERSION MUSIC_PLAYER_VERSION
 # 不可变镜像 tag：同一产物可回滚；回滚 = IMAGE_TAG=<旧tag> up -d。
 export IMAGE_TAG="$GIT_VERSION"
 echo "版本: workwork=$GIT_VERSION media_center=$MEDIA_CENTER_VERSION music_player=$MUSIC_PLAYER_VERSION (IMAGE_TAG=$IMAGE_TAG)"
@@ -137,9 +153,15 @@ for svc in $services; do
   fi
 done
 # shellcheck disable=SC2086
-docker compose build $services
+if ! docker compose build $services; then
+  notify_deploy_failure "docker compose build 失败"
+  exit 1
+fi
 # shellcheck disable=SC2086
-docker compose up -d --no-deps $services
+if ! docker compose up -d --no-deps $services; then
+  notify_deploy_failure "docker compose up 失败"
+  exit 1
+fi
 echo
 docker compose ps
 
@@ -223,12 +245,7 @@ if [ -n "$fail" ]; then
     echo "存在未能自动回滚的服务，见上方日志（旧 tag 镜像须仍在本地:勿对它们 docker image prune）"
   fi
   # 外发失败通知（WEBHOOK_URL,与 admin 事件通知同源;未配置为 no-op）。
-  if [ -n "${WEBHOOK_URL:-}" ]; then
-    payload=$(printf '{"event":"deploy.failure","summary":"部署校验未通过:%s","details":{"services":"%s","commit":"%s"},"time":"%s"}' \
-      "$fail" "$fail" "$new" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-    curl -fsS --max-time 5 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
-      echo "⚠ webhook 通知发送失败（不影响回滚结果）" >&2
-  fi
+  notify_deploy_failure "部署校验未通过:$fail"
   exit 1
 fi
 echo "部署校验通过 ✅（回滚：IMAGE_TAG=<旧tag> docker compose up -d --no-deps$services）"

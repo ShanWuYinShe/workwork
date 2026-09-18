@@ -28,3 +28,7 @@ updates:
     directory: /services/xray
     schedule:
       interval: weekly
+  - package-ecosystem: docker
+    directory: /services/netease_api
+    schedule:
+      interval: weekly

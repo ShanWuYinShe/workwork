@@ -1,0 +1,13 @@
+# gitleaks 配置:在默认规则集之上追加项目专属豁免。
+# 历史已甄别发现(含 cert/server_cert.key 事故,见 docs/operations.md)按指纹
+# 记录在 .gitleaksignore(指纹不含秘密内容);CI 扫描出两者之外的新发现即 fail。
+title = "workwork gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "sha256 校验和形状的值(64 位裸 hex)是镜像指纹 pin,不是凭据"
+regexes = [
+  '''^[a-f0-9]{64}$''',
+]

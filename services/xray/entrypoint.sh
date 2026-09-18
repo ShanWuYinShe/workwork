@@ -10,7 +10,9 @@ set -e
 # 显式覆盖。
 BRIDGE_IF="${XRAY_EGRESS_IFACE:-}"
 if [ -z "$BRIDGE_IF" ]; then
-	for iface in $(ls /sys/class/net | grep -v '^lo$'); do
+	for iface_path in /sys/class/net/*; do
+		iface="$(basename "$iface_path")"
+		[ "$iface" = "lo" ] && continue
 		ip -6 addr show dev "$iface" scope global 2>/dev/null | grep -q 'inet6' && continue
 		if ip -4 addr show dev "$iface" 2>/dev/null | grep -q 'inet '; then
 			BRIDGE_IF="$iface"

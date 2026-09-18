@@ -64,11 +64,12 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 ## Security — 多层防御
 
 1. Cloudflare Authenticated Origin Pulls (mTLS): 只接受 CF Origin Pull 证书。证书: `cert/cloudflare-origin-pull.pem`
-2. Go rate limiter: 20 req/10s per IP → 429 → 自动封禁 30min
-3. Go IP blocker: 持久黑名单 → 403
-4. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP
-5. Cloudflare DDoS/WAF 在边缘
-6. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
+2. CSRF 中间件（Go，变更类请求）：浏览器发起的写请求 Origin 必须与 Host 一致（`auth.CSRFMiddleware`，位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 配额）
+3. Go rate limiter: 20 req/10s → 429 → 自动封禁 30min；IPv6 按 /64 网段聚合计数（换后缀不重置预算），封禁仍按具体 IP；`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束，多连接下载器勿用 Go 层限流惩罚）
+4. Go IP blocker: 持久黑名单 → 403
+5. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP
+6. Cloudflare DDoS/WAF 在边缘
+7. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
 
 "Never use `RemoteAddr`" 的原因就在这里——所有流量经 Docker bridge 内网地址（网段由 Docker 默认地址池动态分配），基于 RemoteAddr 的判断会全部失败。必须用 `X-Forwarded-User`（nginx 设置）或 `X-Internal-Token`（内部服务）。
 
@@ -79,7 +80,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 ### 请求流
 
 ```
-rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
+csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 ```
 
 - `requireRole("admin")`: users.json 中 role=admin
@@ -106,5 +107,5 @@ rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
 - 配置文件写入：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
 - 错误响应：业务错误用 `writeError(w, msg, code)`（msg 返回客户端）；内部错误（文件 I/O、Docker API、第三方 API 等可能泄露内部状态的）必须用 `writeInternalError(w, err)`（只返回固定 "Internal error"，真实错误记日志）。
 - 新增 API 端点：在 `main.go` 的 `mux.HandleFunc(...)` 区域注册，所有认证端点用 `auth.RequireRole("viewer")` 或 `auth.RequireRole("admin")` 包裹；健康检查用无认证的裸 handler。handler 实现放对应 internal/ 域包（platform←auth←accounts/proxy←media/infra/music/downloads/transfer，依赖单向无环）；大上传端点必须同步在 main.go 的 init() 里 `platform.ExemptBodyLimit(...)` 声明并在 main_test.go 契约测试登记。
-- 审计留痕：变更类端点（增删改、启停、发布、封禁等）必须在成功路径记 `log.Printf("[security] <动作> <关键标识> by=%s", actor)`，actor 取 `auth.GetUserFromContext(r)`；只读端点不需要。请求日志（RequestLogMiddleware）已带 user 字段兜底。
+- 审计留痕：变更类端点（增删改、启停、发布、封禁等）必须在成功路径记 `log.Printf("[security] <动作> <关键标识> by=%s", actor)`，actor 取 `auth.GetUserFromContext(r)`；只读端点不需要。用户可控的标识（文件名、昵称等）必须 `%q` 转义——换行注入会伪造出假审计行。请求日志（RequestLogMiddleware）已带 user 字段兜底。
 - 环境变量：通过 `platform.GetEnv()` 读取（见 `services/admin/internal/platform/env.go`），不直接用 `os.Getenv`。
