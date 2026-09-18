@@ -47,51 +47,66 @@ func XhttpHealthChecker(ctx context.Context, cli *client.Client) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if len(restartHistory) > 0 && time.Since(restartHistory[len(restartHistory)-1]) < cooldownPeriod {
-				continue
-			}
-			total, bad := countXHTTPPosts(ctx, cli)
-			// 双条件：失败数达标 且 失败占比达标（bad*100 >= total*80，
-			// total 为 0 时不成立，天然避免除零）。
-			if bad >= minBadPosts && bad*100 >= total*minBadRatioPct {
-				// 滑动 1 小时窗口计数，裁剪过期记录。
-				cutoff := time.Now().Add(-time.Hour)
-				recent := 0
-				kept := restartHistory[:0]
-				for _, t := range restartHistory {
-					if t.After(cutoff) {
-						kept = append(kept, t)
-						recent++
+			// per-iteration recover(对齐 ip_consistency):countXHTTPPosts 里
+			// 跑 stdcopy/lineWriter 解析,一旦 panic,守护 goroutine 会静默死亡、
+			// 进程照常运行——自愈失效将无任何感知。
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[xhttp-health] panic in check cycle: %v", r)
 					}
-				}
-				restartHistory = kept
-				if recent >= maxRestartsPerHour {
-					log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", bad, total, maxRestartsPerHour)
-					// 自愈打满仍不健康 = 需要人工介入,外发通知;这里只在本
-					// 轮探测命中时触发一次,不会每小时连发(打满后每轮 skip
-					// 都会进来,但 webhook 失败也不影响探测循环)。
-					platform.NotifyWebhook("xhttp.selfheal.capped", "xhttp 自愈达到每小时重启上限,代理可能仍不健康", map[string]string{
-						"bad_post": strconv.Itoa(bad),
-						"total":    strconv.Itoa(total),
-						"limit":    strconv.Itoa(maxRestartsPerHour),
-					})
-					continue
-				}
-				log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
-				// 显式 deadline:后台 goroutine 继承的是 Background ctx,
-				// docker.sock 挂起时无此超时会永久卡住整个自检循环
-				// (与 apiServiceAction 的 2min 对齐)。
-				restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				err := RestartXray(restartCtx, cli)
-				cancel()
-				if err != nil {
-					log.Printf("[xhttp-health] restart failed: %v", err)
-					continue
-				}
-				restartHistory = append(restartHistory, time.Now())
-				log.Printf("[xhttp-health] xray restarted successfully")
+				}()
+				runXhttpHealthCycle(ctx, cli, &restartHistory)
+			}()
+		}
+	}
+}
+
+// runXhttpHealthCycle 单轮探测 + 自愈决策,拆出以便 recover 包裹。
+func runXhttpHealthCycle(ctx context.Context, cli *client.Client, restartHistoryPtr *[]time.Time) {
+	if len(*restartHistoryPtr) > 0 && time.Since((*restartHistoryPtr)[len(*restartHistoryPtr)-1]) < cooldownPeriod {
+		return
+	}
+	total, bad := countXHTTPPosts(ctx, cli)
+	// 双条件：失败数达标 且 失败占比达标（bad*100 >= total*80，
+	// total 为 0 时不成立，天然避免除零）。
+	if bad >= minBadPosts && bad*100 >= total*minBadRatioPct {
+		// 滑动 1 小时窗口计数，裁剪过期记录。
+		cutoff := time.Now().Add(-time.Hour)
+		recent := 0
+		kept := (*restartHistoryPtr)[:0]
+		for _, t := range *restartHistoryPtr {
+			if t.After(cutoff) {
+				kept = append(kept, t)
+				recent++
 			}
 		}
+		*restartHistoryPtr = kept
+		if recent >= maxRestartsPerHour {
+			log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", bad, total, maxRestartsPerHour)
+			// 自愈打满仍不健康 = 需要人工介入,外发通知;这里只在本
+			// 轮探测命中时触发一次,不会每小时连发(打满后每轮 skip
+			// 都会进来,但 webhook 失败也不影响探测循环)。
+			platform.NotifyWebhook("xhttp.selfheal.capped", "xhttp 自愈达到每小时重启上限,代理可能仍不健康", map[string]string{
+				"bad_post": strconv.Itoa(bad),
+				"total":    strconv.Itoa(total),
+				"limit":    strconv.Itoa(maxRestartsPerHour),
+			})
+			return
+		}
+		log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
+		// 显式 deadline:后台 goroutine 继承的是 Background ctx,
+		// docker.sock 挂起时无此超时会永久卡住整个自检循环
+		// (与 apiServiceAction 的 2min 对齐)。
+		restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		err := RestartXray(restartCtx, cli)
+		cancel()
+		if err != nil {
+			log.Printf("[xhttp-health] restart failed: %v", err)
+			return
+		}
+		*restartHistoryPtr = append(*restartHistoryPtr, time.Now())
+		log.Printf("[xhttp-health] xray restarted successfully")
 	}
 }
 

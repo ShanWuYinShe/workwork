@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +18,16 @@ func EnsureHtpasswd() error {
 		return err
 	}
 	if data, err := os.ReadFile(HtpasswdFile); err == nil {
-		if len(data) > 10 {
+		// "文件存在且超过 10 字节"不足以判定完好:截断到几十字节时启动
+		// 照常通过,但所有行(含 AUTH_USER)都不是有效的 user:hash 条目,
+		// 面板与 nginx basic auth 全员校验失败 = 整站锁死且无提示。
+		// 校验"至少一行合法条目",零条目时隔离损坏文件并按 env 重建。
+		if htpasswdHasValidEntry(data) {
 			return platform.EnsurePerm(HtpasswdFile, 0644)
+		}
+		log.Printf("ERROR: htpasswd %s has no valid user:hash entry, quarantining and rebuilding from AUTH_USER/AUTH_PASS", HtpasswdFile)
+		if qerr := os.Rename(HtpasswdFile, HtpasswdFile+".corrupt"); qerr != nil {
+			log.Printf("ERROR: quarantine htpasswd: %v", qerr)
 		}
 	}
 	user := platform.GetEnv("AUTH_USER")
@@ -31,6 +40,21 @@ func EnsureHtpasswd() error {
 		return err
 	}
 	return platform.AtomicWriteFile(HtpasswdFile, []byte(out), 0644)
+}
+
+// htpasswdHasValidEntry 判断文件内容中是否存在至少一行 "user:hash" 形式
+// 的条目(不校验 hash 算法细节——htpasswd 支持多种格式,这里只挡截断/清空)。
+func htpasswdHasValidEntry(data []byte) bool {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if idx := strings.Index(line, ":"); idx > 0 && idx < len(line)-1 {
+			return true
+		}
+	}
+	return false
 }
 
 func SeedAdminUser() error {

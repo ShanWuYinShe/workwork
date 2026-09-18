@@ -4,10 +4,12 @@ import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
 	"admin/internal/platform"
+	"context"
 	"fmt"
 	"github.com/docker/docker/client"
 	"log"
 	"net/http"
+	"time"
 )
 
 func ApiDashboard(cli *client.Client) http.HandlerFunc {
@@ -54,7 +56,11 @@ func ApiDashboard(cli *client.Client) http.HandlerFunc {
 		}
 
 		// Admin: full system dashboard
-		info, err := cli.Info(r.Context())
+		// 读路径 deadline:daemon 挂起时 dashboard 10s 快速失败降级,
+		// 不随客户端连接挂住(r.Context() 客户端不断开就不取消)。
+		infoCtx, infoCancel := context.WithTimeout(r.Context(), 10*time.Second)
+		info, err := cli.Info(infoCtx)
+		infoCancel()
 		if err != nil {
 			// 降级为全 0 stats,但留日志:Docker 故障不该表现为"无声的零值"。
 			log.Printf("dashboard: docker info: %v", err)

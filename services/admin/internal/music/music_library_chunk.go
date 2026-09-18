@@ -17,6 +17,7 @@ package music
 // 孤儿分片(上传中断不再继续)由每小时 ticker 清理(>24h)。
 
 import (
+	"admin/internal/auth"
 	"admin/internal/platform"
 	"context"
 	"crypto/sha256"
@@ -136,6 +137,14 @@ func ApiMusicChunkQuery() http.HandlerFunc {
 // ApiMusicChunkUpload 接收单片;全部收齐时自动按序合并入库。
 func ApiMusicChunkUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 并发闸门(4MB multipart 内存缓冲,与全部上传端点共享 2 位额度)。
+		release, ok := platform.AcquireUploadSlot(r.Context())
+		if !ok {
+			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+
 		r.Body = http.MaxBytesReader(w, r.Body, musicChunkBodyLimit)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
 			platform.WriteError(w, "分片内容过大或格式不正确", http.StatusBadRequest)
@@ -220,6 +229,10 @@ func ApiMusicChunkUpload() http.HandlerFunc {
 				respondChunkErr(w, err)
 				return
 			}
+			// 分片合并与一次性上传是同级的变更类动作(写曲库),按 AGENTS 审计
+			// 约定留痕;文件名 %q 转义防日志注入(同 music library delete)。
+			_, actor := auth.GetUserFromContext(r)
+			log.Printf("[security] music chunk upload complete file=%q chunks=%d by=%s", finalName, total, actor)
 			resp["complete"] = true
 			resp["saved"] = finalName
 		}
@@ -268,6 +281,10 @@ func saveChunk(uploadID string, index int, chunkSHA string, header *multipart.Fi
 	defer func() { _ = os.Remove(tmpName) }() // 正常路径已 rename,失败路径清理
 	hasher := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, hasher), src); err != nil {
+		tmp.Close()
+		return false, err
+	}
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return false, err
 	}
@@ -348,6 +365,11 @@ func mergeChunks(uploadID string, total int) (string, error) {
 		}
 		totalBytes += n
 	}
+	// rename 前 fsync,与 saveMusicUpload/saveChunk 的数据保护对称;Sync 必须在 Close 之前。
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return "", err
+	}
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
@@ -360,7 +382,7 @@ func mergeChunks(uploadID string, total int) (string, error) {
 	if err := os.RemoveAll(chunkDir(uploadID)); err != nil {
 		log.Printf("music chunk merge: cleanup %s failed: %v", uploadID, err)
 	}
-	log.Printf("music chunk merged: id=%s name=%s bytes=%d", uploadID, meta.FileName, totalBytes)
+	log.Printf("music chunk merged: id=%s name=%q bytes=%d", uploadID, meta.FileName, totalBytes)
 	return meta.FileName, nil
 }
 

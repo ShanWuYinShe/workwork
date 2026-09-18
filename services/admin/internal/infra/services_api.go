@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 func ApiServices(cli *client.Client) http.HandlerFunc {
@@ -92,12 +93,9 @@ func ApiConfig(cli *client.Client) http.HandlerFunc {
 			"configStatus": "-",
 		}
 		var raw []byte
-		for _, path := range []string{proxy.XrayConfigPath} {
-			fileData, err := os.ReadFile(path)
-			if err == nil {
-				raw = fileData
-				break
-			}
+		// 单路径直读(此前是单元素循环的"多路径回退"残骸)。
+		if fileData, err := os.ReadFile(proxy.XrayConfigPath); err == nil {
+			raw = fileData
 		}
 		if len(raw) > 0 {
 			var cfg struct {
@@ -125,8 +123,11 @@ func ApiConfig(cli *client.Client) http.HandlerFunc {
 type svcJSON struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
-	Image string `json:"image"`
-	Ports string `json:"ports"`
+	// Health 是 docker healthcheck 状态(healthy/starting/unhealthy),running
+	// 但 healthcheck 连续失败的容器靠它才不会在面板上显示为绿色。
+	Health string `json:"health,omitempty"`
+	Image  string `json:"image"`
+	Ports  string `json:"ports"`
 }
 
 func serviceSortWeight(name string) int {
@@ -147,6 +148,11 @@ func serviceSortWeight(name string) int {
 }
 
 func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
+	// 读路径整体 deadline:此前只挂 r.Context()(客户端不断开就不取消),
+	// docker daemon 挂起(socket 通但不响应)时 dashboard/services 页面无限
+	// 转圈、goroutine 随并发缓慢堆积。10s 覆盖 list + 逐容器 inspect。
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		All:     true,
 		Filters: platform.ComposeProjectFilters(),
@@ -173,8 +179,17 @@ func listServicesJSON(ctx context.Context, cli *client.Client) []svcJSON {
 				ports = append(ports, fmt.Sprintf("%d/%s", p.PrivatePort, p.Type))
 			}
 		}
+		// Health 只在 inspect 里有(ContainerList 不带);仅对 running 容器
+		// 查,inspect 失败静默留空(health 缺失时前端按无 healthcheck 展示)。
+		health := ""
+		if c.State == "running" {
+			if info, ierr := cli.ContainerInspect(ctx, c.ID); ierr == nil &&
+				info.State != nil && info.State.Health != nil {
+				health = info.State.Health.Status
+			}
+		}
 		services = append(services, svcJSON{
-			Name: name, State: c.State, Image: c.Image,
+			Name: name, State: c.State, Health: health, Image: c.Image,
 			Ports: strings.Join(ports, ", "),
 		})
 	}

@@ -27,15 +27,15 @@ var ipv6RotateMu sync.RWMutex
 
 // LoadCurrentIPs 是 LoadCurrentIPsWithRecords 的兼容包装（不需要记录明细的
 // 调用方继续用两返回值签名）。
-func LoadCurrentIPs() (xrayIP, nginxIP string) {
-	x, n, _ := LoadCurrentIPsWithRecords()
+func LoadCurrentIPs(ctx context.Context) (xrayIP, nginxIP string) {
+	x, n, _ := LoadCurrentIPsWithRecords(ctx)
 	return x, n
 }
 
 // LoadCurrentIPsWithRecords 除返回各容器当前 IPv6 外，还带出本次轮询查到的
 // AAAA 记录明细，供 ApiNetworkStatus 的 DNS 表格复用——同一请求内不再对
 // 同一批域名发起第二轮全量 CF 查询（此前单次页面刷新 = 域数 × 2 轮串行 CF API）。
-func LoadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
+func LoadCurrentIPsWithRecords(ctx context.Context) (xrayIP, nginxIP string, records map[string]*cfDNSRecord) {
 	// env 回退值过 platform.NormalizeIPv6：CF 路径与 platform.GetContainerIPs 返回的都是压缩
 	// 规范形，env 若填了全展开形式，ip_consistency 的字符串比较会永假，
 	// 每 3 分钟误报一次 "missing rotating IP"（日志噪音 + no-op add）。
@@ -46,7 +46,7 @@ func LoadCurrentIPsWithRecords() (xrayIP, nginxIP string, records map[string]*cf
 		return
 	}
 	for _, di := range allDomainInfos() {
-		rec, err := cfFindAAAARecord(di.Domain)
+		rec, err := cfFindAAAARecord(ctx, di.Domain)
 		if err != nil || rec == nil {
 			continue
 		}
@@ -72,7 +72,7 @@ func ApiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		subnet := platform.GetEnv("IPV6_SUBNET")
 		nginxStatic := platform.GetEnv("NGINX_IPV6")
 		xrayStatic := platform.GetEnv("XRAY_IPV6")
-		dnsXrayIP, dnsNginxIP, dnsRecords := LoadCurrentIPsWithRecords()
+		dnsXrayIP, dnsNginxIP, dnsRecords := LoadCurrentIPsWithRecords(ctx)
 		xrayIP, nxIP := dnsXrayIP, dnsNginxIP
 		if xrayID, err := platform.FindContainer(r.Context(), cli, "xray"); err == nil {
 			xrayIP = selectContainerDNSIP(r.Context(), cli, xrayID, xrayStatic, dnsXrayIP)
@@ -189,21 +189,21 @@ func domainTargetIP(di domainInfo, xrayIP, nginxIP string) string {
 	return nginxIP
 }
 
-func updateDomainAAAARecords(domains []domainInfo, xrayIP, nginxIP string) ([]string, bool, error) {
+func updateDomainAAAARecords(ctx context.Context, domains []domainInfo, xrayIP, nginxIP string) ([]string, bool, error) {
 	var updated []string
 	var rollback []dnsRollbackEntry
 	for _, di := range domains {
-		previous, err := cfFindAAAARecord(di.Domain)
+		previous, err := cfFindAAAARecord(ctx, di.Domain)
 		if err != nil {
-			rollbackOK, rollbackErr := rollbackDomainAAAARecords(rollback)
+			rollbackOK, rollbackErr := rollbackDomainAAAARecords(ctx, rollback)
 			if rollbackErr != nil {
 				return updated, rollbackOK, fmt.Errorf("read DNS record for %s: %w; rollback failed: %v", di.Domain, err, rollbackErr)
 			}
 			return updated, rollbackOK, fmt.Errorf("read DNS record for %s: %w", di.Domain, err)
 		}
 		ip := domainTargetIP(di, xrayIP, nginxIP)
-		if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
-			rollbackOK, rollbackErr := rollbackDomainAAAARecords(rollback)
+		if _, err := cfUpsertAAAARecord(ctx, di.Domain, ip); err != nil {
+			rollbackOK, rollbackErr := rollbackDomainAAAARecords(ctx, rollback)
 			if rollbackErr != nil {
 				return updated, rollbackOK, fmt.Errorf("update DNS record for %s: %w; rollback failed: %v", di.Domain, err, rollbackErr)
 			}
@@ -215,15 +215,15 @@ func updateDomainAAAARecords(domains []domainInfo, xrayIP, nginxIP string) ([]st
 	return updated, true, nil
 }
 
-func rollbackDomainAAAARecords(entries []dnsRollbackEntry) (bool, error) {
+func rollbackDomainAAAARecords(ctx context.Context, entries []dnsRollbackEntry) (bool, error) {
 	var errs []string
 	for i := len(entries) - 1; i >= 0; i-- {
 		entry := entries[i]
 		var err error
 		if entry.previous == nil {
-			err = cfDeleteAAAARecord(entry.domain)
+			err = cfDeleteAAAARecord(ctx, entry.domain)
 		} else {
-			_, err = cfUpsertAAAARecord(entry.domain, entry.previous.Content)
+			_, err = cfUpsertAAAARecord(ctx, entry.domain, entry.previous.Content)
 		}
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", entry.domain, err))
@@ -288,7 +288,7 @@ func StartupRotateIPv6(cli *client.Client) {
 	xrayAssigned := platform.GetContainerIPs(ctx, cli, xrayID)
 	nginxAssigned := platform.GetContainerIPs(ctx, cli, nginxID)
 	allAssigned := append(append([]string{}, xrayAssigned...), nginxAssigned...)
-	dnsXrayIP, dnsNginxIP := LoadCurrentIPs()
+	dnsXrayIP, dnsNginxIP := LoadCurrentIPs(ctx)
 
 	xraySelection, err := selectStartupRotatingIP(
 		prefix,
@@ -332,7 +332,7 @@ func StartupRotateIPv6(cli *client.Client) {
 		return
 	}
 
-	if _, rollbackOK, err := updateDomainAAAARecords(allDomainInfos(), xrayIP, nginxIP); err != nil {
+	if _, rollbackOK, err := updateDomainAAAARecords(ctx, allDomainInfos(), xrayIP, nginxIP); err != nil {
 		if rollbackOK {
 			if xraySelection.Generated {
 				platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
@@ -422,7 +422,7 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		oldXrayIP, oldNginxIP := LoadCurrentIPs()
+		oldXrayIP, oldNginxIP := LoadCurrentIPs(ctx)
 
 		// Add new IPs
 		if err := platform.AddContainerIP(ctx, cli, xrayID, xrayIP); err != nil {
@@ -439,7 +439,7 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 
 		// Update DNS per domain → container mapping
 		domains := allDomainInfos()
-		updated, rollbackOK, err := updateDomainAAAARecords(domains, xrayIP, nginxIP)
+		updated, rollbackOK, err := updateDomainAAAARecords(ctx, domains, xrayIP, nginxIP)
 		if err != nil {
 			if rollbackOK {
 				platform.DelContainerIP(ctx, cli, xrayID, xrayIP)
@@ -550,7 +550,7 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		oldXrayIP, oldNginxIP := LoadCurrentIPs()
+		oldXrayIP, oldNginxIP := LoadCurrentIPs(ctx)
 		xrayIP := selectContainerDNSIP(ctx, cli, xrayID, platform.GetEnv("XRAY_IPV6"), oldXrayIP)
 		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, platform.GetEnv("NGINX_IPV6"), oldNginxIP)
 
@@ -560,7 +560,7 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 			if di.Container == "xray" {
 				ip = xrayIP
 			}
-			if _, err := cfUpsertAAAARecord(di.Domain, ip); err != nil {
+			if _, err := cfUpsertAAAARecord(ctx, di.Domain, ip); err != nil {
 				// CF 错误详情只进日志,客户端只看到通用文案。
 				log.Printf("sync-dns: upsert %s: %v", di.Domain, err)
 				results = append(results, fmt.Sprintf("%s: DNS 更新失败", di.Domain))
@@ -647,7 +647,7 @@ func RestoreServiceRotatingIP(ctx context.Context, cli *client.Client, container
 		return
 	}
 	defer ipv6RotateMu.RUnlock()
-	xrayIP, nginxIP := LoadCurrentIPs()
+	xrayIP, nginxIP := LoadCurrentIPs(ctx)
 	ip := xrayIP
 	if service == "nginx" {
 		ip = nginxIP

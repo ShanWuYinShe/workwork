@@ -61,7 +61,7 @@ func checkIPConsistency(ctx context.Context, cli *client.Client) {
 	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	xrayIP, nginxIP := LoadCurrentIPs()
+	xrayIP, nginxIP := LoadCurrentIPs(checkCtx)
 
 	for _, svc := range []struct {
 		name   string

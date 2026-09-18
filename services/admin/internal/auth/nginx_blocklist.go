@@ -153,4 +153,12 @@ func reloadNginx(cli *client.Client) error {
 }
 
 // SetBlocklistClient 由 main 装配注入 docker client。
-func SetBlocklistClient(cli *client.Client) { blocklistSyncCli = cli }
+// 写入与 AfterFunc 回调的读取同持 blocklistSyncMu:虽然当前启动时序(先
+// Set 再 Schedule,HTTP server 未启动)不会构成竞争,但按约定隐藏 data
+// race 很脆弱——未来任何"server 启动后重新注入 client"的改动都会变成
+// 真实竞争,go test -race 会抓出来。
+func SetBlocklistClient(cli *client.Client) {
+	blocklistSyncMu.Lock()
+	defer blocklistSyncMu.Unlock()
+	blocklistSyncCli = cli
+}

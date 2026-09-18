@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -47,6 +48,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
+	// 优雅关闭路径释放 docker.sock 连接(进程退出也会兜底,显式 Close 让
+	// 生命周期完整,测试内嵌运行时不留悬空连接)。
+	defer cli.Close()
 	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
 	auth.SetBlocklistClient(cli)
@@ -61,9 +65,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go proxy.XhttpHealthChecker(ctx, cli)
-	go proxy.IPWatcher(ctx, cli)
-	go proxy.IPConsistencyChecker(ctx, cli, startupRotateDone)
+	// 优雅关闭时等待守护 goroutine 退出:此前 main 返回即进程消亡,进行中的
+	// RestoreServiceRotatingIP(容器 IP 补挂)可能被杀在半路,轮换 IP 丢失、
+	// 代理出口失效直到下次启动兜底。带超时等待,守护卡死时不阻塞退出。
+	var daemonWG sync.WaitGroup
+	daemonWG.Add(3)
+	go daemonGuard(&daemonWG, "xhttp-health", func() { proxy.XhttpHealthChecker(ctx, cli) })
+	go daemonGuard(&daemonWG, "ip-watcher", func() { proxy.IPWatcher(ctx, cli) })
+	go daemonGuard(&daemonWG, "ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone) })
 
 	mux := http.NewServeMux()
 
@@ -207,9 +216,15 @@ func main() {
 			return
 		}
 
-		auth.RateLimitMiddleware(auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		// API 与 SPA 响应禁止缓存:no-store 同时关闭磁盘缓存与 bfcache,
+		// 防止登出后浏览器回退页残留管理数据(users 列表内嵌明文代理凭证)。
+		w.Header().Set("Cache-Control", "no-store")
+		// CSRF 校验必须在限流之前:跨站伪造请求来自受害者自己的浏览器与 IP,
+		// 若先限流,攻击会耗尽受害者 IP 的配额触发 30min 自动封禁(限流器被
+		// 武器化为 DoS 受害者)。安全头/静态资源分支不需要 CSRF(均为 GET)。
+		auth.CSRFMiddleware(auth.RateLimitMiddleware(auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
-		}))(w, r)
+		})))(w, r)
 	})
 
 	srv := &http.Server{
@@ -233,9 +248,11 @@ func main() {
 	defer auth.StopRateLimiter()
 
 	transfer.CleanupOrphanTempFiles()
-	go transfer.StartCleanupLoop(ctx)
+	daemonWG.Add(1)
+	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transfer.StartCleanupLoop(ctx) })
 	music.CleanupExpiredChunkUploads()
-	go music.StartChunkCleanupLoop(ctx)
+	daemonWG.Add(1)
+	go daemonGuard(&daemonWG, "chunk-cleanup", func() { music.StartChunkCleanupLoop(ctx) })
 
 	go func() {
 		log.Printf("admin %s listening on %s", version, srv.Addr)
@@ -252,18 +269,46 @@ func main() {
 				log.Printf("[startup] panic in proxy.StartupRotateIPv6: %v", r)
 			}
 		}()
-		time.Sleep(10 * time.Second)
+		// ctx 感知等待:优雅关闭时不再挂满 10s 才退出。
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 		proxy.StartupRotateIPv6(cli)
 	}()
 
 	<-ctx.Done()
 	log.Println("Shutting down server...")
+	// 先停监听再等守护:正常路径 srv.Shutdown 最多 10s(SSE/大上传会吃满,
+	// compose stop_grace_period 前 docker 会 SIGKILL),守护随 ctx 退出后
+	// WaitGroup 归零。最多再等 5s,守护卡死不阻塞进程退出。
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}
+	waitDone := make(chan struct{})
+	go func() { daemonWG.Wait(); close(waitDone) }()
+	select {
+	case <-waitDone:
+	case <-time.After(5 * time.Second):
+		log.Println("Shutdown: daemons did not exit in 5s, proceeding")
+	}
 	log.Println("Server stopped")
+}
+
+// daemonGuard 包装守护 goroutine:per-iteration recover 在各守护内部做
+// (避免一次 panic 静默杀掉整个守护),这里只兜底守护启动期的 panic 并
+// 追踪退出,供优雅关闭 WaitGroup 等待。
+func daemonGuard(wg *sync.WaitGroup, name string, fn func()) {
+	defer wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("daemon %s: startup panic: %v", name, r)
+		}
+	}()
+	fn()
 }
 
 // 大上传端点豁免全局 1MB 请求体上限。与本文件路由注册一一对应,新增大

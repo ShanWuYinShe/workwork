@@ -234,12 +234,6 @@ func ApiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func applyMediaCenterConfig(ctx context.Context, cli *client.Client, cfg mediaCenterConfig) ([]string, []string, error) {
-	mediaCenterApplyMu.Lock()
-	defer mediaCenterApplyMu.Unlock()
-	return applyMediaCenterConfigLocked(ctx, cli, cfg)
-}
-
 // applyMediaCenterConfigLocked 执行实际的持久化与重启，调用者必须持有 mediaCenterApplyMu。
 // 拆出无锁版本是为了让需要先读取现有配置再修改的端点（如 credentials 保存）
 // 能在单次持锁内完成 read-modify-write，避免与并发保存竞态。
@@ -339,17 +333,6 @@ func readMediaCenterConfigNoLock() (mediaCenterConfig, error) {
 		return mediaCenterConfig{}, fmt.Errorf("parse media center config: %w", err)
 	}
 	return normalizeMediaCenterConfig(cfg)
-}
-
-func saveMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, error) {
-	normalized, err := normalizeMediaCenterConfig(input)
-	if err != nil {
-		return mediaCenterConfig{}, err
-	}
-	if err := persistMediaCenterConfig(normalized); err != nil {
-		return mediaCenterConfig{}, err
-	}
-	return normalized, nil
 }
 
 // persistMediaCenterConfig writes an already-normalized config to disk.

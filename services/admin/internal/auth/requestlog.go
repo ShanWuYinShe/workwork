@@ -3,8 +3,10 @@ package auth
 import (
 	"admin/internal/platform"
 	"context"
+	"log"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -47,7 +49,23 @@ func RequestLogMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		audit := &requestAudit{}
-		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditCtxKey{}, audit)))
+		func() {
+			// panic 兜底必须在本中间件内而非更外层:recover 放外面时 panic
+			// 会跳过下面的日志代码(请求不进访问日志),且 net/http 的 conn 级
+			// 兜底只会重置连接(经 nginx 表现为 502),客户端拿不到 500。
+			defer func() {
+				if p := recover(); p != nil {
+					log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.Path, p, debug.Stack())
+					if !rec.wroteHeader {
+						platform.WriteError(w, "Internal error", http.StatusInternalServerError)
+					}
+					platform.NotifyWebhook("app.panic", "handler panic: "+r.Method+" "+r.URL.Path, map[string]string{
+						"method": r.Method, "path": r.URL.Path,
+					})
+				}
+			}()
+			next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), auditCtxKey{}, audit)))
+		}()
 
 		duration := time.Since(start).Milliseconds()
 		level := slog.LevelInfo

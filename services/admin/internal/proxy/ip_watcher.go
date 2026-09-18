@@ -45,7 +45,13 @@ func IPWatcher(ctx context.Context, cli *client.Client) {
 				return
 			case err := <-errCh:
 				log.Printf("[ip-watcher] event stream error: %v; reconnecting in %v", err, backoff)
-				time.Sleep(backoff)
+				// ctx 感知退避:优雅关闭时最长 60s 的 sleep 会让守护拖到
+				// WaitGroup 超时才退,改为任一先到即走。
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
 				backoff = min(backoff*2, maxBackoff)
 				goto reconnect
 			case msg, ok := <-msgCh:
@@ -53,7 +59,11 @@ func IPWatcher(ctx context.Context, cli *client.Client) {
 				// 空转 100% CPU 且不再重连;按错误路径退避重连。
 				if !ok {
 					log.Printf("[ip-watcher] event stream closed; reconnecting in %v", backoff)
-					time.Sleep(backoff)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(backoff):
+					}
 					backoff = min(backoff*2, maxBackoff)
 					goto reconnect
 				}
@@ -68,8 +78,12 @@ func IPWatcher(ctx context.Context, cli *client.Client) {
 
 				log.Printf("[ip-watcher] detected %s start, restoring rotating IP", service)
 
-				// 等待容器网络命名空间初始化完成
-				time.Sleep(2 * time.Second)
+				// 等待容器网络命名空间初始化完成(ctx 感知:关闭时不白等)。
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
 
 				func() {
 					defer func() {

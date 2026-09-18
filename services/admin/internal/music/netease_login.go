@@ -28,6 +28,9 @@ const (
 
 	// neteaseLoginSessionTTL 是二维码会话保留时长(网易二维码约 2 分钟有效)。
 	neteaseLoginSessionTTL = 3 * time.Minute
+
+	// neteaseMaxBodyBytes 限制上游响应体读取上限(见 neteaseUpstreamGet)。
+	neteaseMaxBodyBytes = 8 << 20
 )
 
 // neteaseCookiePath var 供测试替换。
@@ -85,8 +88,9 @@ func neteaseUpstreamGet(path string, timeout time.Duration) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("upstream %s: %s", path, resp.Status)
 	}
-	// 上游是内网自有容器,响应体(二维码 dataURL 量级)可信。
-	return io.ReadAll(resp.Body)
+	// LimitReader 兜底:上游是第三方镜像的容器,异常时可能返回巨量 body 撑爆
+	// 256M 容器;正常响应(二维码 dataURL 量级)远小于该上限。
+	return io.ReadAll(io.LimitReader(resp.Body, neteaseMaxBodyBytes))
 }
 
 // ApiNeteaseLoginStart 生成扫码 key 与二维码。
@@ -193,7 +197,10 @@ func ApiNeteaseLoginPoll() http.HandlerFunc {
 			neteaseLoginMu.Lock()
 			delete(neteaseLoginSessions, key)
 			neteaseLoginMu.Unlock()
-			log.Printf("netease login ok, nickname=%s", check.Profile.Nickname)
+			log.Printf("netease login ok, nickname=%q", check.Profile.Nickname)
+			// 凭据落盘是关键变更动作,与 logout 同级留痕(AGENTS 审计约定)。
+			_, actor := auth.GetUserFromContext(r)
+			log.Printf("[security] netease login success nickname=%q by=%s", check.Profile.Nickname, actor)
 			platform.WriteJSON(w, map[string]any{"code": 803, "nickname": check.Profile.Nickname})
 		default:
 			platform.WriteError(w, fmt.Sprintf("扫码状态异常(%d)", check.Code), http.StatusBadGateway)
@@ -279,5 +286,5 @@ func neteaseUpstreamGetWithCookie(path, cookie string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("upstream %s: %s", path, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, neteaseMaxBodyBytes))
 }
