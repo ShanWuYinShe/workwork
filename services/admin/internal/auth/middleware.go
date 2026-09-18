@@ -486,6 +486,12 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 				// (nginx on the docker bridge), and the proxy must have set
 				// X-Forwarded-User after authenticating with basic auth.
 				if !isTrustedProxy(r.RemoteAddr) {
+					// 伪造尝试单独留痕(带头才记,避免裸端口扫描噪音):
+					// internal_docker 上的第三方容器持续探测身份伪造时,
+					// 运维能像 internal-token 白名单拒绝一样从日志察觉。
+					if r.Header.Get("X-Forwarded-User") != "" {
+						log.Printf("[security] x-forwarded-user spoof attempt ip=%s path=%s", remoteIP(r.RemoteAddr), r.URL.Path)
+					}
 					platform.WriteError(w, "Unauthorized", 401)
 					return
 				}

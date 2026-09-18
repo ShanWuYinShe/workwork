@@ -215,6 +215,14 @@ func ApiTransferUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, username := auth.GetUserFromContext(r)
 
+		// 并发闸门(32MB multipart 内存缓冲,全局限 2 位,防并发上传 OOM)。
+		release, ok := platform.AcquireUploadSlot(r.Context())
+		if !ok {
+			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+
 		// 请求体硬上限（单文件 2GB + multipart 开销）。ParseMultipartForm 会把
 		// 全部 file part 先无上限 spool 到磁盘才返回，header.Size 预检与配额
 		// 检查都发生在其后——没有这层，超大请求体先把磁盘写满。nginx 侧的
@@ -313,6 +321,11 @@ func ApiTransferUpload() http.HandlerFunc {
 		dst := tmpFile
 
 		written, err := io.Copy(dst, io.LimitReader(file, transferMaxFile))
+		// rename 前 fsync:断电不会留下"manifest 记了 2GB、文件内容为空"的
+		// 坏文件(下载端无校验和可发现)。
+		if serr := dst.Sync(); serr != nil && err == nil {
+			err = serr
+		}
 		dst.Close()
 		if err != nil {
 			os.Remove(tmpPath)
@@ -394,8 +407,13 @@ func ApiTransferUpload() http.HandlerFunc {
 
 		if saveErr != nil {
 			log.Printf("ERROR: save transfer manifest (upload): %v", saveErr)
-			// 磁盘文件已就位，但 manifest 未持久化 → 文件对管理面板不可见。
-			// 不回滚已写入的磁盘文件（避免二次失败），如实上报。
+			// 磁盘文件已就位但 manifest 未持久化 → 孤儿文件:不在 manifest 里,
+			// 列表看不到、删除接口删不到、且不占配额计数——没有任何回收路径,
+			// 配额检查会持续放行,磁盘满时滚雪球。尽力回滚删除;删除也失败
+			// (如目录只读)时带路径记 ERROR,交运维手工清理。
+			if rmErr := os.Remove(dstPath); rmErr != nil {
+				log.Printf("ERROR: transfer orphan cleanup failed, manual removal needed: %s: %v", dstPath, rmErr)
+			}
 			platform.WriteInternalError(w, fmt.Errorf("persist transfer manifest: %w", saveErr))
 			return
 		}

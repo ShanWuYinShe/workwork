@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // GET /api/admin/services/{name}/logs?tail=100
@@ -31,12 +32,14 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
 			tail = "100"
 		}
-		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+		listCtx, listCancel := context.WithTimeout(r.Context(), 10*time.Second)
+		containers, err := cli.ContainerList(listCtx, container.ListOptions{
 			All: true,
 			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
+		listCancel()
 		if err != nil {
 			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
 			log.Printf("list containers for logs (%s): %v", name, err)
@@ -99,12 +102,14 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
 			tail = "100"
 		}
-		containers, err := cli.ContainerList(r.Context(), container.ListOptions{
+		listCtx, listCancel := context.WithTimeout(r.Context(), 10*time.Second)
+		containers, err := cli.ContainerList(listCtx, container.ListOptions{
 			All: true,
 			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
 			}),
 		})
+		listCancel()
 		if err != nil {
 			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
 			log.Printf("list containers for logs (%s): %v", name, err)

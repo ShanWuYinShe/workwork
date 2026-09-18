@@ -323,6 +323,12 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 			return 0, "", readErr
 		}
 	}
+	// rename 前 fsync:下载物会被 /api/admin/*/downloads 分发给全部代理
+	// 客户端,断电残留的截断文件会被当正常二进制分发。
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return 0, "", fmt.Errorf("sync: %w", err)
+	}
 	if err := f.Close(); err != nil {
 		return 0, "", fmt.Errorf("close: %w", err)
 	}

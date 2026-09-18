@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,8 +17,13 @@ type rateLimitEntry struct {
 }
 
 type rateLimiter struct {
-	mu       sync.Mutex
-	entries  map[string]*rateLimitEntry
+	mu      sync.Mutex
+	entries map[string]*rateLimitEntry
+	// v6Prefix 按 IPv6 /64 网段聚合计数:攻击者持一个 /64 可每 5 次撞库换一个
+	// 后缀,按完整 IP 计数时封禁预算退化为无限次。封禁仍落在具体 IP(nginx
+	// map 只能精确匹配),但计数按 /64——网段超限后,该网段每个新 IP 首个
+	// 请求即触发封禁,换后缀不再重置预算。
+	v6Prefix map[string]*rateLimitEntry
 	maxReqs  int           // max requests in the window
 	window   time.Duration // sliding window
 	banTime  time.Duration // how long to ban
@@ -25,10 +32,11 @@ type rateLimiter struct {
 }
 
 var authRateLimiter = &rateLimiter{
-	entries: make(map[string]*rateLimitEntry),
-	maxReqs: 20,               // 20 requests
-	window:  10 * time.Second, // per 10 seconds
-	banTime: 30 * time.Minute, // ban for 30 minutes
+	entries:  make(map[string]*rateLimitEntry),
+	v6Prefix: make(map[string]*rateLimitEntry),
+	maxReqs:  20,               // 20 requests
+	window:   10 * time.Second, // per 10 seconds
+	banTime:  30 * time.Minute, // ban for 30 minutes
 }
 
 // maxRateLimitEntries 限制内存型限流表的最大条目数。走 Cloudflare 时
@@ -66,25 +74,41 @@ func (rl *rateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	now := time.Now()
-	for ip, e := range rl.entries {
-		// Remove expired entries
-		if !e.blockedAt.IsZero() && now.Sub(e.blockedAt) > rl.banTime {
-			delete(rl.entries, ip)
-			continue
-		}
-		// Prune old timestamps
-		cutoff := now.Add(-rl.window)
-		var kept []time.Time
-		for _, t := range e.timestamps {
-			if t.After(cutoff) {
-				kept = append(kept, t)
+	for _, m := range []map[string]*rateLimitEntry{rl.entries, rl.v6Prefix} {
+		for ip, e := range m {
+			// Remove expired entries
+			if !e.blockedAt.IsZero() && now.Sub(e.blockedAt) > rl.banTime {
+				delete(m, ip)
+				continue
+			}
+			// Prune old timestamps
+			cutoff := now.Add(-rl.window)
+			var kept []time.Time
+			for _, t := range e.timestamps {
+				if t.After(cutoff) {
+					kept = append(kept, t)
+				}
+			}
+			e.timestamps = kept
+			if len(kept) == 0 && e.blockedAt.IsZero() {
+				delete(m, ip)
 			}
 		}
-		e.timestamps = kept
-		if len(kept) == 0 && e.blockedAt.IsZero() {
-			delete(rl.entries, ip)
-		}
 	}
+}
+
+// ipv6PrefixKey 把 IPv6 地址折叠到 /64 网段作为聚合计数键;非全局单播 IPv6
+// (IPv4、4in6、带 zone)返回 false,调用方按完整 IP 计数。
+func ipv6PrefixKey(ip string) (string, bool) {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || !addr.Is6() || addr.Is4In6() || addr.Zone() != "" {
+		return "", false
+	}
+	p, err := addr.Prefix(64)
+	if err != nil {
+		return "", false
+	}
+	return p.String(), true
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
@@ -96,11 +120,18 @@ func (rl *rateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	now := time.Now()
 
+	// /64 聚合计数键(IPv6 才有,IPv4 退化为自身)。
+	countKey, isV6 := ipv6PrefixKey(ip)
+	if !isV6 {
+		countKey = ip
+	}
+
 	e, exists := rl.entries[ip]
 	if !exists {
 		// 容量上限守卫：新 IP 在表满时直接拒绝，保护内存不被无限增长。
-		// 只拒绝新 key，不影响已跟踪 IP 的判定。
-		if len(rl.entries) >= maxRateLimitEntries {
+		// 只拒绝新 key，不影响已跟踪 IP 的判定。容量按两张表合计计算,
+		// /64 聚合表与 IP 表同步受控。
+		if len(rl.entries)+len(rl.v6Prefix) >= maxRateLimitEntries {
 			rl.mu.Unlock()
 			return false
 		}
@@ -119,8 +150,33 @@ func (rl *rateLimiter) allow(ip string) bool {
 		e.timestamps = nil
 	}
 
-	// Prune old timestamps
+	// /64 网段计数条目(与封禁条目分离:封禁按具体 IP,计数按网段)。
+	// 惰性建表:测试可用字面量构造 rateLimiter(只初始化 entries)。
+	if rl.v6Prefix == nil {
+		rl.v6Prefix = make(map[string]*rateLimitEntry)
+	}
+	ce, exists := rl.v6Prefix[countKey]
+	if !exists {
+		ce = &rateLimitEntry{}
+		rl.v6Prefix[countKey] = ce
+	}
+	// /64 超限 = 整个网段预算耗尽:当前这个新 IP 直接封禁(换后缀无效)。
+	// 旧的封禁判定在下面对 e.timestamps 的阈值检查保持不变。
 	cutoff := now.Add(-rl.window)
+	pruneTimestamps(ce, cutoff)
+	if isV6 && len(ce.timestamps) >= rl.maxReqs {
+		e.blockedAt = now
+		blockAfterUnlock = ip
+		rl.mu.Unlock()
+		ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
+		ipBlocker.save()
+		platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
+			"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
+		})
+		return false
+	}
+
+	// Prune old timestamps
 	var kept []time.Time
 	for _, t := range e.timestamps {
 		if t.After(cutoff) {
@@ -145,8 +201,19 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	// Record this request
 	e.timestamps = append(e.timestamps, now)
+	ce.timestamps = append(ce.timestamps, now)
 	rl.mu.Unlock()
 	return true
+}
+
+func pruneTimestamps(e *rateLimitEntry, cutoff time.Time) {
+	var kept []time.Time
+	for _, t := range e.timestamps {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	e.timestamps = kept
 }
 
 // RateLimitMiddleware should be placed before IPBlockMiddleware so repeated
@@ -155,6 +222,14 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
 		if isPrivilegedServiceRequest(r) {
+			next(w, r)
+			return
+		}
+		// 公开分享下载不经 Go 限流:nginx 已按 IP 施加 transfer_dl(1r/s,
+		// burst=5)与 transfer_conn(3 并发)约束,而多连接下载器合法场景下
+		// 会突破 Go 层 20req/10s 窗口,被误封 30min 并写入持久封禁表。
+		// 只放行 GET 分享下载,上传仍走管理面限流。
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/transfer/") {
 			next(w, r)
 			return
 		}

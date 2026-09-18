@@ -87,6 +87,14 @@ func ApiMusicLibraryList() http.HandlerFunc {
 
 func ApiMusicLibraryUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 并发闸门(8MB multipart 内存缓冲,全局限 2 位,防并发上传 OOM)。
+		release, ok := platform.AcquireUploadSlot(r.Context())
+		if !ok {
+			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+
 		r.Body = http.MaxBytesReader(w, r.Body, maxMusicBodyBytes)
 		if err := r.ParseMultipartForm(8 << 20); err != nil {
 			platform.WriteError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
@@ -161,6 +169,12 @@ func saveMusicUpload(header *multipart.FileHeader) (string, error) {
 		tmp.Close()
 		return "", err
 	}
+	// 大文件与 meta 类状态文件的保护对称:rename 前把数据刷出 page cache,
+	// 断电不会留下"文件名在、内容空"的坏文件。
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return "", err
+	}
 	if err := tmp.Close(); err != nil {
 		return "", err
 	}
@@ -190,7 +204,9 @@ func ApiMusicLibraryDelete() http.HandlerFunc {
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] music library delete file=%s by=%s", name, actor)
+		// 文件名经 %q 转义:文件名用户可控且可含换行,裸 %s 会被 docker 日志按
+		// 行拆分,伪造出以 [security] 开头的假审计记录。
+		log.Printf("[security] music library delete file=%q by=%s", name, actor)
 		platform.WriteJSON(w, map[string]string{"deleted": name})
 	}
 }

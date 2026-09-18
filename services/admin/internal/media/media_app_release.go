@@ -316,6 +316,14 @@ func ApiMediaAppReleaseDownload() http.HandlerFunc {
 
 func ApiMediaAppReleaseUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// 并发闸门(4MB multipart 内存缓冲,与全部上传端点共享 2 位额度)。
+		release, ok := platform.AcquireUploadSlot(r.Context())
+		if !ok {
+			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			return
+		}
+		defer release()
+
 		r.Body = http.MaxBytesReader(w, r.Body, maxMediaAppAPKSize+2<<20)
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
 			platform.WriteError(w, "上传内容过大或格式不正确", http.StatusBadRequest)
@@ -385,6 +393,11 @@ func ApiMediaAppReleaseUpload() http.HandlerFunc {
 
 		hasher := sha256.New()
 		written, copyErr := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(file, maxMediaAppAPKSize+1))
+		// rename 前 fsync:APK 的 sha256 在 manifest 里是上传时算的,App 端
+		// 装包前无校验——断电留下"名字在、内容空"的坏包会被静默安装。
+		if copyErr == nil {
+			copyErr = tmp.Sync()
+		}
 		if closeErr := tmp.Close(); copyErr == nil {
 			copyErr = closeErr
 		}

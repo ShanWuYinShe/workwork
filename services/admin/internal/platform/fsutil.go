@@ -43,10 +43,26 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return err
 	}
-	return nil
+	// fsync 父目录把 rename 本身持久化:只 fsync 文件时,断电可能"新文件内容
+	// 在而目录项丢失"。EnsureXrayClients 等以"文件是否存在"判断首启播种,
+	// rename 未持久化 + 断电会让已删除/吊销的身份在下一次播种中复活。
+	return syncDir(filepath.Dir(path))
+}
+
+// syncDir 打开目录并 fsync(rename 持久化的必要步骤)。
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // LoadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
+// 解析失败时把损坏文件隔离为 <path>.corrupt 后再返回零值:调用方(manifest
+// 类状态)会以零值继续并最终全量重写——若不隔离,下一次写入会把损坏的字节
+// 静默覆盖掉,现场即丢失;隔离保留了原始字节供事后恢复,并触发 webhook 告警。
 func LoadJSONFile(path string, dest any) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,6 +73,14 @@ func LoadJSONFile(path string, dest any) {
 	}
 	if err := json.Unmarshal(data, dest); err != nil {
 		log.Printf("ERROR: LoadJSONFile decode %s: %v", path, err)
+		quarantine := path + ".corrupt"
+		if qerr := os.Rename(path, quarantine); qerr != nil {
+			log.Printf("ERROR: LoadJSONFile quarantine %s: %v", quarantine, qerr)
+		}
+		NotifyWebhook("data.corrupt", "状态文件损坏已隔离: "+path, map[string]string{
+			"path": path, "quarantined_as": quarantine,
+		})
+		return
 	}
 }
 

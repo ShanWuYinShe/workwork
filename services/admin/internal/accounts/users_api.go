@@ -348,22 +348,28 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 
 		// 联动删除该用户的 Xray 客户端：UUID 不随用户删除失效，留存等同
 		// 保留完整代理访问权。有删除才重新生成配置并重启 xray。
+		// 级联失败不再假报 ok：用户已删但 UUID 在旧 config 里仍然有效,
+		// 漂移窗口无上限——如实 500 让调用方知道需要跟进(与上方 htpasswd
+		// 部分失败的处理模式一致)。
+		const xrayCascadeFailMsg = "用户已删除，但联动更新 Xray 配置失败，其代理 UUID 在配置生效前仍然有效，请重启 Xray 或检查客户端列表"
 		removed, err := deleteXrayClientsByOwner(body.Username)
 		if err != nil {
 			log.Printf("ERROR: delete xray clients for %s: %v", body.Username, err)
-			platform.WriteJSON(w, map[string]string{"status": "ok"})
+			platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 			return
 		}
 		if removed > 0 {
 			if err := GenXrayConfig(); err != nil {
 				log.Printf("ERROR: regenerate xray config after user delete: %v", err)
-				platform.WriteJSON(w, map[string]string{"status": "ok"})
+				platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 				return
 			}
 			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
 			defer cancel()
 			if err := proxy.RestartXray(restartCtx, cli); err != nil {
 				log.Printf("ERROR: restart xray after user delete: %v", err)
+				platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
+				return
 			}
 		}
 		_, actor := auth.GetUserFromContext(r)

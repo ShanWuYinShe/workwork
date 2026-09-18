@@ -3,6 +3,7 @@ package proxy
 import (
 	"admin/internal/platform"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -64,7 +65,12 @@ func init() {
 
 func cfToken() string { return platform.GetEnv("CF_API_TOKEN") }
 
-func cfResolveZoneID(domain string) (string, error) {
+// cf 系列函数全部强制显式传 ctx:此前 cfRequest 用 http.NewRequest(无
+// context),调用方设置的整体 deadline(轮换 3min/状态页 20s/watcher 2min)
+// 对 CF 调用全部失效,只剩 client 级 30s 硬墙——CF API 黑洞时"轮换 IPv6"
+// 会持写锁远超 3 分钟,并发请求在锁上无限排队。携带 ctx 后上层 deadline
+// 能真正掐断慢调用。
+func cfResolveZoneID(ctx context.Context, domain string) (string, error) {
 	// 先查缓存(锁内只做读):未命中时释放锁再发网络请求,避免 CF API 往返
 	// (最长 30s 超时)期间所有 CF 操作串行化;结果回写缓存时允许少量重复查询。
 	cfZoneCacheMu.Lock()
@@ -78,7 +84,7 @@ func cfResolveZoneID(domain string) (string, error) {
 
 	// 锁外执行 CF API 查询
 	for _, candidate := range cfZoneCandidates(domain) {
-		cr, err := cfRequest("GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
+		cr, err := cfRequest(ctx, "GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
 		if err != nil {
 			continue
 		}
@@ -110,7 +116,7 @@ func cfZoneCandidates(domain string) []string {
 	return candidates
 }
 
-func cfRequest(method, path string, body any) (*cfResponse, error) {
+func cfRequest(ctx context.Context, method, path string, body any) (*cfResponse, error) {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -119,7 +125,7 @@ func cfRequest(method, path string, body any) (*cfResponse, error) {
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, cfAPIBase+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, cfAPIBase+path, r)
 	if err != nil {
 		return nil, err
 	}
@@ -140,12 +146,12 @@ func cfRequest(method, path string, body any) (*cfResponse, error) {
 	return &cr, nil
 }
 
-func cfFindAAAARecord(domain string) (*cfDNSRecord, error) {
-	zoneID, err := cfResolveZoneID(domain)
+func cfFindAAAARecord(ctx context.Context, domain string) (*cfDNSRecord, error) {
+	zoneID, err := cfResolveZoneID(ctx, domain)
 	if err != nil {
 		return nil, err
 	}
-	cr, err := cfRequest("GET", fmt.Sprintf("/zones/%s/dns_records?type=AAAA&name=%s", zoneID, url.QueryEscape(domain)), nil)
+	cr, err := cfRequest(ctx, "GET", fmt.Sprintf("/zones/%s/dns_records?type=AAAA&name=%s", zoneID, url.QueryEscape(domain)), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -159,18 +165,18 @@ func cfFindAAAARecord(domain string) (*cfDNSRecord, error) {
 	return &records[0], nil
 }
 
-func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
-	zoneID, err := cfResolveZoneID(domain)
+func cfUpsertAAAARecord(ctx context.Context, domain, ip string) (*cfDNSRecord, error) {
+	zoneID, err := cfResolveZoneID(ctx, domain)
 	if err != nil {
 		return nil, err
 	}
-	existing, err := cfFindAAAARecord(domain)
+	existing, err := cfFindAAAARecord(ctx, domain)
 	if err != nil {
 		return nil, err
 	}
 	record := cfDNSRecord{Type: "AAAA", Name: domain, Content: ip, TTL: 60}
 	if existing != nil {
-		cr, err := cfRequest("PATCH", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID), record)
+		cr, err := cfRequest(ctx, "PATCH", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID), record)
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +186,7 @@ func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
 		}
 		return &updated, nil
 	}
-	cr, err := cfRequest("POST", fmt.Sprintf("/zones/%s/dns_records", zoneID), record)
+	cr, err := cfRequest(ctx, "POST", fmt.Sprintf("/zones/%s/dns_records", zoneID), record)
 	if err != nil {
 		return nil, err
 	}
@@ -191,18 +197,18 @@ func cfUpsertAAAARecord(domain, ip string) (*cfDNSRecord, error) {
 	return &created, nil
 }
 
-func cfDeleteAAAARecord(domain string) error {
-	zoneID, err := cfResolveZoneID(domain)
+func cfDeleteAAAARecord(ctx context.Context, domain string) error {
+	zoneID, err := cfResolveZoneID(ctx, domain)
 	if err != nil {
 		return err
 	}
-	existing, err := cfFindAAAARecord(domain)
+	existing, err := cfFindAAAARecord(ctx, domain)
 	if err != nil {
 		return err
 	}
 	if existing == nil {
 		return nil
 	}
-	_, err = cfRequest("DELETE", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID), nil)
+	_, err = cfRequest(ctx, "DELETE", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID), nil)
 	return err
 }

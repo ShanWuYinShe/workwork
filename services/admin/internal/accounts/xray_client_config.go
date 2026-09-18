@@ -12,7 +12,9 @@ import (
 // 同一约定)。此前名为 ReadXrayClients(大写、无锁),与已删除的加锁版
 // readXrayClients 仅大小写之差——曾有调用方误用加锁版造成双重加锁死锁的风险。
 func readXrayClientMapsNoLock() ([]map[string]string, error) {
-	data, err := os.ReadFile("/app/data/xray-clients.json")
+	// 走 xrayClientsPath 变量而非字面量:同包读写路径共用同一 var,测试可
+	// 替换路径,未来改路径不会静默分叉。
+	data, err := os.ReadFile(xrayClientsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
