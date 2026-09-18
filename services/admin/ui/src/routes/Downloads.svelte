@@ -179,7 +179,8 @@
 
   function downloadUrl(filename) {
     const prefix = tab === 'claude' ? 'claude-code' : 'xray';
-    return `/api/admin/${prefix}/downloads/${filename}`;
+    // 文件名进 URL 路径段须编码:含 #/? 的名字会被截断成错误 URL。
+    return `/api/admin/${prefix}/downloads/${encodeURIComponent(filename)}`;
   }
 
   let latestReleases = $derived(releases.slice(0, 15));

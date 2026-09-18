@@ -3,7 +3,7 @@
   import { getDashboard, getCurrentUser } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
-  import { serviceDisplayName } from '../lib/services.js';
+  import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
   import { navigate } from '../lib/nav.svelte.js';
 
@@ -188,13 +188,12 @@
             >
             <tbody>
               {#each services as s (s.name)}
+                {@const badge = serviceStateBadge(s, t)}
                 <tr>
                   <td class="cell-strong">{serviceDisplayName(s.name)}</td>
                   <td>
-                    <span class="badge badge-{s.state === 'running' ? 'green' : 'red'}">
-                      <span class="badge-dot"></span>{s.state === 'running'
-                        ? t('stateRunning')
-                        : t('stateStopped')}
+                    <span class="badge {badge.cls}">
+                      <span class="badge-dot"></span>{badge.label}
                     </span>
                   </td>
                   <td class="td-muted">{s.image}</td>

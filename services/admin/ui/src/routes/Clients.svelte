@@ -188,7 +188,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each clients as c (c.uuid)}
+              {#each clients as c (c.id)}
                 <!-- 行点击仅作鼠标便利；键盘/读屏语义由 UUID 单元格里的真实按钮承载，
                      tr[role=button] 会破坏表格语义并让操作单元格按钮嵌套进"按钮行" -->
                 <tr
