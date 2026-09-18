@@ -4,13 +4,16 @@
 # 覆盖内容（缺哪个跳哪个，各自独立告警）：
 #   .wework/    运行时数据全集：htpasswd+users.json(登录能力)、generated/(admin
 #               生成的 nginx/xray/媒体配置)、music-library(曲库)、网易云/YouTube
-#               cookies(凭证)、fail2ban 状态、internal token
+#               cookies(凭证)、internal token（fail2ban 持久库单独打包，见下）
 #   cert/       TLS 证书与私钥（存在时）
 #   .env        环境变量（存在时）
-#   named volume media_center_data（catalog.db，SQLite）单独导出
+#   named volume media_center_data：catalog.db 用 sqlite3 .backup 一致性快照
+#               （活跃库直接 tar 会页级撕裂），其余文件照常 tar
+#   services/nginx/fail2ban-data  fail2ban 持久库（撞库计数/封禁状态）
 #
 # 备份是敏感数据整体打包：归档权限 0600，异机传输用 BACKUP_RSYNC_TARGET。
-# 恢复步骤与演练清单见 docs/operations.md。
+# 恢复步骤与演练清单见 docs/operations.md。失败时向 WEBHOOK_URL 发
+# backup.failure 事件（未配置为 no-op）——夜间 cron 失败无人看日志。
 #
 # 用法（服务器 cron 示例见 docs/operations.md）：
 #   scripts/backup.sh                              # 备份到 BACKUP_DIR（默认 /var/backups/workwork）
@@ -28,6 +31,22 @@ BACKUP_RSYNC_TARGET="${BACKUP_RSYNC_TARGET:-}"
 BACKUP_EXCLUDE="${BACKUP_EXCLUDE:-}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
+# WEBHOOK_URL:优先取调用方环境,否则从 .env 单独提取(同 deploy-changed.sh)。
+if [ -z "${WEBHOOK_URL:-}" ] && [ -f "$ROOT/.env" ]; then
+  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' "$ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+fi
+notify_backup_failure() {
+  local rc=${1:-?}
+  [ -n "${WEBHOOK_URL:-}" ] || return 0
+  curl -fsS --max-time 5 -H 'Content-Type: application/json' \
+    -d "$(printf '{"event":"backup.failure","summary":"backup.sh 失败(exit %s)","time":"%s"}' \
+      "$rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
+    "${WEBHOOK_URL}" >/dev/null 2>&1 ||
+    echo "⚠ webhook 失败通知发送失败" >&2 || true
+}
+# 任何非零退出(含 set -e 中断)都外发失败通知;EXIT trap 尾部回传原退出码。
+trap 'rc=$?; [ "$rc" -ne 0 ] && notify_backup_failure "$rc"; exit $rc' EXIT
+
 mkdir -p "$BACKUP_DIR"
 # 备份目录含全部凭据与配置，权限收紧；已存在时 chmod 不报错。
 chmod 700 "$BACKUP_DIR" 2>/dev/null || true
@@ -37,15 +56,6 @@ echo "仓库根: $ROOT"
 echo "备份到: $BACKUP_DIR"
 
 missing=""
-need() { # need <label> <path>
-  if [ -e "$2" ]; then
-    return 0
-  fi
-  echo "  跳过: $1 不存在（$2）"
-  missing="$missing $1"
-  return 1
-}
-
 parts=()
 
 # 1) .wework/ 运行时数据（丢它 = 丢登录能力 + 配置 + 凭证）
@@ -82,14 +92,39 @@ else
   echo "  跳过: .env 不存在"
 fi
 
-# 3) named volume media_center_data（catalog.db）。volume 实际名字带 compose
-#    项目前缀，按后缀匹配而不是写死；docker 不可用（本地开发）时跳过。
+# 3) named volume media_center_data。catalog.db 是 media_server 持续写入的
+#    活跃 SQLite,tar 顺序拷贝 db/-wal/-shm 不在同一时点,恢复端可能页级撕裂;
+#    一致性快照走 sqlite3 .backup(在线备份 API,恢复端拿到免 WAL 的完整库)。
+#    快照成功时 tar 排除 db 文件(避免热拷贝被误作恢复源);快照失败时回退为
+#    整卷 tar 并告警(恢复前必须 PRAGMA integrity_check)。volume 实际名字带
+#    compose 项目前缀,按后缀匹配;docker 不可用(本地开发)时跳过。
 if command -v docker >/dev/null 2>&1; then
   vol="$(docker volume ls --format '{{.Name}}' | grep -i 'media_center_data$' | head -1 || true)"
   if [ -n "$vol" ]; then
+    snap_dir="$BACKUP_DIR/.sqlite-snap-$STAMP"
+    mkdir -p "$snap_dir"
+    # 挂载不加 :ro:WAL 模式下读者也要建 -shm,.backup 需要写侧通道。
+    if docker run --rm -v "$vol:/data" -v "$snap_dir:/backup" alpine:3.24.1 \
+        sh -c 'apk add --no-cache sqlite >/dev/null 2>&1; found=0
+               for db in /data/*.db; do
+                 [ -e "$db" ] || continue
+                 sqlite3 "$db" ".backup \"/backup/$(basename "$db")\"" || exit 1
+                 found=1
+               done
+               [ "$found" = 1 ]' ; then
+      db_tar="$BACKUP_DIR/workwork-media_center_data-db-$STAMP.tar.gz"
+      tar -czf "$db_tar" -C "$snap_dir" .
+      rm -rf "$snap_dir"
+      parts+=("$db_tar")
+      db_exclude=(--exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm')
+    else
+      echo "  ⚠ sqlite3 一致性快照失败,catalog.db 回退为热拷贝 tar(恢复前须 integrity_check)" >&2
+      missing="$missing media_center_data-sqlite-snapshot"
+      db_exclude=()
+    fi
     f="$BACKUP_DIR/workwork-media_center_data-$STAMP.tar.gz"
     docker run --rm -v "$vol:/data:ro" -v "$BACKUP_DIR:/backup" alpine:3.24.1 \
-      tar czf "/backup/$(basename "$f")" -C /data .
+      tar czf "/backup/$(basename "$f")" -C /data ${db_exclude[@]+"${db_exclude[@]}"} .
     parts+=("$f")
   else
     echo "  跳过: 未找到 media_center_data volume（服务未部署？）"
@@ -98,6 +133,17 @@ if command -v docker >/dev/null 2>&1; then
 else
   echo "  跳过: docker 不可用，未导出 media_center_data"
   missing="$missing media_center_data"
+fi
+
+# 3.5) fail2ban 持久库（services/nginx/fail2ban-data:sqlite 计数/封禁状态）。
+#      此前不在备份内而文档声称覆盖——整机故障后撞库计数清零。
+if [ -d "$ROOT/services/nginx/fail2ban-data" ]; then
+  f="$BACKUP_DIR/workwork-fail2ban-$STAMP.tar.gz"
+  tar -czf "$f" -C "$ROOT" services/nginx/fail2ban-data
+  parts+=("$f")
+else
+  echo "  跳过: services/nginx/fail2ban-data 不存在（nginx 未部署？）"
+  missing="$missing fail2ban-data"
 fi
 
 if [ "${#parts[@]}" -eq 0 ]; then
@@ -122,8 +168,14 @@ manifest="$BACKUP_DIR/workwork-manifest-$STAMP.txt"
 } >"$manifest"
 chmod 0600 "${parts[@]}" "$manifest"
 
-# 5) 保留期清理
-if [ "$BACKUP_RETENTION_DAYS" -gt 0 ] 2>/dev/null; then
+# 5) 保留期清理（非法值显式告警,不静默跳过）
+case "$BACKUP_RETENTION_DAYS" in
+  ''|*[!0-9]*)
+    echo "⚠ BACKUP_RETENTION_DAYS='$BACKUP_RETENTION_DAYS' 非数字,按 0(不清理)处理" >&2
+    BACKUP_RETENTION_DAYS=0
+    ;;
+esac
+if [ "$BACKUP_RETENTION_DAYS" -gt 0 ]; then
   find "$BACKUP_DIR" -name 'workwork-*-*.tar.gz' -mtime +"$BACKUP_RETENTION_DAYS" -delete
   find "$BACKUP_DIR" -name 'workwork-manifest-*.txt' -mtime +"$BACKUP_RETENTION_DAYS" -delete
 fi

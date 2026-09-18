@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -98,6 +99,17 @@ func ExemptBodyLimit(path string) { bodyLimitExemptPaths[path] = true }
 
 // BodyLimitExempt 报告路径是否已豁免(供回归测试断言注册契约)。
 func BodyLimitExempt(path string) bool { return bodyLimitExemptPaths[path] }
+
+// BodyLimitExemptions 返回全部已登记豁免路径(排序)。契约测试用它断言
+// 豁免集合恰好等于声明清单——单向断言发现不了"端点已删、豁免残留"。
+func BodyLimitExemptions() []string {
+	paths := make([]string, 0, len(bodyLimitExemptPaths))
+	for p := range bodyLimitExemptPaths {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
+}
 
 // ApplyBodyLimit 对未豁免路径施加全局 1MB 请求体上限。
 func ApplyBodyLimit(w http.ResponseWriter, r *http.Request) {

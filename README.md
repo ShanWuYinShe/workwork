@@ -35,6 +35,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **vod_extractor** | Python (yt-dlp) | 8790（容器内，仅内网，media_server 调用；需宿主机 cookies） | YouTube 搜索/播放解析 |
 | **music_server** | Go | 8790（容器内，仅内网；对外经 nginx `/api/music`，与 vod_extractor 同端口但不同容器，不冲突） | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
 | **netease_api** | Node(Bun) | 3000（容器内，仅内网，music_server 调用） | 网易云 API 上游 |
+
 Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。Music Player 源码通过 submodule 引入到 [`services/music_player`](./services/music_player)（仓库 [`music_player`](https://github.com/ShanWuYinShe/music_player)，HarmonyOS 客户端 `music_app/` + Go 服务端 `music_server/`，组织方式同 media_center）。首次克隆后需执行 `git submodule update --init --recursive`。
 
 ### 网络架构
@@ -286,9 +287,15 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 
 ## 环境变量
 
+完整清单以 [.env.example](./.env.example) 为准（含各变量的生成方式与默认值），本表只列最常改动的。
+
 | 变量 | 说明 | 示例 |
 |------|------|------|
 | `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
+| `AUTH_USER` / `AUTH_PASS` | 首启必需：初始管理员与密码（写入 htpasswd；面板改密后 `.env` 里的 `AUTH_PASS` 即作废） | - |
+| `ADMIN_PORT` | admin 容器内端口（改它需同步 compose healthcheck 与 fail2ban action 的硬编码） | `8318` |
+| `DOCKER_GID` | 宿主机 docker.sock 组 ID（`stat -c '%g' /var/run/docker.sock`） | `988` |
+| `XRAY_PRIVATE_KEY` | 首启必需：X25519 私钥，渲染 Reality 入站；缺省 xray 起不来 | `xray x25519` 生成 |
 | `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
 | `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |
 | `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
@@ -304,7 +311,6 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
 | `MEDIA_SERVER_PUBLIC_URL` | 媒体 API 公网基址，固定用于拼接 App 更新下载地址（防 Host 投毒，需含 `/api/media` 前缀） | `https://yinghuoren.com/api/media` |
 | `MEDIA_SERVER_APP_API_TOKEN` | 凭证接口令牌，与 App 构建时注入的 `APP_API_TOKEN` 一致；为空则凭证接口 401 | `openssl rand -hex 32` |
-| `MEDIA_SERVER_ALLOWED_HOSTS` | 未配置 PUBLIC_URL 时允许推导下载地址的公网域名白名单（逗号分隔） | `yinghuoren.com` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
 | `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志 | `https://notify.example.com/hook` |
 | `MUSIC_SERVER_APP_API_TOKEN` | 可选：music_server 应用层鉴权令牌，配置后业务端点要求 `X-App-Token` 头；为空不鉴权（依赖边缘 mTLS） | `openssl rand -hex 32` |

@@ -9,6 +9,11 @@ set -e
 # 把日志重置为 root 属主:master 即可 open()(随后照常 chown 给 worker 供写入)。
 chown -R root:root /var/log/nginx 2>/dev/null || true
 
+# 预创建 fail2ban jail 的 logpath:supervisord 对 nginx/fail2ban 无启动顺序
+# 保证,冷启动时 fail2ban 若先于 nginx 创建该文件会启动失败进入重启循环
+# (supervisord priority 只能整体排序,预创建是两种程序名都成立的最小修法)。
+touch /var/log/nginx/admin-access.log
+
 # Fetch latest Cloudflare IP ranges on every container start
 fetch-cloudflare-ips.sh 2>/dev/null || echo "WARNING: failed to fetch Cloudflare IP ranges, using cached" >&2
 

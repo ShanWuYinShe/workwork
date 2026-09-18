@@ -22,7 +22,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 - Inbounds: `xhttp-in`（Unix socket `/run/xray/xrxh.socket`，nginx `/proxy/query` 转发，Cloudflare 前置；无独立 TCP 端口）+ `reality-in`（443，Reality 直连）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
 - 客户端双出站 reality + xhttp，observatory 探测 + leastLoad 均衡自动选路；客户端内置并行 DNS 段加速代理域名解析
-- Clients 用 `email` 字段（= 用户名）做 per-user 策略/流量统计
+- Clients 的 `email` 字段（= 用户名）用于标识客户端归属（面板里"谁拥有哪个客户端"）。注意：per-user 流量统计**未实现**——运行时配置无 quota/level 字段，模板也没有 stats 段
 
 ### services/nginx/ — Nginx + fail2ban
 
@@ -50,6 +50,8 @@ vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data 
 | Settings | `GET/POST /api/admin/network/*` | admin |
 | Media Center | `GET/PUT /api/admin/media-center/config`, `/credentials`; `GET/POST /api/admin/media-center/catalog/*` | admin |
 | App 版本管理 | `GET/POST /api/admin/media-center/app-release`；`GET .../app-release/history`、`GET .../app-release/download`、`POST .../app-release/rollback`、`DELETE .../app-release/history`（发布历史 / 回滚 / 删除历史版本 / 按版本下载 APK） | admin |
+| 音乐曲库 | `GET/POST/DELETE /api/admin/music-library*`（列表 / 上传 / 分片上传与续传查询 / 删除） | admin |
+| 网易云账号 | `POST /api/admin/music/netease/login/start`、`GET .../login/poll`、`GET .../login/state`、`POST .../login/logout`（扫码登录写 cookie / 状态 / 登出） | admin |
 | Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
 | Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
 | Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |

@@ -25,4 +25,3 @@ func AcquireUploadSlot(ctx context.Context) (release func(), ok bool) {
 		return nil, false
 	}
 }
-
