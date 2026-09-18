@@ -1,4 +1,4 @@
-// -check
+// @ts-check
 const ADMIN_PREFIX = '/admin';
 
 function readPath() {

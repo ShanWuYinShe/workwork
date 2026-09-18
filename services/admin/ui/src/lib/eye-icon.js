@@ -1,4 +1,4 @@
-// -check
+// @ts-check
 // 密码可见性切换图标（Users / MediaCenter 凭证等处共用）。
 // 返回 SVG 字符串，配合 {@html} 使用；open=true 时叠加斜线表示当前明文。
 export function eyeIcon(open) {

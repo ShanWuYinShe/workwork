@@ -1,4 +1,4 @@
-// -check
+// @ts-check
 const zh = {
   overview: '概览',
   dailyOps: '常用操作',
@@ -355,6 +355,8 @@ const zh = {
   // State badges
   stateRunning: '运行中',
   stateStopped: '已停止',
+  stateUnhealthy: '健康检查失败',
+  stateHealthStarting: '启动中',
   // misc
   // aria-labels
   copyConfiguration: '复制配置',
@@ -883,6 +885,8 @@ const en = {
   // State badges
   stateRunning: 'Running',
   stateStopped: 'Stopped',
+  stateUnhealthy: 'Unhealthy',
+  stateHealthStarting: 'Starting',
   // misc
   // aria-labels
   copyConfiguration: 'Copy configuration',
