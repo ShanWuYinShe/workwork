@@ -152,28 +152,36 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	// /64 网段计数条目(与封禁条目分离:封禁按具体 IP,计数按网段)。
 	// 惰性建表:测试可用字面量构造 rateLimiter(只初始化 entries)。
-	if rl.v6Prefix == nil {
-		rl.v6Prefix = make(map[string]*rateLimitEntry)
+	// 仅 IPv6 需要:IPv4 的 countKey 即自身,聚合表只写 v6,否则容量预算被
+	// v4 双份时间戳提前耗半。
+	var ce *rateLimitEntry
+	if isV6 {
+		if rl.v6Prefix == nil {
+			rl.v6Prefix = make(map[string]*rateLimitEntry)
+		}
+		var exists bool
+		ce, exists = rl.v6Prefix[countKey]
+		if !exists {
+			ce = &rateLimitEntry{}
+			rl.v6Prefix[countKey] = ce
+		}
 	}
-	ce, exists := rl.v6Prefix[countKey]
-	if !exists {
-		ce = &rateLimitEntry{}
-		rl.v6Prefix[countKey] = ce
-	}
-	// /64 超限 = 整个网段预算耗尽:当前这个新 IP 直接封禁(换后缀无效)。
-	// 旧的封禁判定在下面对 e.timestamps 的阈值检查保持不变。
 	cutoff := now.Add(-rl.window)
-	pruneTimestamps(ce, cutoff)
-	if isV6 && len(ce.timestamps) >= rl.maxReqs {
-		e.blockedAt = now
-		blockAfterUnlock = ip
-		rl.mu.Unlock()
-		ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
-		ipBlocker.save()
-		platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
-			"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
-		})
-		return false
+	if isV6 {
+		// /64 超限 = 整个网段预算耗尽:当前这个新 IP 直接封禁(换后缀无效)。
+		// 旧的封禁判定在下面对 e.timestamps 的阈值检查保持不变。
+		pruneTimestamps(ce, cutoff)
+		if len(ce.timestamps) >= rl.maxReqs {
+			e.blockedAt = now
+			blockAfterUnlock = ip
+			rl.mu.Unlock()
+			ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
+			ipBlocker.save()
+			platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
+				"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
+			})
+			return false
+		}
 	}
 
 	// Prune old timestamps
@@ -201,7 +209,9 @@ func (rl *rateLimiter) allow(ip string) bool {
 
 	// Record this request
 	e.timestamps = append(e.timestamps, now)
-	ce.timestamps = append(ce.timestamps, now)
+	if isV6 {
+		ce.timestamps = append(ce.timestamps, now)
+	}
 	rl.mu.Unlock()
 	return true
 }

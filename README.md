@@ -29,7 +29,8 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | 组件 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
-| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理；IPv4 直连 443 由 **xray-forward** 转发容器发布 |
+| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理 |
+| **xray-forward** | alpine + socat | 0.0.0.0:443 → xray:443 | IPv4 直连发布转发容器（xray 连接 ipvlan 后端口映射失效，见架构文档） |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成（docker API 经 **docker-proxy** 白名单代理） |
 | **docker-proxy** | Go | 2375（容器内，仅内网） | docker API 精确白名单反代：只放行 admin 所需端点，create/delete/images/networks 等逃逸面一律 403 |
 | **media_server** | Go | 8787（容器内，仅内网；对外经 nginx `/api/media`） | 合规公开视频聚合 API |
@@ -125,7 +126,8 @@ workwork/
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
 │   ├── backup.sh
-│   └── deploy-changed.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
+│   ├── deploy-changed.sh
+│   └── restore-verify.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
 ├── setup-networks.sh         # 创建 ipvlan 网络

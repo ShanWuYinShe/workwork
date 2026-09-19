@@ -74,7 +74,7 @@ func main() {
 	// RestoreServiceRotatingIP(容器 IP 补挂)可能被杀在半路,轮换 IP 丢失、
 	// 代理出口失效直到下次启动兜底。带超时等待,守护卡死时不阻塞退出。
 	var daemonWG sync.WaitGroup
-	daemonWG.Add(4)
+	daemonWG.Add(5)
 	go daemonGuard(&daemonWG, "xhttp-health", func() { proxy.XhttpHealthChecker(ctx, cli) })
 	go daemonGuard(&daemonWG, "ip-watcher", func() { proxy.IPWatcher(ctx, cli) })
 	go daemonGuard(&daemonWG, "ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone) })
@@ -153,7 +153,7 @@ func main() {
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
 		if err := runtimeFilesReady(); err != nil {
 			log.Printf("health check failed: %v", err)
-			platform.WriteError(w, "Not ready", http.StatusServiceUnavailable)
+			platform.WriteError(w, "服务初始化中，请稍后重试", http.StatusServiceUnavailable)
 			return
 		}
 		platform.WriteJSON(w, map[string]string{"status": "ok", "version": version})

@@ -248,7 +248,7 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "不能降级最后一个管理员", 400)
+				platform.WriteErrorCode(w, "不能降级最后一个管理员", 400, "LAST_ADMIN")
 				return
 			}
 			if errors.Is(err, auth.ErrProtectedAdmin) {
@@ -324,7 +324,7 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "不能删除最后一个管理员", 400)
+				platform.WriteErrorCode(w, "不能删除最后一个管理员", 400, "LAST_ADMIN")
 				return
 			}
 			platform.WriteInternalError(w, err)
@@ -446,7 +446,7 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "不能降级最后一个管理员", 400)
+				platform.WriteErrorCode(w, "不能降级最后一个管理员", 400, "LAST_ADMIN")
 				return
 			}
 			platform.WriteInternalError(w, err)

@@ -42,8 +42,8 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | `POST /users/admin/delete` | admin | 删除用户（级联删 htpasswd 行、代理凭证、xray 客户端、transfer 上传）。`{username}` |
 | `POST /users/roles/set` | admin | 设置角色。`{username, role}` |
 
-错误码要点：`403` 内置管理员保护（不可删/不可改角色）；`400` `ERR_LAST_ADMIN`
-类保护（最后一个 admin 不可删/不可降级）。
+错误码要点：`403` 内置管理员保护（不可删/不可改角色）；`400` `LAST_ADMIN`
+（最后一个 admin 不可删/不可降级，降级与删除两类端点均返回）。
 
 ### Xray 客户端（每人一个，viewer 管理自己的）
 
@@ -86,7 +86,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 
 | 端点 | 角色 | 说明 |
 |------|------|------|
-| `GET /traffic` | admin | 按用户累计代理流量 `[{user, up, down}]`（xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时为空数组 |
+| `GET /traffic` | admin | 按用户累计代理流量：`{traffic: [{user, up, down}], collected_at}`（xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
 
 ### Media Center
 
@@ -133,7 +133,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | `POST /claude-code/download`、`POST /xray/download` | admin | 服务端下载（NDJSON 进度流；500MB/5min 上限，sha256 入 manifest） |
 | `GET /claude-code/stored`、`GET /xray/stored` | viewer+ | 已缓存版本 |
 | `GET /claude-code/downloads/{filename}`、`GET /xray/downloads/{filename}` | viewer+ | 下载缓存文件 |
-| `DELETE /claude-code/downloads?filename=`、`DELETE /xray/downloads?filename=` | admin | 删除缓存文件（query 传参，不带 body） |
+| `DELETE /claude-code/downloads?filename=`、`DELETE /xray/downloads?filename=` | admin | 删除缓存文件（query 传参，不带 body）；另有带尾斜杠的别名路由同 handler |
 
 ### 文件中转（transfer）
 

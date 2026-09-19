@@ -476,14 +476,9 @@ func ApiTransferDelete() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
-		var body struct {
-			Code string `json:"code"`
-		}
-		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "请求体不是合法 JSON", 400)
-			return
-		}
-		if body.Code == "" {
+		// DELETE 不带 body(风格统一,claude/xray downloads 同为 query):目标经 ?code= 定位。
+		code := r.URL.Query().Get("code")
+		if code == "" {
 			platform.WriteError(w, "分享码必填", 400)
 			return
 		}
@@ -495,10 +490,10 @@ func ApiTransferDelete() http.HandlerFunc {
 		found := false
 		var kept []transferFile
 		for _, f := range m.Files {
-			if f.Code == body.Code {
+			if f.Code == code {
 				// 权限检查：admin 可删任意文件，普通用户只能删自己的
 				if userInfo != nil && userInfo.Role != "admin" && f.Uploader != username {
-					platform.WriteError(w, "Forbidden: 不是你上传的文件", 403)
+					platform.WriteError(w, "无权操作：不是你上传的文件", 403)
 					return
 				}
 				os.Remove(transferFilePath(f.Code, f.Filename))
@@ -523,7 +518,7 @@ func ApiTransferDelete() http.HandlerFunc {
 			platform.WriteInternalError(w, fmt.Errorf("persist transfer manifest: %w", err))
 			return
 		}
-		log.Printf("[security] transfer delete code=%s by=%s", body.Code, username)
+		log.Printf("[security] transfer delete code=%s by=%s", code, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
