@@ -17,6 +17,13 @@ findtime = 300
 # 在线撞库预算收紧:8 次/5min × 多 IP 仍有撞库空间;5 次对正常用户
 # (密码错几次)足够宽容,panel basic auth 有 bcrypt 兜底离线暴力。
 maxretry = 5
+# 递进封禁:重复违规者时长 ×1,2,4,8,16,32 递增(封禁时长经 admin-api action
+# 的 <bantime> 占位符自动流入 block API,admin 侧 10 年上限内)。记忆依赖
+# fail2ban 持久库(已纳入 backup.sh),重启不清零;此前撞库者每 3600s 释放后
+# 可无限循环。maxtime 封顶两周,rndtime 加随机防僵尸网络掐点解封后重试。
+bantime.increment = true
+bantime.maxtime = 2w
+bantime.rndtime = 10m
 
 [sshd]
 enabled = false
