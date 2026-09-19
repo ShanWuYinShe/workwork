@@ -84,9 +84,9 @@ docker compose up -d
    curl 全站可用；
 4. CF Origin Pull / 边缘侧无需变动（验证的是客户端证书，不是源站证书）。
 
-### 第二步：清理 git 历史（可选，仓库私有可择期）
+### 第二步：清理 git 历史（已于 2026-09-19 执行完毕）
 
-历史改写会使所有既有 clone 失效，需要在所有协作者重新 clone 的窗口内完成：
+历史改写会使所有既有 clone 失效，需要在所有协作者重新 clone 的窗口内完成。
 
 ```bash
 # 用 git-filter-repo 从全部历史中移除证书文件（在全新 clone 上操作）
@@ -96,8 +96,19 @@ git filter-repo --invert-paths --path cert/server_cert.key --path cert/server_ce
 git push --force --mirror   # force 仅用于这次历史清理
 ```
 
-主工作树的日常开发仍遵守「禁止改写 main 历史」——本节是唯一例外的一次性灾后清理，
-必须与所有协作者协调后执行。
+主工作树的日常开发仍遵守「禁止改写 main 历史」——本节是唯一例外的一次性灾后清理。
+
+**2026-09-19 执行记录**（两步均已完成）：
+
+1. 换钥：yinghuoren.com 源站证书重签（ECC，2041-09-15 到期，公钥指纹
+   `19acf77e…`），workwork 与 ops-portal 两处 nginx 均已替换并重启验证；
+   旧钥 retired 备份已删除。
+2. 历史清理：`git filter-repo` 移除 `cert/server_cert.{key,pem}`，按内容
+   哈希确认旧 blob 已从对象库物理清除；force-push 后本机与服务器均重新
+   clone/重置，`git log --all` 对该文件为 0 条。GitHub 侧残留的旧历史
+   分支（worktree-audit-fixes 等）已删除；dependabot 分支核查不含旧文件。
+   服务器 `~/workwork` 的 2026-05 stash（旧结构残片 api.go/cliproxy.go）
+   已随重置丢弃。`.gitleaksignore` 指纹已按新历史更新（cert 条目不再需要）。
 
 ### Cloudflare 凭据轮换（常规运维）
 
