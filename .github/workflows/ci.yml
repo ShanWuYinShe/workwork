@@ -57,8 +57,9 @@ jobs:
         with:
           bun-version: '1.3.14'
 
+      # v6 起 action 运行在 node24,v4 会在 runner 上触发 Node.js 20 弃用警告
       - name: cache bun install
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('services/admin/ui/bun.lock') }}
@@ -99,7 +100,11 @@ jobs:
   # admin 当前命中的 2 项为 GO-2026-4887/4883(Moby daemon 侧 AuthZ 插件绕过/
   # 插件校验 off-by-one),实测升级 docker/docker v28.5.2 后仍存在且 Fixed in:
   # N/A(无上游修复版本),本仓库仅以 client 库走 socket 调用、漏洞代码路径不可达,
-  # 故 admin 保持非阻断(与 ops-portal agent 作业同款处理),新漏洞出现时仍在此可见。
+  # 故 admin 走显式 allowlist 门禁:命中均属 allowlist 即放行,出现清单外新漏洞
+  # 直接 fail(比原先的 continue-on-error 非阻断更强地保住"新漏洞可见")。
+  # 另:setup-go 注册的 go problem matcher 会把 govulncheck 的调用栈逐条渲染成
+  # failure 级 annotation(受每步 10 条上限,绿色 run 上挂一片红叉),admin 步骤
+  # 先行关闭该 matcher,发现仍完整打印进日志,放行与否由 allowlist 决定。
   govulncheck:
     name: Vulnerability scan (govulncheck)
     runs-on: ubuntu-24.04
@@ -113,17 +118,40 @@ jobs:
           go-version: '1.26.8'
           cache: true
           cache-dependency-path: services/admin/go.sum
-      - name: govulncheck (admin, non-blocking, known accepted findings)
-        continue-on-error: true
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
-          govulncheck ./...
-        working-directory: services/admin
+      # 阻断步骤在前,保留 problem matcher:docker_proxy 一旦出现发现,失败本身
+      # 就是门禁,逐条调用栈注解仍有排查价值。
       - name: govulncheck (docker_proxy, blocking)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
         working-directory: services/docker_proxy
+      - name: govulncheck (admin, allowlist = GO-2026-4887/4883)
+        env:
+          GOVULN_ALLOWED: 'GO-2026-4883 GO-2026-4887'
+        run: |
+          echo "::remove-matcher owner=go::"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          rc=0
+          govulncheck ./... > "$RUNNER_TEMP/govulncheck-admin.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/govulncheck-admin.log"
+          ids=$(grep -oE 'GO-[0-9]{4}-[0-9]+' "$RUNNER_TEMP/govulncheck-admin.log" | sort -u)
+          # 工具自身失败(网络/安装/崩溃)不得被当成"零发现"静默放行
+          if [ "$rc" -ne 0 ] && [ -z "$ids" ]; then
+            echo "::error::govulncheck 运行失败(exit=$rc)且未产出任何发现,先排查工具与网络"
+            exit 1
+          fi
+          unexpected=""
+          if [ -n "$ids" ]; then
+            unexpected=$(comm -23 \
+              <(echo "$ids" | tr ' ' '\n' | sort) \
+              <(echo "$GOVULN_ALLOWED" | tr ' ' '\n' | sort))
+          fi
+          if [ -n "$unexpected" ]; then
+            echo "::error::admin 出现 allowlist($GOVULN_ALLOWED)之外的新漏洞: $unexpected"
+            exit 1
+          fi
+          echo "admin govulncheck 通过:命中均为已知 allowlist(${ids:-无})"
+        working-directory: services/admin
 
   # 密钥泄露扫描（阻断模式）:git 历史里发生过 cert 私钥入库事故
   # （docs/operations.md 有复盘），此类事故必须由门禁拦截而非人工发现。
@@ -143,6 +171,8 @@ jobs:
         with:
           go-version: '1.26.8'
           cache: true
+          # 仓库根没有 go.mod,不指定时缓存恢复会报 "Restore cache failed" 警告
+          cache-dependency-path: services/admin/go.sum
       - name: gitleaks
         run: |
           go install github.com/zricethezav/gitleaks/v8@v8.30.1
