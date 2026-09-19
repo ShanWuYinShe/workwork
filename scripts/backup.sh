@@ -187,6 +187,17 @@ if [ "$BACKUP_RETENTION_DAYS" -gt 0 ]; then
   find "$BACKUP_DIR" -name 'workwork-manifest-*.txt' -mtime +"$BACKUP_RETENTION_DAYS" -delete
 fi
 
+# 5.5) 恢复验证(演练的机械部分自动化):哈希/关键状态文件/两类 sqlite 库
+#      完整性/证书配对。放在异机复制之前——坏备份不外发。失败经 EXIT trap
+#      触发 backup.failure webhook。
+VERIFY="$(cd "$(dirname "$0")" && pwd)/restore-verify.sh"
+if "$VERIFY" "$BACKUP_DIR" "$STAMP"; then
+  echo "=== 恢复验证通过 ==="
+else
+  echo "!! 恢复验证失败,详见上方" >&2
+  exit 1
+fi
+
 # 6) 异机复制（把备份挪出单机是备份有意义的前提）
 if [ -n "$BACKUP_RSYNC_TARGET" ]; then
   echo "=== rsync 到 $BACKUP_RSYNC_TARGET ==="

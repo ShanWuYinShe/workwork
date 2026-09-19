@@ -54,7 +54,15 @@ docker compose up -d
 # 5. 按健康端点核对版本指纹（README「版本排查」）
 ```
 
-### 恢复演练（每季度）
+### 恢复演练
+
+**机械校验已自动化**：每次备份完成后 `backup.sh` 自动调用 `scripts/restore-verify.sh`
+（sha256 逐文件、.htpasswd/users.json/generated 配置/.env 关键文件、catalog.db 与
+fail2ban 库 integrity_check、证书配对），失败即 `backup.failure` webhook——每晚
+的备份自证可用，无需人工盯。也可随时手动执行：`scripts/restore-verify.sh [目录] [STAMP]`。
+
+**完整恢复演练（每季度）**仍需手动一次：机械校验通过 ≠ 应用一定能在旧数据上启动
+（schema 兼容、磁盘布局、文档步骤漂移只有真机才能暴露）。
 
 1. 在隔离环境（或临时目录 + 独立 compose project 名）按上述步骤从**最新备份**完整恢复；
 2. 用 `.wework/nginx-auth/.htpasswd` 的账号登录 admin 面板；
