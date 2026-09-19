@@ -92,12 +92,13 @@ func parseStatsQueryOutput(data []byte) (map[string]userTraffic, error) {
 	}
 	out := map[string]userTraffic{}
 	for _, s := range resp.Stats {
-		// 计数器名形如 user>>><email>>>uplink|downlink。
+		// 计数器名形如 user>>><email>>>traffic>>>uplink|downlink(xray 26.x
+		// 实测为 4 段,中间是类别 traffic;按 3 段解析会全部跳过,流量恒为空)。
 		if !strings.HasPrefix(s.Name, "user>>>") {
 			continue
 		}
 		parts := strings.Split(s.Name, ">>>")
-		if len(parts) != 3 {
+		if len(parts) != 4 || parts[2] != "traffic" {
 			continue
 		}
 		email := parts[1]
@@ -106,7 +107,7 @@ func parseStatsQueryOutput(data []byte) (map[string]userTraffic, error) {
 			continue
 		}
 		t := out[email]
-		switch parts[2] {
+		switch parts[3] {
 		case "uplink":
 			t.Up = val
 		case "downlink":

@@ -8,13 +8,14 @@ import (
 // 非 user 前缀(inbound/outbound)与畸形名跳过,负值/非法值跳过。
 func TestParseStatsQueryOutput(t *testing.T) {
 	out := `{"stats":[
-		{"name":"user>>>alice>>>uplink","value":"1000"},
-		{"name":"user>>>alice>>>downlink","value":"2000"},
-		{"name":"user>>>bob>>>uplink","value":"5"},
+		{"name":"user>>>alice>>>traffic>>>uplink","value":"1000"},
+		{"name":"user>>>alice>>>traffic>>>downlink","value":"2000"},
+		{"name":"user>>>bob>>>traffic>>>uplink","value":"5"},
+		{"name":"user>>>carol>>>uplink","value":"42"},
 		{"name":"inbound>>>xhttp-in>>>traffic>>>uplink","value":"9999"},
 		{"name":"user>>>weird","value":"1"},
-		{"name":"user>>>carol>>>uplink","value":"-3"},
-		{"name":"user>>>carol>>>uplink","value":7}
+		{"name":"user>>>carol>>>traffic>>>uplink","value":"-3"},
+		{"name":"user>>>carol>>>traffic>>>uplink","value":7}
 	]}`
 	cur, err := parseStatsQueryOutput([]byte(out))
 	if err != nil {
@@ -29,7 +30,7 @@ func TestParseStatsQueryOutput(t *testing.T) {
 	if cur["bob"].Up != 5 {
 		t.Fatalf("bob = %+v", cur["bob"])
 	}
-	// carol 第一条 -3 跳过,第二条 7 生效。
+	// carol:非 traffic 类别的 3 段名、负值跳过,最后 JSON number 7 生效。
 	if cur["carol"].Up != 7 {
 		t.Fatalf("carol = %+v", cur["carol"])
 	}
