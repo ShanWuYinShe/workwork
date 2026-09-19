@@ -53,7 +53,8 @@ for f in wework cert env fail2ban media_center_data media_center_data-db; do
 done
 
 echo "· 关键状态文件"
-WW="$WORK/wework"
+# .wework 归档打包时以 -C $ROOT .wework 打包,含顶层 .wework/ 目录。
+WW="$WORK/wework/.wework"
 check "登录凭证 .htpasswd 非空" test -s "$WW/nginx-auth/.htpasswd"
 check "代理凭证 .htpasswd-proxy 存在" test -f "$WW/nginx-auth/.htpasswd-proxy"
 if [ -f "$WW/users.json" ]; then
