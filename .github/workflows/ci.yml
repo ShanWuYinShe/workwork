@@ -40,7 +40,7 @@ jobs:
       - name: go test
         run: |
           go test -C services/admin -race ./...
-          go test -C services/docker_proxy ./...
+          go test -C services/docker_proxy -race ./...
       - name: shell syntax + shellcheck（覆盖全部 .sh）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
@@ -95,11 +95,13 @@ jobs:
           gosec -no-fail -quiet -fmt text ./...
         working-directory: services/admin
 
-  # 已知漏洞扫描（Go 标准库 + 依赖）。报告模式:当前命中的 2 项均为
-  # docker/docker v27 客户端库携带的 daemon 侧漏洞且 Fixed in: N/A(升级
-  # 客户端大版本才能消除),阻断会让门禁永久红;升依赖后此处应转阻断。
+  # 已知漏洞扫描（Go 标准库 + 依赖）。docker_proxy 当前零发现,作阻断门禁;
+  # admin 当前命中的 2 项为 GO-2026-4887/4883(Moby daemon 侧 AuthZ 插件绕过/
+  # 插件校验 off-by-one),实测升级 docker/docker v28.5.2 后仍存在且 Fixed in:
+  # N/A(无上游修复版本),本仓库仅以 client 库走 socket 调用、漏洞代码路径不可达,
+  # 故 admin 保持非阻断(与 ops-portal agent 作业同款处理),新漏洞出现时仍在此可见。
   govulncheck:
-    name: Vulnerability scan (govulncheck, report-only)
+    name: Vulnerability scan (govulncheck)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -111,14 +113,13 @@ jobs:
           go-version: '1.26.5'
           cache: true
           cache-dependency-path: services/admin/go.sum
-      - name: govulncheck
+      - name: govulncheck (admin, non-blocking, known accepted findings)
         continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
         working-directory: services/admin
-      - name: govulncheck (docker_proxy)
-        continue-on-error: true
+      - name: govulncheck (docker_proxy, blocking)
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
