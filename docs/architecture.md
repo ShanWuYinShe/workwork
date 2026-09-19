@@ -6,7 +6,7 @@
 
 ### services/admin/ — Go 管理面板（端口 8318，内部）
 
-HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过 `docker.sock` 操作其他容器。
+HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过自建白名单代理（`docker-proxy` 服务，compose 独立网络 `docker_proxy`，仅 admin 可达）操作其他容器：method+path 级放行 containers 读写/exec/events/info/version/ping，create/delete/images/networks/volumes/swarm 一律 403（容器 create + bind-mount 是宿主逃逸面，必须拒绝）。
 
 ### services/admin/ui/ — Svelte 5 SPA
 
@@ -34,7 +34,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ## docker-compose
 
-8 服务: admin, xray, xray-forward, nginx, media_server, vod_extractor, netease_api, music_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/music/netease 内网 bridge，网段由 Docker 默认地址池动态分配）+ `xray_egress`（xray 专用 IPv4 egress bridge）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
+9 服务: admin, docker-proxy, xray, xray-forward, nginx, media_server, vod_extractor, netease_api, music_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/music/netease 内网 bridge，网段由 Docker 默认地址池动态分配）+ `xray_egress`（xray 专用 IPv4 egress bridge）+ `docker_proxy`（内部，仅 admin 与 docker-proxy）。`xray` 持有公网 IPv6（ipvlan L3 直连），IPv4 直连 443 由 `xray-forward`（bridge-only socat 转发容器）发布，转发目标 `xray:443`（xray_egress 网络内）。不要为 IPv4 再加其他转发方式（宿主 iptables DNAT 等）——Docker 管理的端口映射已足够。
 vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data API 配额）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 搜索/解析全被 bot 检测拦截。
 
 ## RBAC 访问矩阵

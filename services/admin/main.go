@@ -74,10 +74,12 @@ func main() {
 	// RestoreServiceRotatingIP(容器 IP 补挂)可能被杀在半路,轮换 IP 丢失、
 	// 代理出口失效直到下次启动兜底。带超时等待,守护卡死时不阻塞退出。
 	var daemonWG sync.WaitGroup
-	daemonWG.Add(3)
+	daemonWG.Add(4)
 	go daemonGuard(&daemonWG, "xhttp-health", func() { proxy.XhttpHealthChecker(ctx, cli) })
 	go daemonGuard(&daemonWG, "ip-watcher", func() { proxy.IPWatcher(ctx, cli) })
 	go daemonGuard(&daemonWG, "ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone) })
+	// 证书到期监控(CF Origin CA 到期 = 全站 5xx,提前 30 天 webhook 告警)。
+	go daemonGuard(&daemonWG, "cert-expiry", func() { infra.StartCertExpiryWatcher(ctx) })
 
 	mux := http.NewServeMux()
 

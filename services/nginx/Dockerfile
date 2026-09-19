@@ -1,10 +1,11 @@
+ARG APK_MIRROR=mirrors.aliyun.com
 ARG NGINX_VERSION=1.30.4
 # GIT_VERSION(workwork git describe)标识本镜像携带的配置模板/脚本版本。
 ARG GIT_VERSION=dev
 
 FROM nginx:${NGINX_VERSION}-alpine
 
-RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories \
+RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache fail2ban supervisor curl logrotate
 
 # Cloudflare Authenticated Origin Pulls — shared public CA certificate

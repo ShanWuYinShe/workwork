@@ -7,6 +7,10 @@ updates:
     directory: /services/admin
     schedule:
       interval: weekly
+  - package-ecosystem: gomod
+    directory: /services/docker_proxy
+    schedule:
+      interval: weekly
     groups:
       go-minor-patch:
         update-types:
@@ -18,6 +22,10 @@ updates:
       interval: weekly
   - package-ecosystem: docker
     directory: /services/admin
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/docker_proxy
     schedule:
       interval: weekly
   - package-ecosystem: docker

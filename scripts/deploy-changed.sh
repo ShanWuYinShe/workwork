@@ -98,6 +98,11 @@ fi
 if printf '%s\n' "$changed" | grep -q '^services/admin/'; then
   add_svc admin
 fi
+if printf '%s\n' "$changed" | grep -q '^services/docker_proxy/'; then
+  # admin 的 docker API 白名单代理;改代理必须同时重启 admin(重建 DOCKER_HOST 连接)。
+  add_svc docker-proxy
+  add_svc admin
+fi
 if printf '%s\n' "$changed" | grep -q '^services/nginx/'; then
   add_svc nginx
 fi
