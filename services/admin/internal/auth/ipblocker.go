@@ -18,6 +18,10 @@ const (
 	errCodeInvalidJSON     = "INVALID_JSON"
 	errCodeInvalidDuration = "INVALID_DURATION"
 	errCodeBlockNotFound   = "BLOCK_NOT_FOUND"
+
+	// maxPermanentBlockWarn 是永久封禁条目的告警阈值:超过后按 1000 取模
+	// 周期性 WARNING,提示审视 blocked-ips.json 是否堆积了失效条目。
+	maxPermanentBlockWarn = 5000
 )
 
 type ipBlockEntry struct {
@@ -53,6 +57,18 @@ func (s *ipBlockStore) load() {
 func (s *ipBlockStore) save() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// 容量告警:永久条目(无 ExpiresAt)只能手工/自动化清理,单调累积会让
+	// blocked-ips.json 与 nginx map 无限膨胀(每次 reload 全量渲染)。超过
+	// 阈值按 1000 取模周期性告警,提示运维审视是否存在可清退的过期条目。
+	permanent := 0
+	for _, e := range s.Entries {
+		if !blockEntryExpired(e) && e.ExpiresAt == "" {
+			permanent++
+		}
+	}
+	if permanent > maxPermanentBlockWarn && permanent%1000 == 0 {
+		log.Printf("WARNING: %d permanent blocked IPs in %s — review and unblock stale entries", permanent, s.path)
+	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		log.Printf("ERROR: failed to marshal blocked IPs: %v", err)

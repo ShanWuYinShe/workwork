@@ -73,14 +73,19 @@ func neteaseUpstreamBase() string {
 	return platform.GetEnv("NETEASE_API_BASE")
 }
 
+// neteaseClient 包级共享 client(对齐全项目 cloudflare.go/media_catalog.go 的
+// 包级 client 模式):每次调用新建 client 虽经 DefaultTransport 共享连接池
+// 不算泄漏,但徒增对象分配且与项目惯例不一致。上游是内网容器,8s 超时覆盖
+// 全部调用场景(key/二维码/轮询/状态),无需按调用差异化。
+var neteaseClient = &http.Client{Timeout: 8 * time.Second}
+
 // neteaseUpstreamGet 请求上游并原样返回 JSON body(只透传,不解析细节)。
-func neteaseUpstreamGet(path string, timeout time.Duration) ([]byte, error) {
+func neteaseUpstreamGet(path string) ([]byte, error) {
 	base := neteaseUpstreamBase()
 	if base == "" {
 		return nil, fmt.Errorf("netease_api upstream not configured")
 	}
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Get(base + path)
+	resp, err := neteaseClient.Get(base + path)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +102,7 @@ func neteaseUpstreamGet(path string, timeout time.Duration) ([]byte, error) {
 func ApiNeteaseLoginStart() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ts := time.Now().UnixMilli()
-		keyBody, err := neteaseUpstreamGet(fmt.Sprintf("/login/qr/key?timestamp=%d", ts), 8*time.Second)
+		keyBody, err := neteaseUpstreamGet(fmt.Sprintf("/login/qr/key?timestamp=%d", ts))
 		if err != nil {
 			platform.WriteInternalError(w, err)
 			return
@@ -112,7 +117,7 @@ func ApiNeteaseLoginStart() http.HandlerFunc {
 			return
 		}
 		qrBody, err := neteaseUpstreamGet(
-			fmt.Sprintf("/login/qr/create?key=%s&qrimg=true&timestamp=%d", url.QueryEscape(keyResp.Data.Unikey), ts), 8*time.Second)
+			fmt.Sprintf("/login/qr/create?key=%s&qrimg=true&timestamp=%d", url.QueryEscape(keyResp.Data.Unikey), ts))
 		if err != nil {
 			platform.WriteInternalError(w, err)
 			return
@@ -161,7 +166,7 @@ func ApiNeteaseLoginPoll() http.HandlerFunc {
 		}
 
 		body, err := neteaseUpstreamGet(
-			fmt.Sprintf("/login/qr/check?key=%s&timestamp=%d", url.QueryEscape(key), time.Now().UnixMilli()), 8*time.Second)
+			fmt.Sprintf("/login/qr/check?key=%s&timestamp=%d", url.QueryEscape(key), time.Now().UnixMilli()))
 		if err != nil {
 			platform.WriteInternalError(w, err)
 			return
@@ -277,8 +282,7 @@ func neteaseUpstreamGetWithCookie(path, cookie string) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("Cookie", cookie)
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := neteaseClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

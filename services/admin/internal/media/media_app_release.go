@@ -517,13 +517,33 @@ func writeMediaAppReleaseHistory(variant string, records []mediaAppReleaseManife
 	return platform.AtomicWriteFile(appUpdateHistoryPath(variant), data, 0644)
 }
 
+// appReleaseHistoryMax 是单变体发布历史上限:每发一版落一个 300MB 级 APK,
+// history 无上限会让磁盘被发布历史线性吃满。超出上限裁掉最老的记录(当前
+// 发布版本不受影响,manifest 引用的 APK 由 pruneOrphanAppAPKs 保活),被裁
+// 版本引用的 APK 会在发布路径的 prune 中删除。0 = 不限(不推荐)。
+// 可用 MEDIA_APP_HISTORY_MAX 覆盖。
+func appReleaseHistoryMax() int {
+	if raw := strings.TrimSpace(platform.GetEnv("MEDIA_APP_HISTORY_MAX")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			return n
+		}
+		log.Printf("WARNING: invalid MEDIA_APP_HISTORY_MAX %q, using default", raw)
+	}
+	return 20
+}
+
 // upsertMediaAppReleaseHistory 追加（或按 versionCode 覆盖）一条发布记录并落盘。
 func upsertMediaAppReleaseHistory(variant string, record mediaAppReleaseManifest) error {
 	records, err := readMediaAppReleaseHistory(variant)
 	if err != nil {
 		return err
 	}
-	return writeMediaAppReleaseHistory(variant, upsertReleaseRecord(records, record))
+	out := upsertReleaseRecord(records, record)
+	if max := appReleaseHistoryMax(); max > 0 && len(out) > max {
+		out = out[:max]
+		log.Printf("app release history: trimmed to %d entries (MEDIA_APP_HISTORY_MAX)", max)
+	}
+	return writeMediaAppReleaseHistory(variant, out)
 }
 
 // upsertReleaseRecord 按 versionCode 插入/替换记录并保持 versionCode 降序。

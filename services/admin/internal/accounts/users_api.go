@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// CascadeDeleteUploads 在删除用户时级联清理其名下资源,由 main 装配注入
+// (transfer.DeleteUploadsByUploader)。依赖方向约束:transfer 依赖 accounts
+// 之下的层,accounts 不能直接 import transfer,故用钩子注入而不是直接调用。
+// 未装配(nil)时跳过级联——单元测试环境无需构造 transfer 状态。
+var CascadeDeleteUploads func(uploader string) (int, error)
+
 // -- User management APIs --
 func ApiUsers(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -372,8 +378,19 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				return
 			}
 		}
+		// 级联清理其名下的 transfer 上传:用户已删,文件既无法自助管理,
+		// 配额也无人释放。级联失败不作为整体失败(用户已删,文件 7 天后
+		// 随过期清理回收),只记日志并告知。
+		uploadsRemoved := 0
+		if CascadeDeleteUploads != nil {
+			if n, err := CascadeDeleteUploads(body.Username); err != nil {
+				log.Printf("ERROR: cascade delete uploads for %s: %v", body.Username, err)
+			} else {
+				uploadsRemoved = n
+			}
+		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] user delete user=%s xray_clients_removed=%d by=%s", body.Username, removed, actor)
+		log.Printf("[security] user delete user=%s xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, removed, uploadsRemoved, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

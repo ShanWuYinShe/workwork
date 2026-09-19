@@ -9,6 +9,7 @@
     setUserRole,
   } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
+  import { formatDate } from '../lib/format.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { eyeIcon } from '../lib/eye-icon.js';
@@ -169,7 +170,7 @@
                       >{u.role === 'admin' ? t('Admin') : t('Viewer')}</span
                     >
                   </td>
-                  <td class="td-muted">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+                  <td class="td-muted">{u.created_at ? formatDate(u.created_at) : '—'}</td>
                   <td>
                     <div class="td-actions">
                       {#if u.username === currentUsername}

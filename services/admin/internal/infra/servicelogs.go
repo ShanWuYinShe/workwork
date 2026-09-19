@@ -142,51 +142,71 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 
 		// Decode Docker multiplexed stream and write as SSE
 		const maxFrameSize = 1 << 20 // 1MB 上限防止 OOM
-		buf := make([]byte, 4096)
+		// 常驻 reader goroutine:此前每帧 go readFrame(),高流量下每秒成千
+		// 次创建销毁是纯开销,且 buf 切片在闭包与主循环间靠"严格串行"隐式
+		// 保证安全——任何把"消费"与"spawn 下一次"顺序调换的重构都会引入
+		// 数据竞争。现在 reader 独占解码 buf,每帧拷贝出独立切片送入
+		// channel(日志行典型 <1KB,拷贝开销可忽略);只有主循环写 w,
+		// 退出路径上无并发写 ResponseWriter。
 		type frame struct {
-			data []byte
+			data []byte // nil 表示空帧(size=0)
 			err  error
 		}
-		ch := make(chan frame, 1)
+		ch := make(chan frame, 64)
+		readerDone := make(chan struct{})
 		ctx, cancel := context.WithCancel(r.Context())
-		defer cancel() // 客户端断开时通知 readFrame 退出
-
-		readFrame := func() {
-			// 所有发送都带 ctx.Done 检查:主循环退出后(ctx 取消)发送方不会
-			// 在 ch 上永久阻塞,避免每个断开连接泄漏 1-2 个 goroutine。
-			send := func(f frame) {
+		defer cancel() // 客户端断开时通知 reader 退出
+		go func() {
+			defer close(readerDone)
+			// send 带 ctx.Done 检查:主循环退出后发送方不会在 ch 上永久阻塞。
+			send := func(f frame) bool {
 				select {
 				case <-ctx.Done():
+					return false
 				case ch <- f:
+					return true
 				}
 			}
+			var buf []byte
 			hdr := make([]byte, 8)
-			if _, err := io.ReadFull(logs, hdr); err != nil {
-				send(frame{nil, err})
-				return
+			for {
+				if _, err := io.ReadFull(logs, hdr); err != nil {
+					send(frame{nil, err})
+					return
+				}
+				size := int(binary.BigEndian.Uint32(hdr[4:8]))
+				if size > maxFrameSize {
+					send(frame{nil, fmt.Errorf("frame too large: %d bytes", size)})
+					return
+				}
+				if size == 0 {
+					if !send(frame{nil, nil}) {
+						return
+					}
+					continue
+				}
+				if size > cap(buf) {
+					buf = make([]byte, size)
+				}
+				if _, err := io.ReadFull(logs, buf[:size]); err != nil {
+					send(frame{nil, err})
+					return
+				}
+				// 拷贝出独立切片:buf 归 reader 所有,下一帧立即复用。
+				data := make([]byte, size)
+				copy(data, buf[:size])
+				if !send(frame{data, nil}) {
+					return
+				}
 			}
-			size := int(binary.BigEndian.Uint32(hdr[4:8]))
-			if size > maxFrameSize {
-				send(frame{nil, fmt.Errorf("frame too large: %d bytes", size)})
-				return
-			}
-			if size > cap(buf) {
-				buf = make([]byte, size)
-			} else {
-				buf = buf[:size]
-			}
-			if size == 0 {
-				send(frame{nil, nil})
-				return
-			}
-			if _, err := io.ReadFull(logs, buf[:size]); err != nil {
-				send(frame{nil, err})
-				return
-			}
-			send(frame{buf[:size], nil})
-		}
-
-		go readFrame()
+		}()
+		defer func() {
+			// 关闭 docker 流唤醒阻塞在 ReadFull 的 reader(仅靠 ctx 取消
+			// 不能中断阻塞读),再等它退出,保证无 goroutine 泄漏。
+			cancel()
+			logs.Close()
+			<-readerDone
+		}()
 		for {
 			select {
 			case <-ctx.Done():
@@ -196,7 +216,6 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 					return
 				}
 				if f.data == nil {
-					go readFrame()
 					continue
 				}
 				line := strings.TrimRight(string(f.data), "\n\r")
@@ -209,7 +228,6 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 					fmt.Fprint(w, "\n")
 					flusher.Flush()
 				}
-				go readFrame()
 			}
 		}
 	}

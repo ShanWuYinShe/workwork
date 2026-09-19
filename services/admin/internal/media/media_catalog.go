@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -207,7 +209,7 @@ func ApiMediaCatalogReview() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/review", nil, body); status >= 200 && status < 300 {
-			log.Printf("[security] media-catalog review by=%s", username)
+			log.Printf("[security] media-catalog review %s by=%s", catalogAuditIdent(req), username)
 		}
 	}
 }
@@ -229,7 +231,9 @@ func ApiMediaCatalogDelete() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/delete", nil, bytes.TrimSpace(raw)); status >= 200 && status < 300 {
-			log.Printf("[security] media-catalog delete by=%s", actor)
+			var req map[string]json.RawMessage
+			_ = json.Unmarshal(bytes.TrimSpace(raw), &req)
+			log.Printf("[security] media-catalog delete %s by=%s", catalogAuditIdent(req), actor)
 		}
 	}
 }
@@ -269,7 +273,30 @@ func ApiMediaCatalogImport() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)
 		defer cancel()
 		if status := proxyMediaCenterInternal(w, ctx, http.MethodPost, "/internal/catalog/import", nil, body); status >= 200 && status < 300 {
-			log.Printf("[security] media-catalog import by=%s", username)
+			log.Printf("[security] media-catalog import items=%s %s by=%s", catalogAuditCount(req), catalogAuditIdent(req), username)
 		}
 	}
+}
+
+// catalogAuditIdent 从代理透传的请求体里提取审计关键标识(categoryId/provider/
+// nativeId/status/itemId,存在哪个取哪个)。值经 %q 转义(经 logAuditString 统一
+// 处理),换行注入伪造不了审计行;字段缺失时返回空串。
+func catalogAuditIdent(req map[string]json.RawMessage) string {
+	var parts []string
+	for _, k := range []string{"categoryId", "provider", "nativeId", "itemId", "status"} {
+		var s string
+		if req != nil && json.Unmarshal(req[k], &s) == nil && s != "" {
+			parts = append(parts, fmt.Sprintf("%s=%q", k, s))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// catalogAuditCount 返回 items 数组的长度(导入条数),无法解析时为 "?"。
+func catalogAuditCount(req map[string]json.RawMessage) string {
+	var items []json.RawMessage
+	if req == nil || json.Unmarshal(req["items"], &items) != nil {
+		return "?"
+	}
+	return strconv.Itoa(len(items))
 }

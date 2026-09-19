@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { navSections } from './routes.js';
   import { t, toggleLang, getLang } from './i18n.svelte.js';
-  import { getHealth } from './api.js';
+  import { BASE, getHealth } from './api.js';
 
   // sidebarCollapsed / mobileMenuOpen 由本组件写回父级（折叠切换、移动端
   // 导航后收起），必须 $bindable：普通 prop 的本地赋值不会同步到 App.svelte，
@@ -43,7 +43,7 @@
     // 拦截而静默失效，且假凭证会写进历史记录）。
     sessionStorage.setItem('ww_logout_pending', '1');
     try {
-      await fetch('/api/admin/auth/me', {
+      await fetch(`${BASE}/auth/me`, {
         headers: { Authorization: 'Basic ' + btoa(`logout:${Date.now()}`) },
         cache: 'no-store',
       });

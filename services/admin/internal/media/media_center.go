@@ -112,8 +112,12 @@ func ApiMediaCenterConfig() http.HandlerFunc {
 		}
 		// files 只返回文件名(不泄露服务端绝对路径);路径仅用于 UI 展示配置流,
 		// 绝对路径对管理员排查无增益反而泄露容器内部布局。
+		// credentials 从响应剥离(明文 SESSDATA):配置读取面没必要携带凭据,
+		// 独立的 GET /credentials 端点已覆盖凭据查看需求。
+		cfgView := cfg
+		cfgView.Credentials = nil
 		platform.WriteJSON(w, map[string]any{
-			"config":             cfg,
+			"config":             cfgView,
 			"default_sources":    defaultCfg.Sources,
 			"default_categories": defaultCfg.Categories,
 			"files": map[string]string{

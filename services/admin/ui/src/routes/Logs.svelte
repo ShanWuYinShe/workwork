@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getServices } from '../lib/api.js';
+  import { BASE, getServices } from '../lib/api.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName } from '../lib/services.js';
@@ -12,8 +12,10 @@
   let loading = $state(true);
   let following = $state(true);
   let search = $state('');
+  // reconnectTimer 是 timer id(非序列化对象,模板不读),普通变量即可;
+  // es 虽也是对象,但模板用它切换 live/reconnecting 徽章,须保持 $state。
   let es = $state(null);
-  let reconnectTimer = $state(null);
+  let reconnectTimer = null;
   let reconnectDelay = 1000;
   let reconnected = $state(false);
   let logContainer = $state(null);
@@ -53,7 +55,7 @@
     if (!selectedService) return;
     if (clear) logLines = [];
     es = new EventSource(
-      `/api/admin/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`,
+      `${BASE}/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`,
     );
     es.onopen = () => {
       reconnectDelay = 1000;

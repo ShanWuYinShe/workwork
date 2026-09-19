@@ -6,7 +6,7 @@
  * @property {string} [error_code]
  * @property {any} [data]
  */
-const BASE = '/api/admin';
+export const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
 const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
 const APK_UPLOAD_TIMEOUT = 30 * 60 * 1000;
@@ -40,7 +40,13 @@ async function req(path, opts = {}) {
   const ctrl = new AbortController();
   const timeout = opts.timeout || FETCH_TIMEOUT;
   const timer = setTimeout(() => ctrl.abort(), timeout);
-  const signal = opts.signal || ctrl.signal;
+  // 合并外部 signal 与超时 signal:此前 opts.signal 存在时直接替换,
+  // 超时 abort 的是内部 ctrl 而 fetch 监听的是外部 signal,超时静默失效。
+  // AbortSignal.any 让任一信号触发即取消(Chrome 116+/Safari 17+)。
+  const signal =
+    typeof AbortSignal.any === 'function' && opts.signal
+      ? AbortSignal.any([opts.signal, ctrl.signal])
+      : opts.signal || ctrl.signal;
   try {
     const r = await fetch(BASE + path, {
       credentials: 'same-origin',
