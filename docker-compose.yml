@@ -10,6 +10,7 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_VERSION: ${NGINX_VERSION:-1.30.4}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -19,6 +20,9 @@ services:
         limits:
           memory: 192M
           cpus: "2.0"
+          # fail2ban(python)/cron/nginx workers 的 fork 洪泛防线(与
+          # xray-forward 的 pids 兜底同型;192M 内存是第一道,这是第二道)。
+          pids: 256
     security_opt:
       - "no-new-privileges:true"
     ulimits:
@@ -87,6 +91,7 @@ services:
       dockerfile: Dockerfile
       args:
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -157,6 +162,7 @@ services:
       dockerfile: Dockerfile.forward
       args:
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
     restart: unless-stopped
     init: true
     environment:
@@ -179,6 +185,10 @@ services:
         hard: 65535
     cap_drop:
       - ALL
+    # socat 无状态零文件写入,只读根目录 + tmpfs 缩小被攻破后的写入面。
+    read_only: true
+    tmpfs:
+      - /tmp
     ports:
       - "0.0.0.0:443:443"
     volumes:
@@ -412,6 +422,45 @@ services:
       retries: 3
       start_period: 10s
 
+  # docker API 白名单代理:admin 不再直接持有 /var/run/docker.sock(全权
+  # = 宿主 root),中间经 haproxy 白名单——只放行 admin 实际调用的端点
+  # (containers 读写/exec/events/info/version/ping),镜像/网络/swarm/
+  # volumes 全部拒绝。admin 被攻破时的爆炸半径从"宿主 root"缩小到
+  # "容器启停 + exec"。端点清单来自 services/admin 的调用面盘点,新增
+  # docker API 调用时必须同步在这里放行(集成测试
+  # TestDockerProxyWhitelist 锁住全部调用路径)。
+  docker-proxy:
+    image: workwork-docker-proxy:${IMAGE_TAG:-latest}
+    build:
+      context: ./services/docker_proxy
+      dockerfile: Dockerfile
+      args:
+        GO_VERSION: ${GO_VERSION:-1.26.5}
+        ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
+        GIT_VERSION: ${GIT_VERSION:-dev}
+    # 自建精确白名单(不用 tecnativa:其 CONTAINERS=1 会放行 /containers/create
+    # 与 DELETE,bind-mount 逃逸仍可行)。白名单在 services/docker_proxy/main.go,
+    # method+path 级,越权一律 403;新增 admin docker API 调用时同步。
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker_proxy
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
   admin:
     image: workwork-admin:${IMAGE_TAG:-latest}
     build:
@@ -421,6 +470,7 @@ services:
         BUN_VERSION: ${BUN_VERSION:-1.3.14}
         GO_VERSION: ${GO_VERSION:-1.26.5}
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
         GIT_VERSION: ${GIT_VERSION:-dev}
     restart: unless-stopped
     init: true
@@ -429,6 +479,7 @@ services:
         limits:
           memory: 256M
           cpus: "0.5"
+          pids: 128
     security_opt:
       - "no-new-privileges:true"
     logging:
@@ -437,14 +488,15 @@ services:
         max-size: "10m"
         max-file: "3"
     user: "1001:1001"
-    group_add:
-      - "${DOCKER_GID:-988}"
     networks:
       - internal_docker
+      - docker_proxy
     cap_drop:
       - ALL
     environment:
       - TZ=Asia/Shanghai
+      # 经白名单代理访问 docker API(不再直挂 docker.sock)。
+      - DOCKER_HOST=tcp://docker-proxy:2375
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-workwork}
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - INTERNAL_TOKEN=${INTERNAL_TOKEN:-}
@@ -467,19 +519,27 @@ services:
       - WEBHOOK_URL=${WEBHOOK_URL:-}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/.env:ro
+      # 证书到期监控(只读;nginx 的可写挂载不受影响)
+      - ./cert:/app/certs:ro
       - ./logs:/app/logs
       - ./.wework:/app/data
       # 媒体默认分类来自 media_center 子模块(子模块源文件,不随 admin 镜像
       # 分发,故保持挂载;nginx/xray 模板已改为构建期 COPY 进 admin 镜像)。
       - ./services/media_center/media_server/src/contentCategories.json:/app/configs/media-center-content-categories.json:ro
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8318/api/admin/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:${ADMIN_PORT:-8318}/api/admin/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+    # docker API 经白名单代理,proxy 未起时 admin 的 docker 调用全部失败;
+    # 启动顺序由 compose 保证(不要求 healthy:proxy 就绪在秒级,admin 有
+    # daemonGuard 退避,started 足够)。
+    depends_on:
+      docker-proxy:
+        condition: service_started
 
 networks:
   ipvlan_docker:
@@ -488,6 +548,11 @@ networks:
     driver: bridge
   xray_egress:
     driver: bridge
+  # docker API 白名单代理专用:仅 admin 与 docker-proxy 接入,
+  # netease_api 等第三方镜像容器无法触达 docker API 面。
+  docker_proxy:
+    driver: bridge
+    internal: true
 
 volumes:
   xray_socket:

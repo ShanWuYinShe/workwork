@@ -30,7 +30,8 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
 | **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理；IPv4 直连 443 由 **xray-forward** 转发容器发布 |
-| **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成 |
+| **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成（docker API 经 **docker-proxy** 白名单代理） |
+| **docker-proxy** | Go | 2375（容器内，仅内网） | docker API 精确白名单反代：只放行 admin 所需端点，create/delete/images/networks 等逃逸面一律 403 |
 | **media_server** | Go | 8787（容器内，仅内网；对外经 nginx `/api/media`） | 合规公开视频聚合 API |
 | **vod_extractor** | Python (yt-dlp) | 8790（容器内，仅内网，media_server 调用；需宿主机 cookies） | YouTube 搜索/播放解析 |
 | **music_server** | Go | 8790（容器内，仅内网；对外经 nginx `/api/music`，与 vod_extractor 同端口但不同容器，不冲突） | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
@@ -120,9 +121,10 @@ docker compose ps
 
 ```
 workwork/
-├── docker-compose.yml        # 生产环境 Docker Compose（8 服务）
+├── docker-compose.yml        # 生产环境 Docker Compose（9 服务）
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
+│   ├── backup.sh
 │   └── deploy-changed.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
@@ -294,7 +296,6 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
 | `AUTH_USER` / `AUTH_PASS` | 首启必需：初始管理员与密码（写入 htpasswd；面板改密后 `.env` 里的 `AUTH_PASS` 即作废） | - |
 | `ADMIN_PORT` | admin 容器内端口（改它需同步 compose healthcheck 与 fail2ban action 的硬编码） | `8318` |
-| `DOCKER_GID` | 宿主机 docker.sock 组 ID（`stat -c '%g' /var/run/docker.sock`） | `988` |
 | `XRAY_PRIVATE_KEY` | 首启必需：X25519 私钥，渲染 Reality 入站；缺省 xray 起不来 | `xray x25519` 生成 |
 | `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
 | `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |

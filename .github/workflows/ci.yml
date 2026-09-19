@@ -30,11 +30,17 @@ jobs:
           cache-dependency-path: services/admin/go.sum
 
       - name: gofmt
-        run: test -z "$(gofmt -l services/admin/)"
+        run: |
+          test -z "$(gofmt -l services/admin/)"
+          test -z "$(gofmt -l services/docker_proxy/)"
       - name: go vet
-        run: go vet -C services/admin ./...
+        run: |
+          go vet -C services/admin ./...
+          go vet -C services/docker_proxy ./...
       - name: go test
-        run: go test -race -C services/admin ./...
+        run: |
+          go test -C services/admin -race ./...
+          go test -C services/docker_proxy ./...
       - name: shell syntax + shellcheck（覆盖全部 .sh）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
@@ -111,6 +117,12 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
         working-directory: services/admin
+      - name: govulncheck (docker_proxy)
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          govulncheck ./...
+        working-directory: services/docker_proxy
 
   # 密钥泄露扫描（阻断模式）:git 历史里发生过 cert 私钥入库事故
   # （docs/operations.md 有复盘），此类事故必须由门禁拦截而非人工发现。

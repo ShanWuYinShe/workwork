@@ -2,7 +2,7 @@
 # 部署推导逻辑在 scripts/deploy-changed.sh，本文件只做薄封装。
 
 COMPOSE := docker compose
-SERVICES := admin xray xray-forward nginx media_server vod_extractor netease_api music_server
+SERVICES := admin docker-proxy xray xray-forward nginx media_server vod_extractor netease_api music_server
 
 # 版本号自动导出,compose build args 读取后烙进各服务二进制/镜像并经
 # 健康端点暴露;调用方显式传入时以传入值为准。
@@ -51,7 +51,12 @@ submodule: ## 同步子模块到主仓库记录的指针
 check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	@test -z "$$(gofmt -l services/admin/)" || { echo 'gofmt 未通过:'; gofmt -l services/admin/; exit 1; }
 	go vet -C services/admin ./...
-	go test -C services/admin ./...
+	go test -C services/admin -race ./...
+	@for sh in scripts/*.sh setup-networks.sh services/nginx/*.sh services/xray/*.sh; do \
+	  bash -n "$$sh" || exit 1; \
+	  if command -v shellcheck >/dev/null 2>&1; then shellcheck -S warning "$$sh" || exit 1; fi; \
+	done
+	@docker compose config -q 2>/dev/null || echo '(compose config 校验跳过:需 .env,由 CI 兜底)'
 	bun install --frozen-lockfile --cwd services/admin/ui
 	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui lint

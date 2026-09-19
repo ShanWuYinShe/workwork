@@ -20,3 +20,14 @@ services/music_player
 # ui 的依赖与构建产物不进 context（bun 在镜像内 install/build）
 services/admin/ui/node_modules
 services/admin/ui/dist
+# 仓库根构建上下文(admin/docker-proxy)用不到的目录
+docs
+scripts
+.github
+setup-networks.sh
+Makefile
+docker-compose.yml
+services/nginx
+services/xray
+services/netease_api
+services/docker_proxy

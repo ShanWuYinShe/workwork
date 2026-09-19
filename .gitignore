@@ -53,3 +53,8 @@ ui/dist/
 .claude/
 .zcode/
 .workbuddy/
+# 测试/工具产物
+coverage/
+.eslintcache
+*.tsbuildinfo
+workwork-docker-proxy

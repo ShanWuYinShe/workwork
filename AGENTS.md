@@ -8,7 +8,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 ## 硬约束
 
-所有服务功能必须隔离在 Docker 容器内。 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务通过 `docker.sock` 和 `containerExec()` 操作其他容器。
+所有服务功能必须隔离在 Docker 容器内。 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务经自建 docker API 白名单代理（compose `docker-proxy` 服务，method+path 级白名单见 `services/docker_proxy/main.go`）和 `containerExec()` 操作其他容器——新增 docker API 调用时必须同步白名单与集成测试。
 
 ## 发布门禁（硬性）：先本地验证，再发布
 

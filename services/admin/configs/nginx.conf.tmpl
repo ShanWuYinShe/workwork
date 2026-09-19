@@ -35,6 +35,9 @@ server {
 }
 
 server {
+    # 仅 IPv6 监听是有意为之:宿主 IPv4 443 已由 xray-forward 的 Reality 占用,
+    # 公网入口链路是 Cloudflare → 本机 IPv6(见 AGENTS「IPv6 寻址」)。
+    # 不要"修复"成双栈 listen——IPv4 443 归 xray-forward。
     listen [::]:443 ssl;
     http2 on;
     server_name _;
