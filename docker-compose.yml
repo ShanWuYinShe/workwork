@@ -435,7 +435,7 @@ services:
       context: ./services/docker_proxy
       dockerfile: Dockerfile
       args:
-        GO_VERSION: ${GO_VERSION:-1.26.5}
+        GO_VERSION: ${GO_VERSION:-1.26.8}
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
         APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
         GIT_VERSION: ${GIT_VERSION:-dev}
@@ -468,7 +468,7 @@ services:
       dockerfile: ./services/admin/Dockerfile
       args:
         BUN_VERSION: ${BUN_VERSION:-1.3.14}
-        GO_VERSION: ${GO_VERSION:-1.26.5}
+        GO_VERSION: ${GO_VERSION:-1.26.8}
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
         APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
         GIT_VERSION: ${GIT_VERSION:-dev}
