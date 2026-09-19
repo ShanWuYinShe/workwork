@@ -139,9 +139,13 @@ fi
 
 # 3.5) fail2ban 持久库（services/nginx/fail2ban-data:sqlite 计数/封禁状态）。
 #      此前不在备份内而文档声称覆盖——整机故障后撞库计数清零。
+#      库文件归 root(容器内 fail2ban 写入),宿主用户读不了:经 docker 助手
+#      容器打包(daemon 侧读取),产物落在 BACKUP_DIR。
 if [ -d "$ROOT/services/nginx/fail2ban-data" ]; then
   f="$BACKUP_DIR/workwork-fail2ban-$STAMP.tar.gz"
-  tar -czf "$f" -C "$ROOT" services/nginx/fail2ban-data
+  docker run --rm -v "$ROOT/services/nginx/fail2ban-data:/data:ro" \
+    -v "$BACKUP_DIR:/backup" alpine:3.24.1 \
+    tar czf "/backup/$(basename "$f")" -C /data .
   parts+=("$f")
 else
   echo "  跳过: services/nginx/fail2ban-data 不存在（nginx 未部署？）"
@@ -168,7 +172,8 @@ manifest="$BACKUP_DIR/workwork-manifest-$STAMP.txt"
   du -h "${parts[@]}"
   sha "${parts[@]}"
 } >"$manifest"
-chmod 0600 "${parts[@]}" "$manifest"
+# docker run 产物可能归 root(BACKUP_DIR 外层 700 已隔离访问),chmod 尽力而为
+chmod 0600 "${parts[@]}" "$manifest" 2>/dev/null || true
 
 # 5) 保留期清理（非法值显式告警,不静默跳过）
 case "$BACKUP_RETENTION_DAYS" in
