@@ -400,7 +400,10 @@ export async function downloadClaudeVersion(version, plat, onProgress) {
 }
 
 export async function deleteClaudeDownload(filename) {
-  return req('/claude-code/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
+  // DELETE 统一 query 传参(不带 body)
+  return req(`/claude-code/downloads?filename=${encodeURIComponent(filename)}`, {
+    method: 'DELETE',
+  });
 }
 
 // ── Xray downloads ──
@@ -426,7 +429,7 @@ export async function downloadXrayVersion(version, plat, onProgress) {
 }
 
 export async function deleteXrayDownload(filename) {
-  return req('/xray/downloads', { method: 'DELETE', body: JSON.stringify({ filename }) });
+  return req(`/xray/downloads?filename=${encodeURIComponent(filename)}`, { method: 'DELETE' });
 }
 
 // ── File transfer ──
@@ -436,7 +439,7 @@ export async function getTransferFiles() {
 }
 
 export async function deleteTransferFile(code) {
-  return req('/transfer/files', { method: 'DELETE', body: JSON.stringify({ code }) });
+  return req(`/transfer/files?code=${encodeURIComponent(code)}`, { method: 'DELETE' });
 }
 
 export const transferUploadUrl = BASE + '/transfer/upload';

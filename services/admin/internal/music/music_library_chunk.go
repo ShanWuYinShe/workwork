@@ -140,7 +140,7 @@ func ApiMusicChunkUpload() http.HandlerFunc {
 		// 并发闸门(4MB multipart 内存缓冲,与全部上传端点共享 2 位额度)。
 		release, ok := platform.AcquireUploadSlot(r.Context())
 		if !ok {
-			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			platform.WriteError(w, "并发上传过多，请稍后重试", http.StatusTooManyRequests)
 			return
 		}
 		defer release()

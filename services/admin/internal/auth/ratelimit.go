@@ -235,7 +235,7 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		ip := clientIP(r)
 		if ip != "" && !authRateLimiter.allow(ip) {
-			platform.WriteError(w, "Too many requests, try again later", 429)
+			platform.WriteError(w, "请求过于频繁，请稍后重试", 429)
 			return
 		}
 		next(w, r)
@@ -268,15 +268,15 @@ func ApiRateLimitUnblock() http.HandlerFunc {
 			IP string `json:"ip"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.IP == "" {
-			platform.WriteError(w, "IP required", 400)
+			platform.WriteError(w, "IP 必填", 400)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			platform.WriteError(w, "Invalid IP address", 400)
+			platform.WriteError(w, "IP 地址不合法", 400)
 			return
 		}
 		authRateLimiter.mu.Lock()

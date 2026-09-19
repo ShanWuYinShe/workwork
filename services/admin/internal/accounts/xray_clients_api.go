@@ -20,15 +20,15 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 			UUID string `json:"uuid"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.UUID == "" {
-			platform.WriteError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID 必填", 400)
 			return
 		}
 		if !validUUID.MatchString(body.UUID) {
-			platform.WriteError(w, "Invalid UUID format (use lowercase hex, e.g. 550e8400-e29b-41d4-a716-446655440000)", 400)
+			platform.WriteError(w, "UUID 格式不合法（小写 hex，例 550e8400-e29b-41d4-a716-446655440000）", 400)
 			return
 		}
 		// UUID 规范化:大写/小写视为同一客户端(Xray 的 UUID 不区分大小写),
@@ -56,13 +56,13 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 			var added bool
 			added, err = addXrayClientIfOwnerUnique(entry)
 			if !added && err == nil {
-				platform.WriteError(w, "You can only create one client. Delete the existing one first.", 400)
+				platform.WriteError(w, "每人只能创建一个客户端，请先删除现有客户端", 400)
 				return
 			}
 		}
 		if err != nil {
 			if err == errDuplicateUUID {
-				platform.WriteError(w, "Client with this UUID already exists", 409)
+				platform.WriteError(w, "该 UUID 的客户端已存在", 409)
 				return
 			}
 			log.Printf("Failed to save client: %v", err)
@@ -103,11 +103,11 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 			UUID string `json:"uuid"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.UUID == "" {
-			platform.WriteError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID 必填", 400)
 			return
 		}
 		// 与 ApiAddXray 的规范化一致:UUID 不区分大小写。
@@ -123,11 +123,11 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 		deleted, err := deleteXrayClientIfOwner(body.UUID, ownerFilter)
 		if err != nil {
 			if err == errForbidden {
-				platform.WriteError(w, "Forbidden: not your client", 403)
+				platform.WriteError(w, "无权操作：不是你的客户端", 403)
 				return
 			}
 			if err == errNotFound {
-				platform.WriteError(w, "Client not found", 404)
+				platform.WriteError(w, "客户端不存在", 404)
 				return
 			}
 			log.Printf("Failed to delete client: %v", err)
@@ -135,7 +135,7 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if !deleted {
-			platform.WriteError(w, "Client not found", 404)
+			platform.WriteError(w, "客户端不存在", 404)
 			return
 		}
 
@@ -166,7 +166,7 @@ func ApiXrayClientConfig() http.HandlerFunc {
 		userInfo, username := auth.GetUserFromContext(r)
 		uuid := strings.ToLower(r.PathValue("uuid"))
 		if uuid == "" {
-			platform.WriteError(w, "UUID required", 400)
+			platform.WriteError(w, "UUID 必填", 400)
 			return
 		}
 
@@ -184,13 +184,13 @@ func ApiXrayClientConfig() http.HandlerFunc {
 			}
 		}
 		if client == nil {
-			platform.WriteError(w, "Client not found", 404)
+			platform.WriteError(w, "客户端不存在", 404)
 			return
 		}
 
 		// Regular users can only view their own client
 		if userInfo != nil && userInfo.Role != "admin" && client["owner"] != username {
-			platform.WriteError(w, "Forbidden", 403)
+			platform.WriteError(w, "无权限", 403)
 			return
 		}
 

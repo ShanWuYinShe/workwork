@@ -85,7 +85,7 @@ func ApiXrayPlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
-			platform.WriteError(w, "Version required", 400)
+			platform.WriteError(w, "版本号必填", 400)
 			return
 		}
 		release := xrayDownloads.findCachedRelease(version)

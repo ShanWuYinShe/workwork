@@ -154,7 +154,7 @@ func ApiNeteaseLoginPoll() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		if key == "" {
-			platform.WriteError(w, "missing key", http.StatusBadRequest)
+			platform.WriteError(w, "缺少 key 参数", http.StatusBadRequest)
 			return
 		}
 		neteaseLoginMu.Lock()

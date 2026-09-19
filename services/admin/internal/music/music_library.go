@@ -81,6 +81,11 @@ func ApiMusicLibraryList() http.HandlerFunc {
 			})
 		}
 		sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+		page, ok := platform.ParseListPage(w, r)
+		if !ok {
+			return
+		}
+		files = platform.Apply(files, page)
 		platform.WriteJSON(w, map[string]any{"files": files})
 	}
 }
@@ -90,7 +95,7 @@ func ApiMusicLibraryUpload() http.HandlerFunc {
 		// 并发闸门(8MB multipart 内存缓冲,全局限 2 位,防并发上传 OOM)。
 		release, ok := platform.AcquireUploadSlot(r.Context())
 		if !ok {
-			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			platform.WriteError(w, "并发上传过多，请稍后重试", http.StatusTooManyRequests)
 			return
 		}
 		defer release()

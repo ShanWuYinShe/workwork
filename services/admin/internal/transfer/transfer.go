@@ -223,7 +223,7 @@ func ApiTransferUpload() http.HandlerFunc {
 		// 并发闸门(32MB multipart 内存缓冲,全局限 2 位,防并发上传 OOM)。
 		release, ok := platform.AcquireUploadSlot(r.Context())
 		if !ok {
-			platform.WriteError(w, "too many concurrent uploads", http.StatusTooManyRequests)
+			platform.WriteError(w, "并发上传过多，请稍后重试", http.StatusTooManyRequests)
 			return
 		}
 		defer release()
@@ -456,6 +456,12 @@ func ApiTransferList() http.HandlerFunc {
 		if files == nil {
 			files = []transferFile{}
 		}
+		// 分页(可选):limit/offset 显式传入时校验并截取,默认全量。
+		page, ok := platform.ParseListPage(w, r)
+		if !ok {
+			return
+		}
+		files = platform.Apply(files, page)
 
 		platform.WriteJSON(w, map[string]any{
 			"files":      files,
@@ -474,7 +480,7 @@ func ApiTransferDelete() http.HandlerFunc {
 			Code string `json:"code"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Code == "" {

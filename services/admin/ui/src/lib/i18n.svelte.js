@@ -244,6 +244,7 @@ const zh = {
   categoryUnknownSourceQuery: '分类 "{label}" 包含未知来源搜索词：{source}。',
   mediaCenterSaved: 'Media Center 配置已保存并应用。',
   mediaCenterSavedWithWarnings: '配置已保存，但有服务未自动重启。',
+  mediaCenterConflict: '配置已被他人修改，请刷新页面后重新编辑再保存',
   // Media Center — 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）
   catalogManagement: '分类审核管理',
   catalogManagementDesc:
@@ -776,6 +777,8 @@ const en = {
   categoryUnknownSourceQuery: 'Category "{label}" has an unknown source query: {source}.',
   mediaCenterSaved: 'Media Center config saved and applied.',
   mediaCenterSavedWithWarnings: 'Config saved, but some services were not restarted automatically.',
+  mediaCenterConflict:
+    'Config was changed by someone else. Refresh the page and re-edit before saving.',
   // Media Center — category review management (catalog: import candidates → review → publish approved)
   catalogManagement: 'Category review',
   catalogManagementDesc:

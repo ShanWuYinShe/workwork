@@ -29,8 +29,40 @@ func WriteJSON(w http.ResponseWriter, data interface{}) {
 func WriteError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(JSONResp{Success: false, Error: msg}); err != nil {
+	// error_code 全量化:调用方未给专用码时按 HTTP 状态派生默认码,保证
+	// 前端 ApiError.code 恒非空(可按码分支/i18n),而不是只能解析文案。
+	if err := json.NewEncoder(w).Encode(JSONResp{Success: false, Error: msg, ErrorCode: defaultErrorCode(code)}); err != nil {
 		log.Printf("WARNING: WriteError encode: %v", err)
+	}
+}
+
+// defaultErrorCode 按 HTTP 状态派生机器可读的默认错误码。
+func defaultErrorCode(code int) string {
+	switch code {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusGone:
+		return "GONE"
+	case http.StatusRequestTimeout:
+		return "TIMEOUT"
+	case http.StatusTooManyRequests:
+		return "RATE_LIMITED"
+	case http.StatusInternalServerError:
+		return "INTERNAL"
+	case http.StatusBadGateway:
+		return "BAD_GATEWAY"
+	case http.StatusServiceUnavailable:
+		return "UNAVAILABLE"
+	default:
+		return fmt.Sprintf("HTTP_%d", code)
 	}
 }
 
@@ -51,7 +83,7 @@ func WriteErrorCode(w http.ResponseWriter, msg string, code int, errCode string)
 // responses, JSON struct field names, etc.).
 func WriteInternalError(w http.ResponseWriter, err error) {
 	log.Printf("internal error: %v", err)
-	WriteError(w, "Internal error", http.StatusInternalServerError)
+	WriteError(w, "内部错误", http.StatusInternalServerError)
 }
 
 func DecodeStrictJSON(r io.Reader, dest any) error {

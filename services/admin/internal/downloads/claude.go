@@ -93,7 +93,7 @@ func ApiClaudeCodePlatforms() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		version := r.PathValue("version")
 		if version == "" {
-			platform.WriteError(w, "Version required", 400)
+			platform.WriteError(w, "版本号必填", 400)
 			return
 		}
 		release := claudeDownloads.findCachedRelease(version)
@@ -172,29 +172,29 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			Plat    string `json:"plat"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Version == "" || body.Plat == "" {
-			platform.WriteError(w, "Version and plat required", 400)
+			platform.WriteError(w, "版本号与平台必填", 400)
 			return
 		}
 
 		if !s.validPlatform(body.Plat) {
-			platform.WriteError(w, "Invalid platform: "+body.Plat, 400)
+			platform.WriteError(w, fmt.Sprintf("平台不合法: %s", body.Plat), 400)
 			return
 		}
 
 		// Find the asset for this version+plat from cached GitHub releases
 		release := s.findCachedRelease(body.Version)
 		if release == nil {
-			platform.WriteError(w, "Version not found in releases", 404)
+			platform.WriteError(w, "该版本不在发布列表中", 404)
 			return
 		}
 		// tag 会拼进下载文件名直达文件系统路径:拒绝含路径分隔符等字符的 tag
 		// (防御被攻陷的 GitHub 仓库 tag 造成路径穿越)。
 		if !safeVersionTag.MatchString(body.Version) {
-			platform.WriteError(w, "Invalid version tag", 400)
+			platform.WriteError(w, "版本号格式不合法", 400)
 			return
 		}
 		assetURL := ""
@@ -207,7 +207,7 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			}
 		}
 		if assetURL == "" {
-			platform.WriteError(w, "No asset for platform "+body.Plat+" in version "+body.Version, 400)
+			platform.WriteError(w, fmt.Sprintf("版本 %s 没有 %s 平台的安装包", body.Version, body.Plat), 400)
 			return
 		}
 
@@ -223,7 +223,7 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			platform.WriteError(w, "Streaming not supported", 500)
+			platform.WriteError(w, "当前连接不支持流式响应", 500)
 			return
 		}
 
@@ -283,7 +283,7 @@ func serveToolDownload(s *downloadService, contentType string) http.HandlerFunc 
 	return func(w http.ResponseWriter, r *http.Request) {
 		filename := r.PathValue("filename")
 		if !validStoredFilename(filename, s.filenamePrefixes...) {
-			platform.WriteError(w, "Invalid filename", 400)
+			platform.WriteError(w, "文件名不合法", 400)
 			return
 		}
 		w.Header().Set("X-Accel-Buffering", "no")
@@ -298,27 +298,22 @@ func serveToolDownload(s *downloadService, contentType string) http.HandlerFunc 
 // deleteToolDownload 处理 DELETE downloads。
 func deleteToolDownload(s *downloadService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Filename string `json:"filename"`
-		}
-		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+		// DELETE 不带 body(风格统一):目标经 ?filename= 定位。
+		filename := r.URL.Query().Get("filename")
+		if filename == "" {
+			platform.WriteError(w, "文件名必填", 400)
 			return
 		}
-		if body.Filename == "" {
-			platform.WriteError(w, "Filename required", 400)
+		if !validStoredFilename(filename, s.filenamePrefixes...) {
+			platform.WriteError(w, "文件名不合法", 400)
 			return
 		}
-		if !validStoredFilename(body.Filename, s.filenamePrefixes...) {
-			platform.WriteError(w, "Invalid filename", 400)
-			return
-		}
-		if err := s.deleteStored(body.Filename); err != nil {
+		if err := s.deleteStored(filename); err != nil {
 			platform.WriteInternalError(w, err)
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] tool download delete tool=%s file=%s by=%s", filepath.Base(s.dir), body.Filename, actor)
+		log.Printf("[security] tool download delete tool=%s file=%q by=%s", filepath.Base(s.dir), filename, actor)
 		platform.WriteJSON(w, map[string]any{"status": "ok"})
 	}
 }

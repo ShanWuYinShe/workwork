@@ -22,7 +22,7 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {
-			platform.WriteError(w, "Invalid service name", 400)
+			platform.WriteError(w, "服务名不合法", 400)
 			return
 		}
 		tail := r.URL.Query().Get("tail")
@@ -47,7 +47,7 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if len(containers) == 0 {
-			platform.WriteError(w, "Service not found", 404)
+			platform.WriteError(w, "服务不存在", 404)
 			return
 		}
 		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
@@ -92,7 +92,7 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if !validServiceName.MatchString(name) {
-			platform.WriteError(w, "Invalid service name", 400)
+			platform.WriteError(w, "服务名不合法", 400)
 			return
 		}
 		tail := r.URL.Query().Get("tail")
@@ -117,7 +117,7 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if len(containers) == 0 {
-			platform.WriteError(w, "Service not found", 404)
+			platform.WriteError(w, "服务不存在", 404)
 			return
 		}
 		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
@@ -136,7 +136,7 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			platform.WriteError(w, "Streaming not supported", 500)
+			platform.WriteError(w, "当前连接不支持流式响应", 500)
 			return
 		}
 

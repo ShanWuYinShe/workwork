@@ -57,7 +57,7 @@ func RequestLogMiddleware(next http.Handler) http.Handler {
 				if p := recover(); p != nil {
 					log.Printf("panic serving %s %s: %v\n%s", r.Method, r.URL.Path, p, debug.Stack())
 					if !rec.wroteHeader {
-						platform.WriteError(w, "Internal error", http.StatusInternalServerError)
+						platform.WriteError(w, "内部错误", http.StatusInternalServerError)
 					}
 					platform.NotifyWebhook("app.panic", "handler panic: "+r.Method+" "+r.URL.Path, map[string]string{
 						"method": r.Method, "path": r.URL.Path,

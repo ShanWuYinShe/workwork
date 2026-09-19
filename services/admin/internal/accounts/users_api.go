@@ -112,38 +112,38 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			Password    string `json:"password"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Username == "" || body.Password == "" {
-			platform.WriteError(w, "Username and password required", 400)
+			platform.WriteError(w, "用户名与密码必填", 400)
 			return
 		}
 		if !auth.IsValidUsername(body.Username) {
-			platform.WriteError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
 			return
 		}
 		// Non-admin can only change their own password
 		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
-			platform.WriteError(w, "Forbidden: can only change your own password", 403)
+			platform.WriteError(w, "无权操作：只能修改自己的密码", 403)
 			return
 		}
 		// Protected admin account (AUTH_USER) can only change its own password:
 		// 防止任意 admin 重置超级管理员密码并接管该账号(纵深防御,与
 		// ApiSetRole/ApiDeleteAdmin 的 auth.IsProtectedAdmin 守卫对齐)。
 		if body.Username == platform.GetEnv("AUTH_USER") && (userInfo == nil || username != body.Username) {
-			platform.WriteError(w, "Cannot change the default admin account password", 403)
+			platform.WriteError(w, "内置管理员账号密码请经修改密码功能变更", 403)
 			return
 		}
 		// Verify old password for non-admin users（持锁校验，见
 		// auth.VerifyHtpasswdPasswordLocked 注释——与后续重写共用 htpasswdMu）
 		if userInfo == nil || userInfo.Role != "admin" {
 			if body.OldPassword == "" {
-				platform.WriteError(w, "Old password required", 400)
+				platform.WriteError(w, "旧密码必填", 400)
 				return
 			}
 			if !auth.VerifyHtpasswdPasswordLocked(body.Username, body.OldPassword) {
-				platform.WriteError(w, "Invalid old password", 401)
+				platform.WriteError(w, "旧密码不正确", 401)
 				return
 			}
 		}
@@ -164,32 +164,32 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			Role     string `json:"role"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Username == "" || body.Password == "" {
-			platform.WriteError(w, "Username and password required", 400)
+			platform.WriteError(w, "用户名与密码必填", 400)
 			return
 		}
 		if !auth.IsValidUsername(body.Username) {
-			platform.WriteError(w, "Invalid username (use alphanumeric, underscore, hyphen)", 400)
+			platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
 			return
 		}
 		if auth.IsReservedUsername(body.Username) {
-			platform.WriteError(w, "This username is reserved", 400)
+			platform.WriteError(w, "该用户名为保留名", 400)
 			return
 		}
 		if body.Role == "" {
 			body.Role = "viewer"
 		}
 		if body.Role != "admin" && body.Role != "viewer" {
-			platform.WriteError(w, "Role must be admin or viewer", 400)
+			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
 		// Only admin can create admin users
 		userInfo, _ := auth.GetUserFromContext(r)
 		if body.Role == "admin" && userInfo != nil && userInfo.Role != "admin" {
-			platform.WriteError(w, "Forbidden", 403)
+			platform.WriteError(w, "无权限", 403)
 			return
 		}
 		// 受保护账号(AUTH_USER)已存在时禁止经此端点覆盖密码：auth.UpdateUsersMeta 的
@@ -199,7 +199,7 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 		if body.Username == platform.GetEnv("AUTH_USER") {
 			if doc, err := auth.ReadUsersMeta(); err == nil {
 				if _, exists := doc.Users[body.Username]; exists {
-					platform.WriteError(w, "Cannot modify the default admin account; use change-password instead", 403)
+					platform.WriteError(w, "内置管理员账号不可修改，请使用修改密码功能", 403)
 					return
 				}
 			}
@@ -248,11 +248,11 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "Cannot demote the last admin user", 400)
+				platform.WriteError(w, "不能降级最后一个管理员", 400)
 				return
 			}
 			if errors.Is(err, auth.ErrProtectedAdmin) {
-				platform.WriteError(w, "Cannot demote the default admin account", 403)
+				platform.WriteError(w, "不能改动内置管理员账号的角色", 403)
 				return
 			}
 			platform.WriteInternalError(w, err)
@@ -282,20 +282,20 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Username == "" {
-			platform.WriteError(w, "Username required", 400)
+			platform.WriteError(w, "用户名必填", 400)
 			return
 		}
 		if auth.IsProtectedAdmin(body.Username) {
-			platform.WriteError(w, "Cannot delete the default admin account", 403)
+			platform.WriteError(w, "不能删除内置管理员账号", 403)
 			return
 		}
 		_, currentUser := auth.GetUserFromContext(r)
 		if body.Username == currentUser {
-			platform.WriteError(w, "Cannot delete yourself", 400)
+			platform.WriteError(w, "不能删除自己", 400)
 			return
 		}
 
@@ -324,20 +324,20 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "Cannot delete the last admin user", 400)
+				platform.WriteError(w, "不能删除最后一个管理员", 400)
 				return
 			}
 			platform.WriteInternalError(w, err)
 			return
 		}
 		if !deleted {
-			platform.WriteError(w, "User not found", 404)
+			platform.WriteError(w, "用户不存在", 404)
 			return
 		}
 
 		if err := auth.HtpasswdRemoveUser(body.Username); err != nil {
 			// users.json 已删、nginx 凭证未清：面板登录已不可用（auth.RequireRole
-			// 会以 "User not provisioned" 拒绝），但 htpasswd 行残留。如实
+			// 会以 "用户未初始化" 拒绝），但 htpasswd 行残留。如实
 			// 上报部分成功，提示重试自愈，而非笼统 500。
 			log.Printf("ERROR: remove htpasswd entry for %s: %v", body.Username, err)
 			platform.WriteError(w, "用户已删除，但清理登录凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
@@ -402,21 +402,21 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			Role     string `json:"role"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteError(w, "Invalid JSON", 400)
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
 			return
 		}
 		if body.Username == "" {
-			platform.WriteError(w, "Username and role required", 400)
+			platform.WriteError(w, "用户名与角色必填", 400)
 			return
 		}
 		if body.Role != "admin" && body.Role != "viewer" {
-			platform.WriteError(w, "Role must be admin or viewer", 400)
+			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
 
 		// Protected admin account cannot be demoted
 		if auth.IsProtectedAdmin(body.Username) && body.Role != "admin" {
-			platform.WriteError(w, "Cannot demote the default admin account", 403)
+			platform.WriteError(w, "不能改动内置管理员账号的角色", 403)
 			return
 		}
 
@@ -446,14 +446,14 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			return true, nil
 		}); err != nil {
 			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteError(w, "Cannot demote the last admin user", 400)
+				platform.WriteError(w, "不能降级最后一个管理员", 400)
 				return
 			}
 			platform.WriteInternalError(w, err)
 			return
 		}
 		if notFound {
-			platform.WriteError(w, "User not found", 404)
+			platform.WriteError(w, "用户不存在", 404)
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
@@ -466,7 +466,7 @@ func ApiWhoAmI(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info, username := auth.GetUserFromContext(r)
 		if info == nil {
-			platform.WriteError(w, "Unauthorized", 401)
+			platform.WriteError(w, "未认证", 401)
 			return
 		}
 		platform.WriteJSON(w, map[string]any{

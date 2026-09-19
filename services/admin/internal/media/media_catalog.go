@@ -154,10 +154,21 @@ func ApiMediaCatalogItems() http.HandlerFunc {
 		if status := strings.TrimSpace(r.URL.Query().Get("status")); status != "" {
 			q.Set("status", status)
 		}
+		// 透传前本地校验:非法数值此前原样打给内网 media_server。
 		if limit := strings.TrimSpace(r.URL.Query().Get("limit")); limit != "" {
+			n, err := strconv.Atoi(limit)
+			if err != nil || n < 1 || n > 1000 {
+				platform.WriteError(w, "limit 必须是 1–1000 的整数", http.StatusBadRequest)
+				return
+			}
 			q.Set("limit", limit)
 		}
 		if offset := strings.TrimSpace(r.URL.Query().Get("offset")); offset != "" {
+			n, err := strconv.Atoi(offset)
+			if err != nil || n < 0 {
+				platform.WriteError(w, "offset 必须是非负整数", http.StatusBadRequest)
+				return
+			}
 			q.Set("offset", offset)
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), mediaCenterInternalTimeout)

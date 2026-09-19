@@ -492,12 +492,12 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 					if r.Header.Get("X-Forwarded-User") != "" {
 						log.Printf("[security] x-forwarded-user spoof attempt ip=%s path=%s", remoteIP(r.RemoteAddr), r.URL.Path)
 					}
-					platform.WriteError(w, "Unauthorized", 401)
+					platform.WriteError(w, "未认证", 401)
 					return
 				}
 				username = r.Header.Get("X-Forwarded-User")
 				if username == "" {
-					platform.WriteError(w, "Unauthorized", 401)
+					platform.WriteError(w, "未认证", 401)
 					return
 				}
 				var err error
@@ -510,7 +510,7 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 					// User authenticated by nginx but not provisioned in
 					// users.json. Refuse to auto-create on first request —
 					// admin must add them via /api/admin/users/admin/add.
-					platform.WriteError(w, "User not provisioned", 403)
+					platform.WriteError(w, "用户未初始化", 403)
 					return
 				}
 			}
@@ -518,7 +518,7 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			requiredLevel, ok := roleLevel[minRole]
 			if !ok {
 				log.Printf("invalid required role %q", minRole)
-				platform.WriteError(w, "Internal error", 500)
+				platform.WriteError(w, "内部错误", 500)
 				return
 			}
 			userLevel, ok := roleLevel[info.Role]
@@ -530,7 +530,7 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			// 写进访问日志——回答"谁在何时调用了什么"。
 			markAuditUser(r.Context(), username)
 			if userLevel < requiredLevel {
-				platform.WriteError(w, "Forbidden", 403)
+				platform.WriteError(w, "无权限", 403)
 				return
 			}
 

@@ -33,7 +33,7 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 
 		// 校验服务名格式，仅允许小写字母、数字、下划线、连字符
 		if !validServiceName.MatchString(name) {
-			platform.WriteError(w, "Invalid service name", 400)
+			platform.WriteError(w, "服务名不合法", 400)
 			return
 		}
 		// 容器操作不随客户端断开而取消:restart 请求发出后若客户端断连,
@@ -52,7 +52,7 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if len(containers) == 0 {
-			platform.WriteError(w, "Service not found", 404)
+			platform.WriteError(w, "服务不存在", 404)
 			return
 		}
 		switch action {
@@ -72,7 +72,7 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 				proxy.RestoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
 			}
 		default:
-			platform.WriteError(w, "Unknown action", 400)
+			platform.WriteError(w, "未知操作", 400)
 			return
 		}
 		if err != nil {

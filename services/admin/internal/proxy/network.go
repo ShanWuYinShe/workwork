@@ -365,7 +365,7 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		nginxStatic := platform.GetEnv("NGINX_IPV6")
 
 		if platform.GetEnv("CF_API_TOKEN") == "" {
-			platform.WriteError(w, "CF_API_TOKEN not configured", 400)
+			platform.WriteError(w, "CF_API_TOKEN 未配置", 400)
 			return
 		}
 
@@ -380,12 +380,12 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 			// 同场景的写法对齐（platform.WriteInternalError 记日志 + 通用文案），503
 			// 让客户端明确这是环境态而非代码 bug。
 			log.Printf("rotate ipv6: find xray container: %v", err)
-			platform.WriteError(w, "Xray container not available", http.StatusServiceUnavailable)
+			platform.WriteError(w, "Xray 容器不可用", http.StatusServiceUnavailable)
 			return
 		}
 		nginxID, err := platform.FindContainer(ctx, cli, "nginx")
 		if err != nil {
-			platform.WriteError(w, "Nginx container not found", 500)
+			platform.WriteError(w, "未找到 Nginx 容器", 500)
 			return
 		}
 
@@ -449,7 +449,7 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 				saveCurrentIPs(xrayIP, nginxIP)
 				log.Printf("DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
 			}
-			platform.WriteError(w, "DNS update failed", 500)
+			platform.WriteError(w, "DNS 更新失败", 500)
 			return
 		}
 
@@ -530,7 +530,7 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
 		if platform.GetEnv("CF_API_TOKEN") == "" {
-			platform.WriteError(w, "CF_API_TOKEN not configured", 400)
+			platform.WriteError(w, "CF_API_TOKEN 未配置", 400)
 			return
 		}
 		// 使用独立 context 避免 HTTP 客户端断开取消 DNS 同步操作。

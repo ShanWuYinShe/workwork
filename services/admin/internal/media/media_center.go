@@ -61,6 +61,10 @@ type mediaCenterConfig struct {
 	Sources     []mediaCenterSource      `json:"sources"`
 	Categories  []mediaCenterCategory    `json:"categories"`
 	Credentials []providerCredential     `json:"credentials,omitempty"`
+	// Revision 是乐观锁版本号:每次成功保存 +1。PUT 时前端回传已读版本,
+	// 与持久化版本不一致返回 409——两个管理员并发编辑不再后写静默覆盖。
+	// 0 表示旧客户端未携带(跳过检查,兼容过渡)。
+	Revision int64 `json:"revision,omitempty"`
 }
 
 type mediaCenterServiceConfig struct {
@@ -140,7 +144,7 @@ func ApiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var incoming mediaCenterConfig
 		if err := platform.DecodeStrictJSON(r.Body, &incoming); err != nil {
-			platform.WriteError(w, "Invalid media center config JSON", http.StatusBadRequest)
+			platform.WriteError(w, "媒体中心配置不是合法 JSON", http.StatusBadRequest)
 			return
 		}
 
@@ -153,13 +157,26 @@ func ApiSaveMediaCenterConfig(cli *client.Client) http.HandlerFunc {
 		defer cancel()
 		// 持 applyMu 跨越 read-modify-apply，避免与并发保存竞态导致 credentials 被覆盖。
 		mediaCenterApplyMu.Lock()
+		existingCfg, existingErr := ReadMediaCenterConfig()
+		// 乐观锁:前端回传的 revision 与持久化不一致 = 配置在编辑期间被他人
+		// 修改,拒绝保存(409)而不是后写静默覆盖。旧前端不携带 revision(0)
+		// 时跳过检查,兼容灰度窗口。
+		if incoming.Revision != 0 && existingErr == nil && existingCfg.Revision != incoming.Revision {
+			mediaCenterApplyMu.Unlock()
+			platform.WriteErrorCode(w, "配置已被他人修改，请刷新页面后重新编辑再保存", http.StatusConflict, "CONFIG_CONFLICT")
+			return
+		}
 		// 如果前端未提交 credentials（保存来源/分类时不涉及），保留现有配置，
 		// 避免无意清空已配置的 provider 凭证。
 		if len(incoming.Credentials) == 0 && len(cfg.Credentials) == 0 {
-			existingCfg, readErr := ReadMediaCenterConfig()
-			if readErr == nil && len(existingCfg.Credentials) > 0 {
+			if existingErr == nil && len(existingCfg.Credentials) > 0 {
 				cfg.Credentials = existingCfg.Credentials
 			}
+		}
+		if existingErr == nil {
+			cfg.Revision = existingCfg.Revision + 1
+		} else {
+			cfg.Revision = 1
 		}
 		restarted, warnings, err := applyMediaCenterConfigLocked(restartCtx, cli, cfg)
 		mediaCenterApplyMu.Unlock()
@@ -198,7 +215,7 @@ func ApiSaveMediaCenterCredentials(cli *client.Client) http.HandlerFunc {
 			Credentials []providerCredential `json:"credentials"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &incoming); err != nil {
-			platform.WriteError(w, "Invalid credentials JSON", http.StatusBadRequest)
+			platform.WriteError(w, "凭证不是合法 JSON", http.StatusBadRequest)
 			return
 		}
 
@@ -600,6 +617,7 @@ func normalizeMediaCenterConfig(input mediaCenterConfig) (mediaCenterConfig, err
 		Sources:     sources,
 		Categories:  categories,
 		Credentials: credentials,
+		Revision:    input.Revision,
 	}, nil
 }
 

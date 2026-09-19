@@ -356,7 +356,11 @@
         toast(t('mediaCenterSaved'), 'success');
       }
     } catch (e) {
-      toast(e.message, 'error');
+      if (e?.code === 'CONFIG_CONFLICT') {
+        toast(t('mediaCenterConflict'), 'error', 6000);
+      } else {
+        toast(e.message, 'error');
+      }
     } finally {
       saving = false;
     }
@@ -371,6 +375,9 @@
       service: { ...emptyConfig.service, ...(cfg.service || {}) },
       sources: cfg.sources || [],
       categories: cfg.categories || [],
+      // 乐观锁版本号:保存回包里带回,下次 PUT 携带;缺失(旧后端)时为
+      // undefined,JSON 序列化省略,后端跳过检查。
+      revision: cfg.revision,
     };
   }
 

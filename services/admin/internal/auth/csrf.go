@@ -37,7 +37,7 @@ func CSRFMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// u.Host 为空涵盖 Origin: null 与任何非 authority 形式,统一拒绝。
 		if err != nil || u.Host == "" || !originHostMatches(u.Host, r.Host) {
 			log.Printf("[security] csrf origin rejected origin=%q host=%q path=%s", origin, r.Host, r.URL.Path)
-			platform.WriteError(w, "Cross-origin request rejected", http.StatusForbidden)
+			platform.WriteError(w, "已拒绝跨站请求", http.StatusForbidden)
 			return
 		}
 		next(w, r)

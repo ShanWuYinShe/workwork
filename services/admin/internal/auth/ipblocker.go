@@ -224,7 +224,7 @@ func IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		ip := clientIP(r)
 		if ip != "" && ipBlocker.isBlocked(ip) {
-			platform.WriteError(w, "Access denied", 403)
+			platform.WriteError(w, "访问被拒绝", 403)
 			return
 		}
 		next(w, r)
@@ -239,15 +239,15 @@ func ApiBlockIP() http.HandlerFunc {
 			Duration int    `json:"duration"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
+			platform.WriteErrorCode(w, "请求体不是合法 JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			platform.WriteErrorCode(w, "IP required", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP 必填", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			platform.WriteErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP 地址不合法", 400, errCodeInvalidIP)
 			return
 		}
 		// duration < 0 silently creates a permanent block; reject it explicitly.
@@ -255,7 +255,7 @@ func ApiBlockIP() http.HandlerFunc {
 		// time.Duration multiply: values over ~292 years overflow int64 to
 		// negative and would silently turn into a permanent block.
 		if body.Duration < 0 || int64(body.Duration) > int64((10*365*24*time.Hour)/time.Second) {
-			platform.WriteErrorCode(w, "Duration must be 0 (permanent) or at most 10 years in seconds", 400, errCodeInvalidDuration)
+			platform.WriteErrorCode(w, "时长必须为 0（永久）或不超过 10 年的秒数", 400, errCodeInvalidDuration)
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second
@@ -302,22 +302,22 @@ func ApiUnblockIP() http.HandlerFunc {
 			IP string `json:"ip"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
-			platform.WriteErrorCode(w, "Invalid JSON", 400, errCodeInvalidJSON)
+			platform.WriteErrorCode(w, "请求体不是合法 JSON", 400, errCodeInvalidJSON)
 			return
 		}
 		if body.IP == "" {
-			platform.WriteErrorCode(w, "IP required", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP 必填", 400, errCodeInvalidIP)
 			return
 		}
 		if net.ParseIP(body.IP) == nil {
-			platform.WriteErrorCode(w, "Invalid IP address", 400, errCodeInvalidIP)
+			platform.WriteErrorCode(w, "IP 地址不合法", 400, errCodeInvalidIP)
 			return
 		}
 		// 幂等提示分支：目标不在列表 → 404 + 错误码（明确语义而非静默 ok）。
 		// 注意：fail2ban 的 unban 在 bantime 到期后触发，此时条目可能已被
 		// cleanupExpired 清理，404 属预期，action 侧应容忍（见 admin-api.conf）。
 		if prev := ipBlocker.find(body.IP); prev == nil {
-			platform.WriteErrorCode(w, "IP is not blocked", http.StatusNotFound, errCodeBlockNotFound)
+			platform.WriteErrorCode(w, "该 IP 未被封禁", http.StatusNotFound, errCodeBlockNotFound)
 			return
 		}
 		ipBlocker.remove(body.IP)
@@ -333,7 +333,11 @@ func ApiUnblockIP() http.HandlerFunc {
 
 func ApiBlockedIPs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		platform.WriteJSON(w, map[string]any{"entries": ipBlocker.list()})
+		page, ok := platform.ParseListPage(w, r)
+		if !ok {
+			return
+		}
+		platform.WriteJSON(w, map[string]any{"entries": platform.Apply(ipBlocker.list(), page)})
 	}
 }
 
