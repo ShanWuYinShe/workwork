@@ -27,8 +27,10 @@ ROOT="${WORKWORK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/workwork}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_RSYNC_TARGET="${BACKUP_RSYNC_TARGET:-}"
-# 额外排除项（相对 ROOT 的路径，逗号分隔，如 ".wework/music-library"）
-BACKUP_EXCLUDE="${BACKUP_EXCLUDE:-}"
+# 额外排除项（相对 ROOT 的路径，逗号分隔，如 ".wework/music-library"）。
+# 默认排除 upload-chunks:分片暂存目录 TTL 清理只在 admin 运行时生效,停机
+# 期间堆积且被打包纯属浪费(每个中断会话最多 200MB+meta,无恢复价值)。
+BACKUP_EXCLUDE="${BACKUP_EXCLUDE:-.wework/upload-chunks}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 # WEBHOOK_URL:优先取调用方环境,否则从 .env 单独提取(同 deploy-changed.sh)。

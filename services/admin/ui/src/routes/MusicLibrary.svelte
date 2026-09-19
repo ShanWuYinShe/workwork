@@ -41,6 +41,7 @@
   let qr = $state(null); // {key, qrimg}
   let qrStatus = $state('waiting'); // waiting | scanned | expired
   let pollTimer = $state(null);
+  let qrModal = $state(null); // 扫码弹层元素(focus trap 用)
 
   const audioExts = ['.mp3', '.wav', '.flac', '.m4a', '.ogg', '.oga', '.aac', '.opus'];
 
@@ -60,8 +61,13 @@
   onMount(() => {
     load();
     loadAccount();
-    // 组件销毁时停掉网易扫码轮询，否则离开页面后仍每 2s 打 poll 接口。
-    return stopPolling;
+    // 组件销毁时停掉网易扫码轮询并中止进行中的上传：否则离开页面后仍每 2s
+    // 打 poll 接口，且 XHR 回调会继续写已卸载组件的状态（uploadProgress 等）。
+    return () => {
+      stopPolling();
+      uploadXhr?.abort();
+      uploadXhr = null;
+    };
   });
 
   async function load() {
@@ -87,7 +93,30 @@
   }
 
   function onQrKeydown(e) {
-    if (qr && e.key === 'Escape') closeQr();
+    if (!qr) return;
+    if (e.key === 'Escape') {
+      closeQr();
+      return;
+    }
+    // Tab 焦点圈(与 ConfirmModal 行为一致):弹层内可聚焦元素极少(重试按钮),
+    // 没有 focus trap 时 Tab 会焦点逃逸到背景页面。
+    if (e.key === 'Tab' && qrModal) {
+      const focusable = qrModal.querySelectorAll('button:not([disabled])');
+      if (focusable.length === 0) {
+        e.preventDefault();
+        qrModal.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   }
 
   function stopPolling() {
@@ -103,6 +132,8 @@
       qr = await neteaseLoginStart();
       qrStatus = 'waiting';
       pollOnce();
+      // 弹层渲染后把焦点移入,键盘用户不需要 Tab 穿过整个页面找弹层。
+      requestAnimationFrame(() => qrModal?.focus());
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -465,6 +496,7 @@
       <div class="qr-backdrop" aria-hidden="true" onclick={closeQr}></div>
       <div
         class="qr-modal"
+        bind:this={qrModal}
         role="dialog"
         aria-modal="true"
         aria-label={t('neteaseScanTitle')}

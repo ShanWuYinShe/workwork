@@ -92,15 +92,6 @@ if printf '%s\n' "$changed" | grep -qx 'services/music_player'; then
   add_svc music_server
 fi
 
-if printf '%s\n' "$changed" | grep -q '^services/media_center/media_server/'; then
-  add_svc media_server
-fi
-if printf '%s\n' "$changed" | grep -q '^services/media_center/vod_extractor/'; then
-  add_svc vod_extractor
-fi
-if printf '%s\n' "$changed" | grep -q '^services/music_player/music_server/'; then
-  add_svc music_server
-fi
 if printf '%s\n' "$changed" | grep -q '^services/netease_api/'; then
   add_svc netease_api
 fi

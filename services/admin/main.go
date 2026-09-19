@@ -27,6 +27,9 @@ import (
 // git describe),经 /api/admin/health 与启动日志暴露,未注入时为 "dev"。
 var version = "dev"
 
+// dataDir 是运行时数据根(compose 把宿主 .wework 挂载于此)。var 供测试替换。
+var dataDir = "/app/data"
+
 func main() {
 	port := platform.GetEnv("ADMIN_PORT")
 	if port == "" {
@@ -55,6 +58,8 @@ func main() {
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
 	auth.SetBlocklistClient(cli)
 	auth.ScheduleBlocklistSync()
+	// 删用户级联清理其 transfer 上传(钩子注入,保持 accounts 不依赖 transfer)。
+	accounts.CascadeDeleteUploads = transfer.DeleteUploadsByUploader
 
 	// 启动 IPv6 恢复完成后关闭此 channel，proxy.IPConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
@@ -246,6 +251,10 @@ func main() {
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
 	defer auth.StopRateLimiter()
+
+	// SIGKILL(磁盘满 OOM/宿主重启/部署 stop 超时)会让 defer 删除失效,残留
+	// 的 .tmp-*/.music-*/.chunk-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
+	platform.CleanupStaleTempFiles(dataDir)
 
 	transfer.CleanupOrphanTempFiles()
 	daemonWG.Add(1)

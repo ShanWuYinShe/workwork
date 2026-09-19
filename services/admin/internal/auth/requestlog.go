@@ -148,3 +148,9 @@ func (r *statusRecorder) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap 支持 http.ResponseController:未来用 SetReadDeadline 等按请求
+// 控制底层连接的 API 时,能穿过本包装拿到原始 ResponseWriter。
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}

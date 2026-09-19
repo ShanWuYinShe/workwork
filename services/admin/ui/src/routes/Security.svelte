@@ -5,7 +5,6 @@
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { formatDateTime } from '../lib/format.js';
-
   let entries = $state([]);
   let loading = $state(true);
   let newIP = $state(''),
@@ -47,7 +46,13 @@
       if (b?.kind === 'permanent') {
         toast(t('ipBlockedPermanent', { ip: b.ip }), 'success');
       } else {
-        toast(t('ipBlockedUntil', { ip: b.ip, until: b?.expires_at?.slice(0, 16) }), 'success');
+        toast(
+          t('ipBlockedUntil', {
+            ip: b.ip,
+            until: b?.expires_at ? formatDateTime(b.expires_at) : '—',
+          }),
+          'success',
+        );
       }
       newIP = '';
       newReason = '';

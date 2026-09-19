@@ -19,13 +19,18 @@ import (
 	"time"
 )
 
-const (
+// transferDir/transferManifestPath 是 var 供测试替换(与 musicLibraryDir
+// /xrayClientsPath 同一模式);生产路径不变。
+var (
 	transferDir          = "/app/data/transfer"
 	transferManifestPath = "/app/data/transfer/manifest.json"
-	transferMaxTotal     = 20 << 30 // 20GB
-	transferMaxFile      = 2 << 30  // 2GB per file
-	transferCodeLen      = 8
-	transferDefaultExp   = 7 * 24 * time.Hour
+)
+
+const (
+	transferMaxTotal   = 20 << 30 // 20GB
+	transferMaxFile    = 2 << 30  // 2GB per file
+	transferCodeLen    = 8
+	transferDefaultExp = 7 * 24 * time.Hour
 	// transferDefaultPerUserQuota 是每用户默认上传配额;防止单个 viewer 用
 	// 2GB×N 次上传填满全局 20GB。可用 env TRANSFER_USER_QUOTA 覆盖(0 = 不限)。
 	transferDefaultPerUserQuota = 5 << 30 // 5GB
@@ -671,4 +676,43 @@ func formatBytes(b int64) string {
 		return fmt.Sprintf("%.0f MB", float64(b)/float64(1<<20))
 	}
 	return fmt.Sprintf("%d B", b)
+}
+
+// DeleteUploadsByUploader 删除某用户的全部上传(文件 + manifest 条目),供
+// 删除用户时的级联清理。被删用户无法再自助管理其文件(transfer 列表按
+// Uploader 过滤),其配额在删除前永久占用,只能等过期清理——但那期间全局
+// 20GB 池被无效占用。返回删除的文件数;无上传时返回 0。
+func DeleteUploadsByUploader(uploader string) (int, error) {
+	transferMu.Lock()
+	defer transferMu.Unlock()
+
+	m := loadTransferManifestLocked()
+	removed := 0
+	var kept []transferFile
+	for _, f := range m.Files {
+		if f.Uploader == uploader {
+			if err := os.Remove(transferFilePath(f.Code, f.Filename)); err != nil && !os.IsNotExist(err) {
+				// 单文件删除失败不中断:manifest 先行收敛,残留文件由过期
+				// 清理回收(它按 manifest 条目删,条目已移除——失败文件成为
+				// 孤儿,但磁盘满类故障下这是可接受的降级)。
+				log.Printf("ERROR: transfer cascade delete %s: %v", f.Code, err)
+			}
+			m.TotalSize -= f.Size
+			removed++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	m.Files = kept
+	if m.TotalSize < 0 {
+		m.TotalSize = 0
+	}
+	if err := saveTransferManifestLocked(m); err != nil {
+		return removed, err
+	}
+	log.Printf("[security] transfer cascade delete uploader=%q removed=%d", uploader, removed)
+	return removed, nil
 }
