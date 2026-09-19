@@ -78,20 +78,30 @@ func saveTrafficStateLocked() {
 	}
 }
 
+// statsQueryEntry 是 statsquery 输出数组的一行。
+type statsQueryEntry struct {
+	Name  string      `json:"name"`
+	Value json.Number `json:"value"`
+}
+
 // parseStatsQueryOutput 解析 `xray api statsquery` 的 JSON 输出,只保留
 // user>>> 前缀计数器,返回 email → (up, down) 累计值。
 func parseStatsQueryOutput(data []byte) (map[string]userTraffic, error) {
+	// statsquery 的响应键名两种形态都有:xray 26.6.27 实测返回 "stat"(单数),
+	// 部分版本/文档为 "stats"。两个都读,取非空者。
 	var resp struct {
-		Stats []struct {
-			Name  string      `json:"name"`
-			Value json.Number `json:"value"`
-		} `json:"stats"`
+		Stat  []statsQueryEntry `json:"stat"`
+		Stats []statsQueryEntry `json:"stats"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
+	entries := resp.Stats
+	if len(resp.Stat) > 0 {
+		entries = resp.Stat
+	}
 	out := map[string]userTraffic{}
-	for _, s := range resp.Stats {
+	for _, s := range entries {
 		// 计数器名形如 user>>><email>>>traffic>>>uplink|downlink(xray 26.x
 		// 实测为 4 段,中间是类别 traffic;按 3 段解析会全部跳过,流量恒为空)。
 		if !strings.HasPrefix(s.Name, "user>>>") {

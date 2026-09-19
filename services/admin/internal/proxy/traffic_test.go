@@ -7,7 +7,8 @@ import (
 // TestParseStatsQueryOutput 计数器名解析:user>>><email>>>uplink|downlink;
 // 非 user 前缀(inbound/outbound)与畸形名跳过,负值/非法值跳过。
 func TestParseStatsQueryOutput(t *testing.T) {
-	out := `{"stats":[
+	// 键名 "stat" 单数形态(xray 26.6.27 实测)。
+	out := `{"stat":[
 		{"name":"user>>>alice>>>traffic>>>uplink","value":"1000"},
 		{"name":"user>>>alice>>>traffic>>>downlink","value":"2000"},
 		{"name":"user>>>bob>>>traffic>>>uplink","value":"5"},
@@ -17,6 +18,18 @@ func TestParseStatsQueryOutput(t *testing.T) {
 		{"name":"user>>>carol>>>traffic>>>uplink","value":"-3"},
 		{"name":"user>>>carol>>>traffic>>>uplink","value":7}
 	]}`
+
+	// 复数 "stats" 键名形态同样支持。
+	out2 := `{"stats":[
+		{"name":"user>>>dave>>>traffic>>>uplink","value":"9"}
+	]}`
+	cur2, err := parseStatsQueryOutput([]byte(out2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur2["dave"].Up != 9 {
+		t.Fatalf("dave = %+v", cur2["dave"])
+	}
 	cur, err := parseStatsQueryOutput([]byte(out))
 	if err != nil {
 		t.Fatal(err)
