@@ -2,6 +2,19 @@
   "log": {
     "loglevel": "warning"
   },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    }
+  },
+  "api": {
+    "tag": "api",
+    "services": ["StatsService"]
+  },
   "dns": {
     "servers": [
       "https+local://1.1.1.1/dns-query",
@@ -65,6 +78,15 @@
           "shortIds": __XRAY_SHORT_IDS_JSON__
         }
       }
+    },
+    {
+      "tag": "api",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "localhost"
+      }
     }
   ],
   "outbounds": [
@@ -96,6 +118,11 @@
   "routing": {
     "domainStrategy": "AsIs",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["api"],
+        "outboundTag": "api"
+      },
       {
         "type": "field",
         "ip": [

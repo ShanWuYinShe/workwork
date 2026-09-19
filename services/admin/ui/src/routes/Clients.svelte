@@ -6,13 +6,17 @@
     addXrayClient,
     deleteXrayClient,
     getXrayClientConfig,
+    getTraffic,
   } from '../lib/api.js';
+  import { formatSize } from '../lib/format.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let clients = $state([]);
+  // trafficMap: username → {up, down}(admin 才加载;viewer 看不到该列)。
+  let trafficMap = $state({});
   let generatedJSON = $state('');
   let loading = $state(true);
   let isAdmin = $state(false);
@@ -29,6 +33,7 @@
       isAdmin = user.role === 'admin';
       currentUser = user.username;
       clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
+      if (isAdmin) loadTraffic();
 
       if (!isAdmin && clients.length === 1) {
         selectedUUID = clients[0].id;
@@ -41,12 +46,27 @@
     }
   });
 
+  /** 拉取 per-user 流量并转成 owner 索引的 map;失败静默(旁路数据)。 */
+  async function loadTraffic() {
+    try {
+      const data = await getTraffic();
+      const map = {};
+      for (const row of data.traffic || []) {
+        map[row.user] = { up: row.up, down: row.down };
+      }
+      trafficMap = map;
+    } catch {
+      // 流量数据缺失不影响列表
+    }
+  }
+
   async function loadData() {
     const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
     const allClients = d.xrayClients || [];
     isAdmin = user.role === 'admin';
     currentUser = user.username;
     clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
+    if (isAdmin) loadTraffic();
 
     // Reset selected if it no longer exists
     if (selectedUUID && !clients.find((c) => c.id === selectedUUID)) {
@@ -183,6 +203,7 @@
               <tr>
                 <th>{t('uuid')}</th>
                 {#if isAdmin}<th>{t('owner')}</th>{/if}
+                {#if isAdmin}<th>{t('traffic')}</th>{/if}
                 <th>{t('protocols')}</th>
                 <th>{t('actions')}</th>
               </tr>
@@ -206,6 +227,12 @@
                   </td>
                   {#if isAdmin}
                     <td class="td-muted">{c.owner || '—'}</td>
+                  {/if}
+                  {#if isAdmin}
+                    {@const usage = trafficMap[c.owner || '']}
+                    <td class="td-mono td-muted">
+                      {usage ? `${formatSize(usage.up)} / ${formatSize(usage.down)}` : '—'}
+                    </td>
                   {/if}
                   <td>
                     <span class="badge badge-green"

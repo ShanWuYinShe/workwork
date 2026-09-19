@@ -4,6 +4,7 @@ ARG NGINX_VERSION=1.30.4
 ARG GIT_VERSION=dev
 
 FROM nginx:${NGINX_VERSION}-alpine
+ARG APK_MIRROR
 
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache fail2ban supervisor curl logrotate

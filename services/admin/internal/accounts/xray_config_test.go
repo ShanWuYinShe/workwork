@@ -192,7 +192,14 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if !ok || len(rules) == 0 {
 		t.Fatalf("missing routing rules: %#v", routing["rules"])
 	}
-	privateRule := nestedMapFromAny(t, rules[0])
+	// rules[0] 是 stats API 回环规则(api inbound → 内置 api outbound),必须
+	// 排在 private blocked 之前——api 流量 dest 是 127.0.0.1,否则会被
+	// geoip:private 规则吃掉导致 StatsService 永远不可达。
+	apiRule := nestedMapFromAny(t, rules[0])
+	if apiRule["outboundTag"] != "api" {
+		t.Fatalf("expected first rule to route api inbound, got %#v", apiRule)
+	}
+	privateRule := nestedMapFromAny(t, rules[1])
 	if privateRule["outboundTag"] != "blocked" {
 		t.Fatalf("expected private rule to block, got %#v", privateRule)
 	}
@@ -201,8 +208,8 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 		t.Fatalf("private routing rule missing expected ranges: %#v", privateRule["ip"])
 	}
 	inbounds, ok := doc["inbounds"].([]any)
-	if !ok || len(inbounds) != 2 {
-		t.Fatalf("expected xhttp-in + reality-in inbounds, got %#v", doc["inbounds"])
+	if !ok || len(inbounds) != 3 {
+		t.Fatalf("expected xhttp-in + reality-in + api inbounds, got %#v", doc["inbounds"])
 	}
 	reality := outboundByTag(t, inbounds, "reality-in")
 	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")

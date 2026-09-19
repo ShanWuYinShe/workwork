@@ -13,6 +13,7 @@ COPY services/admin/ui/ ./
 RUN bun run build
 
 FROM golang:${GO_VERSION}-alpine AS go-builder
+ARG APK_MIRROR
 
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache git
@@ -33,6 +34,7 @@ ARG GIT_VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${GIT_VERSION}" -o admin .
 
 FROM alpine:${ALPINE_VERSION}
+ARG APK_MIRROR
 
 # RUN_UID 与服务器工作用户 uid 对齐(默认 1001,同 .wework/ 属主):
 # 镜像内建非 root 用户后,脱离 docker-compose 直接跑也不会以 root 持有

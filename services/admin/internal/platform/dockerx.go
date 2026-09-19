@@ -95,6 +95,13 @@ func GetContainerIPs(ctx context.Context, cli *client.Client, containerID string
 }
 
 func ContainerExec(ctx context.Context, cli *client.Client, containerID string, cmd ...string) error {
+	_, err := ContainerExecOutput(ctx, cli, containerID, cmd...)
+	return err
+}
+
+// ContainerExecOutput 在容器内执行命令并返回 stdout(命令须退出 0,否则带
+// stderr 详情报错)。供 xray api statsquery、ip addr 等需要读取输出的 exec。
+func ContainerExecOutput(ctx context.Context, cli *client.Client, containerID string, cmd ...string) (string, error) {
 	execConfig := container.ExecOptions{
 		Cmd:          cmd,
 		AttachStdout: true,
@@ -102,27 +109,27 @@ func ContainerExec(ctx context.Context, cli *client.Client, containerID string, 
 	}
 	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
-		return fmt.Errorf("exec create: %w", err)
+		return "", fmt.Errorf("exec create: %w", err)
 	}
 	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
-		return fmt.Errorf("exec attach: %w", err)
+		return "", fmt.Errorf("exec attach: %w", err)
 	}
 	defer attachResp.Close()
-	var stderrBuf bytes.Buffer
-	stdcopy.StdCopy(io.Discard, &stderrBuf, attachResp.Reader)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	stdcopy.StdCopy(&stdoutBuf, &stderrBuf, attachResp.Reader)
 	inspect, err := cli.ContainerExecInspect(ctx, execResp.ID)
 	if err != nil {
-		return fmt.Errorf("exec inspect: %w", err)
+		return "", fmt.Errorf("exec inspect: %w", err)
 	}
 	if inspect.ExitCode != 0 {
 		errMsg := strings.TrimSpace(stderrBuf.String())
 		if errMsg == "" {
 			errMsg = fmt.Sprintf("exit code %d", inspect.ExitCode)
 		}
-		return fmt.Errorf("exec %v: %s", cmd, errMsg)
+		return "", fmt.Errorf("exec %v: %s", cmd, errMsg)
 	}
-	return nil
+	return stdoutBuf.String(), nil
 }
 
 // restart/轮转类长流程（stop+start+健康等待）的整体收敛时限。

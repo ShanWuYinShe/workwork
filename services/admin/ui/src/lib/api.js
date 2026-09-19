@@ -477,3 +477,8 @@ export async function neteaseLoginState() {
 export async function neteaseLogout() {
   return req('/music/netease/login/logout', { method: 'POST' });
 }
+
+/** 拉取按用户累计的代理流量(xray StatsService,每分钟采集)。 */
+export async function getTraffic() {
+  return req('/traffic');
+}

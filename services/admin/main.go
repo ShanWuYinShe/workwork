@@ -80,6 +80,8 @@ func main() {
 	go daemonGuard(&daemonWG, "ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone) })
 	// 证书到期监控(CF Origin CA 到期 = 全站 5xx,提前 30 天 webhook 告警)。
 	go daemonGuard(&daemonWG, "cert-expiry", func() { infra.StartCertExpiryWatcher(ctx) })
+	// per-user 流量统计(xray StatsService 经 docker exec 拉取,每分钟)。
+	go daemonGuard(&daemonWG, "traffic-collector", func() { proxy.StartTrafficCollector(ctx, cli) })
 
 	mux := http.NewServeMux()
 
@@ -144,6 +146,8 @@ func main() {
 	mux.HandleFunc("GET /api/admin/security/blocked", auth.RequireRole("admin")(auth.ApiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", auth.RequireRole("admin")(auth.ApiBlockIP()))
 	mux.HandleFunc("POST /api/admin/security/unblock", auth.RequireRole("admin")(auth.ApiUnblockIP()))
+	// per-user 流量统计(email = 用户名,xray StatsService 聚合)
+	mux.HandleFunc("GET /api/admin/traffic", auth.RequireRole("admin")(proxy.ApiTraffic()))
 
 	// Health check (no auth required)
 	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {

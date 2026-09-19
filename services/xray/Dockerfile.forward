@@ -6,6 +6,7 @@
 # 直连(公网地址),因此 IPv4 入站只能由这个纯 bridge 转发容器发布。
 # xray 本身不再声明 ports。
 FROM alpine:${ALPINE_VERSION:-3.24.1}
+ARG APK_MIRROR
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache socat
 EXPOSE 443

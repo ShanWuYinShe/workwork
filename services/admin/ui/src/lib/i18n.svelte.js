@@ -356,6 +356,7 @@ const zh = {
   stateRunning: '运行中',
   stateStopped: '已停止',
   stateUnhealthy: '健康检查失败',
+  traffic: '流量 ↑/↓',
   stateHealthStarting: '启动中',
   // misc
   // aria-labels
@@ -886,6 +887,7 @@ const en = {
   stateRunning: 'Running',
   stateStopped: 'Stopped',
   stateUnhealthy: 'Unhealthy',
+  traffic: 'Traffic ↑/↓',
   stateHealthStarting: 'Starting',
   // misc
   // aria-labels

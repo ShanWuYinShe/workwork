@@ -22,7 +22,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 - Inbounds: `xhttp-in`（Unix socket `/run/xray/xrxh.socket`，nginx `/proxy/query` 转发，Cloudflare 前置；无独立 TCP 端口）+ `reality-in`（443，Reality 直连）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
 - 客户端双出站 reality + xhttp，observatory 探测 + leastLoad 均衡自动选路；客户端内置并行 DNS 段加速代理域名解析
-- Clients 的 `email` 字段（= 用户名）用于标识客户端归属（面板里"谁拥有哪个客户端"）。注意：per-user 流量统计**未实现**——运行时配置无 quota/level 字段，模板也没有 stats 段
+- Clients 的 `email` 字段（= 用户名）用于标识客户端归属（面板里"谁拥有哪个客户端"），同时是 per-user 流量统计的计数器键：模板开启 `statsUserUplink/Downlink` + 内置 StatsService API（容器内 127.0.0.1:10085 dokodemo inbound，routing 首条规则回环），admin 每分钟 docker exec `xray api statsquery` 增量聚合（`internal/proxy/traffic.go`），状态落盘 `.wework/traffic-state.json` 兜住双方重启；展示在 Clients 页与 `GET /api/admin/traffic`
 
 ### services/nginx/ — Nginx + fail2ban
 
