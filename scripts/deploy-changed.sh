@@ -15,6 +15,13 @@ if [ -z "${WEBHOOK_URL:-}" ] && [ -f .env ]; then
   WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
 
+# ADMIN_PORT 同理:部署后版本指纹核对直连容器端口,docker compose 能读到 .env
+# 但 shell 不会;不提取则改端口后此处仍硬连旧值导致版本核对误报。
+if [ -z "${ADMIN_PORT:-}" ] && [ -f .env ]; then
+  ADMIN_PORT="$(grep -E '^ADMIN_PORT=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+fi
+ADMIN_PORT="${ADMIN_PORT:-8318}"
+
 # 外发部署失败通知(与 admin 事件通知同源;未配置为 no-op)。构建失败此前
 # set -e 直接退出、无任何告警——cron 触发的部署夜间挂掉无人知晓。
 notify_deploy_failure() {
@@ -112,8 +119,16 @@ if printf '%s\n' "$changed" | grep -q '^services/xray/'; then
 fi
 
 # ---------- 提示性事项（不进入自动部署范围） ----------
-if printf '%s\n' "$changed" | grep -q '^services/media_center/media_app'; then
-  echo "⚠ media_app 源码变更: APK 需手动构建上传（见 AGENTS.md media_app 条目）"
+# media_app 是 Android 客户端,不参与 compose 部署。超项目 diff 只能看到子模块
+# gitlink(services/media_center),需进子模块比对新旧指针间的 media_app/ 变更
+# 才能给出有效提示（直接 grep 超项目 diff 永不命中）。
+if printf '%s\n' "$changed" | grep -qx 'services/media_center'; then
+  mc_old="$(git rev-parse -q --verify "$old:services/media_center" 2>/dev/null || true)"
+  mc_new="$(git rev-parse -q --verify "$new:services/media_center" 2>/dev/null || true)"
+  if [ -n "$mc_old" ] && [ -n "$mc_new" ] &&
+     [ -n "$(git -C services/media_center diff --name-only "$mc_old" "$mc_new" -- media_app/ 2>/dev/null || true)" ]; then
+    echo "⚠ media_app 源码变更: APK 需手动构建上传（见 AGENTS.md media_app 条目）"
+  fi
 fi
 if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; then
   echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"
@@ -188,7 +203,7 @@ expected_version() {
 }
 health_version() {
   case "$1" in
-    admin) url="http://localhost:8318/api/admin/health" ;;
+    admin) url="http://localhost:${ADMIN_PORT}/api/admin/health" ;;
     media_server) url="http://localhost:8787/health" ;;
     music_server) url="http://localhost:8790/health" ;;
     *) return 0 ;;

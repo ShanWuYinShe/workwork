@@ -32,10 +32,18 @@ check() { # check <名称> <命令...> —— 命令须隐含"目标存在",缺�
 }
 skip() { echo "  - $1(跳过)"; SKIPS=$((SKIPS + 1)); }
 
+# sha256 工具两代系统名不同：Linux=sha256sum，macOS=shasum -a 256
+# （与 backup.sh 同款探测；本脚本经 make backup 链式调用，且需支持 macOS 本地复跑）
+if command -v sha256sum >/dev/null 2>&1; then
+  sha() { sha256sum "$@"; }
+else
+  sha() { shasum -a 256 "$@"; }
+fi
+
 # 1) 清单哈希逐文件校验(du 行不是 sha 行,按 64-hex 首列过滤)
 cd "$DIR"
 echo "· 哈希校验"
-if awk '$1 ~ /^[0-9a-f]{64}$/ {print $1"  "$2}' "$MANIFEST" | sha256sum -c -; then
+if awk '$1 ~ /^[0-9a-f]{64}$/ {print $1"  "$2}' "$MANIFEST" | sha -c -; then
   echo "  ✓ sha256 全部一致"
 else
   echo "  ✗ sha256 不一致"
@@ -76,7 +84,7 @@ assert cfg.get("inbounds"), "inbounds 为空"
 echo "· 证书"
 CERT="$WORK/cert/cert/server_cert.pem" KEY="$WORK/cert/cert/server_cert.key"
 if [ -f "$CERT" ] && [ -f "$KEY" ]; then
-  if [ "$(openssl x509 -in "$CERT" -noout -pubkey 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d" " -f1)" = "$(openssl pkey -in "$KEY" -pubout -outform DER 2>/dev/null | sha256sum | cut -d" " -f1)" ]; then
+  if [ "$(openssl x509 -in "$CERT" -noout -pubkey 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha | cut -d" " -f1)" = "$(openssl pkey -in "$KEY" -pubout -outform DER 2>/dev/null | sha | cut -d" " -f1)" ]; then
     echo "  ✓ 证书与私钥配对"
   else
     echo "  ✗ 证书与私钥不配对"

@@ -11,6 +11,8 @@ services:
       args:
         NGINX_VERSION: ${NGINX_VERSION:-1.30.4}
         APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
+        # OCI revision 标签来源，deploy-changed.sh 会 export（未导出时为 dev）
+        GIT_VERSION: ${GIT_VERSION:-dev}
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -92,6 +94,8 @@ services:
       args:
         ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
         APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
+        # OCI revision 标签来源，deploy-changed.sh 会 export（未导出时为 dev）
+        GIT_VERSION: ${GIT_VERSION:-dev}
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -428,7 +432,7 @@ services:
   # volumes 全部拒绝。admin 被攻破时的爆炸半径从"宿主 root"缩小到
   # "容器启停 + exec"。端点清单来自 services/admin 的调用面盘点,新增
   # docker API 调用时必须同步在这里放行(集成测试
-  # TestDockerProxyWhitelist 锁住全部调用路径)。
+  # TestAllowed 锁住全部调用路径)。
   docker-proxy:
     image: workwork-docker-proxy:${IMAGE_TAG:-latest}
     build:

@@ -126,8 +126,8 @@ workwork/
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
 │   ├── backup.sh
-│   ├── deploy-changed.sh
-│   └── restore-verify.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
+│   ├── deploy-changed.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
+│   └── restore-verify.sh     # 备份恢复机械校验：哈希/状态文件/sqlite 完整性/证书配对
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
 ├── setup-networks.sh         # 创建 ipvlan 网络
