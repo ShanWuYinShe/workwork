@@ -46,6 +46,16 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 	if !ok || len(servers) == 0 {
 		t.Fatalf("expected client dns servers, got %#v", dns["servers"])
 	}
+	// DoH 上游必须是国内直连可达的加密解析：境外 DoH(如 1.1.1.1)在国内
+	// 网络超时，每轮解析都会刷 [Error] 日志且永远不中奖。
+	if servers[0] != "https+local://223.5.5.5/dns-query" {
+		t.Fatalf("expected AliDNS DoH as first resolver, got %#v", servers[0])
+	}
+	for _, s := range servers {
+		if s == "https+local://1.1.1.1/dns-query" {
+			t.Fatalf("1.1.1.1 DoH is unreachable in CN, got %#v", servers)
+		}
+	}
 	if dns["enableParallelQuery"] != true {
 		t.Fatalf("expected client dns parallel query enabled, got %#v", dns["enableParallelQuery"])
 	}

@@ -99,9 +99,10 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 	return orderedJSON([]jsonField{
 		{"log", map[string]any{"loglevel": "warning"}},
 		// 客户端内置 DNS：sockopt domainStrategy=UseIP 依赖它解析代理服务
-		// 器域名。并行查询取最快，223.5.5.5 照顾国内解析，DoH 兜底。
+		// 器域名。并行查询取最快：UDP 223.5.5.5 国内直连最快，DoH 用阿里
+		// 加密解析防污染（1.1.1.1 等境外 DoH 国内直连超时，只会刷错误日志）。
 		{"dns", map[string]any{
-			"servers":             []string{"https+local://1.1.1.1/dns-query", "8.8.8.8", "223.5.5.5"},
+			"servers":             []string{"https+local://223.5.5.5/dns-query", "8.8.8.8", "223.5.5.5"},
 			"queryStrategy":       "UseIP",
 			"enableParallelQuery": true,
 			"useSystemHosts":      true,
