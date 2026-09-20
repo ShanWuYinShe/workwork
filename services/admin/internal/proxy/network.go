@@ -151,12 +151,9 @@ type domainInfo struct {
 }
 
 // allDomainInfos returns all managed domains and their container assignments.
-// XRAY_REALITY_DOMAIN -> xray, NGINX_DOMAINS (comma-separated) -> nginx.
+// NGINX_DOMAINS (comma-separated) -> nginx, plus XHTTP_DOMAIN.
 func allDomainInfos() []domainInfo {
 	var infos []domainInfo
-	if d := platform.GetEnv("XRAY_REALITY_DOMAIN"); d != "" {
-		infos = append(infos, domainInfo{Domain: d, Container: "xray"})
-	}
 	if d := platform.GetEnv("XHTTP_DOMAIN"); d != "" {
 		infos = append(infos, domainInfo{Domain: d, Container: "nginx"})
 	}

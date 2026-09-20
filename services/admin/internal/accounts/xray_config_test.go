@@ -8,14 +8,10 @@ import (
 	"testing"
 )
 
-func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
+func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
-		RealityDomain:     "xray.example.com",
-		RealityServerName: "addons.mozilla.org",
-		RealityPublicKey:  "public-key",
-		RealityShortID:    "0123456789abcdef",
-		XHTTPDomain:       "example.com",
-		XHTTPProxyAuth:    "viewer:secret",
+		XHTTPDomain:    "example.com",
+		XHTTPProxyAuth: "viewer:secret",
 	})
 
 	var doc map[string]any
@@ -24,20 +20,21 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 
 	outbounds, ok := doc["outbounds"].([]any)
-	if !ok || len(outbounds) != 4 {
-		t.Fatalf("expected reality/xhttp/direct/reject outbounds, got %#v", doc["outbounds"])
+	if !ok || len(outbounds) != 3 {
+		t.Fatalf("expected xhttp/direct/reject outbounds, got %#v", doc["outbounds"])
 	}
 
-	reality := outboundByTag(t, outbounds, "reality")
 	xhttp := outboundByTag(t, outbounds, "xhttp")
-
-	assertXHTTPSockopt(t, reality, "UseIP")
 	assertXHTTPSockopt(t, xhttp, "UseIP")
 
 	xhttpSettings := nestedMap(t, nestedMap(t, xhttp, "streamSettings"), "xhttpSettings")
 	headers := nestedMap(t, xhttpSettings, "headers")
 	if headers["Authorization"] == "" {
 		t.Fatal("expected xhttp auth header to be present")
+	}
+	streamSettings := nestedMap(t, xhttp, "streamSettings")
+	if streamSettings["security"] != "tls" {
+		t.Fatalf("expected xhttp outbound security tls, got %#v", streamSettings["security"])
 	}
 
 	// 客户端内置 DNS：domainStrategy=UseIP 依赖它解析代理服务器域名。
@@ -54,22 +51,16 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 	}
 
 	routing := nestedMap(t, doc, "routing")
-	balancers, ok := routing["balancers"].([]any)
-	if !ok || len(balancers) != 1 {
-		t.Fatalf("expected exactly one balancer, got %#v", routing["balancers"])
-	}
-	balancer := nestedMapFromAny(t, balancers[0])
-	selector, ok := balancer["selector"].([]any)
-	if !ok || !containsAny(selector, "reality") || !containsAny(selector, "xhttp") {
-		t.Fatalf("expected balancer selector [reality xhttp], got %#v", balancer["selector"])
+	if _, hasBalancer := routing["balancers"]; hasBalancer {
+		t.Fatalf("expected no balancer (single xhttp outbound), got %#v", routing["balancers"])
 	}
 	rules, ok := routing["rules"].([]any)
 	if !ok || len(rules) < 2 {
 		t.Fatalf("unexpected routing rules: %#v", routing["rules"])
 	}
 	proxyRule := nestedMapFromAny(t, rules[1])
-	if proxyRule["balancerTag"] != "proxy" {
-		t.Fatalf("expected proxy rule to point at balancer, got %#v", proxyRule)
+	if proxyRule["outboundTag"] != "xhttp" {
+		t.Fatalf("expected proxy rule to point at xhttp outbound, got %#v", proxyRule)
 	}
 	domains, ok := proxyRule["domain"].([]any)
 	if !ok {
@@ -90,53 +81,43 @@ func TestGenerateClientConfigIncludesDualTransportTuning(t *testing.T) {
 		}
 	}
 
-	observatory := nestedMap(t, doc, "observatory")
-	if observatory["subjectSelector"] == nil {
-		t.Fatalf("expected observatory subjectSelector, got %#v", observatory["subjectSelector"])
-	}
-	if observatory["probeURL"] != "https://cp.cloudflare.com/generate_204" {
-		t.Fatalf("unexpected observatory probeURL: %#v", observatory["probeURL"])
-	}
-	if observatory["probeInterval"] != "30s" {
-		t.Fatalf("unexpected observatory probeInterval: %#v", observatory["probeInterval"])
-	}
-	if observatory["enableConcurrency"] != true {
-		t.Fatalf("unexpected observatory enableConcurrency: %#v", observatory["enableConcurrency"])
+	// Reality 已移除：配置不得再包含 observatory（单出站无需探测均衡）。
+	if _, hasObservatory := doc["observatory"]; hasObservatory {
+		t.Fatal("expected no observatory section in XHTTP-only config")
 	}
 
-	// Reality 字段缺失即视为服务端配置不完整。
-	if got := GenerateClientConfig(nil, ClientConfig{XHTTPDomain: "example.com"}); !strings.Contains(got, "incomplete") {
+	// XHTTP 域名缺失即视为服务端配置不完整。
+	if got := GenerateClientConfig(nil, ClientConfig{}); !strings.Contains(got, "incomplete") {
 		t.Fatalf("expected incomplete-config error, got %s", got)
 	}
 }
 
 func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 	clients := []xrayClientEntry{{ID: "uuid-1", Owner: "viewer", Email: "viewer"}}
-	for _, flow := range []string{"", "xtls-rprx-vision"} {
-		got, err := encodeXrayClients(clients, flow)
-		if err != nil {
-			t.Fatalf("encodeXrayClients(flow=%q): %v", flow, err)
-		}
-		if strings.Contains(got, "owner") {
-			t.Fatalf("generated xray clients must not contain owner, got %s", got)
-		}
-		var arr []map[string]any
-		if err := json.Unmarshal([]byte(got), &arr); err != nil {
-			t.Fatalf("unmarshal %s: %v", got, err)
-		}
-		if len(arr) != 1 {
-			t.Fatalf("expected 1 client, got %s", got)
-		}
-		for key := range arr[0] {
-			if key != "id" && key != "email" && key != "flow" {
-				t.Fatalf("unexpected client key %q in %s", key, got)
-			}
-		}
-		if arr[0]["flow"] != flow {
-			t.Fatalf("expected flow %q, got %s", flow, got)
+	got, err := encodeXrayClients(clients)
+	if err != nil {
+		t.Fatalf("encodeXrayClients: %v", err)
+	}
+	if strings.Contains(got, "owner") {
+		t.Fatalf("generated xray clients must not contain owner, got %s", got)
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal([]byte(got), &arr); err != nil {
+		t.Fatalf("unmarshal %s: %v", got, err)
+	}
+	if len(arr) != 1 {
+		t.Fatalf("expected 1 client, got %s", got)
+	}
+	for key := range arr[0] {
+		if key != "id" && key != "email" && key != "flow" {
+			t.Fatalf("unexpected client key %q in %s", key, got)
 		}
 	}
-	if got, err := encodeXrayClients(nil, ""); err != nil || got != "[]" {
+	// XHTTP 入站不使用 flow（vision flow 属 Reality，已移除）。
+	if arr[0]["flow"] != "" {
+		t.Fatalf("expected empty flow, got %s", got)
+	}
+	if got, err := encodeXrayClients(nil); err != nil || got != "[]" {
 		t.Fatalf("expected empty clients to encode as [], got %q, err %v", got, err)
 	}
 }
@@ -148,18 +129,8 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 		t.Fatalf("read template: %v", err)
 	}
 
-	rendered := string(data)
-	replacements := map[string]string{
-		"__XRAY_CLIENTS_JSON__":         `[{"id":"uuid-1","email":"viewer","flow":""}]`,
-		"__XRAY_REALITY_CLIENTS_JSON__": `[{"id":"uuid-1","email":"viewer","flow":"xtls-rprx-vision"}]`,
-		"__XRAY_REALITY_DEST__":         "addons.mozilla.org:443",
-		"__XRAY_REALITY_SERVER_NAME__":  "addons.mozilla.org",
-		"__XRAY_PRIVATE_KEY__":          "private-key",
-		"__XRAY_SHORT_IDS_JSON__":       `["0123456789abcdef","abcdef"]`,
-	}
-	for placeholder, value := range replacements {
-		rendered = strings.ReplaceAll(rendered, placeholder, value)
-	}
+	rendered := strings.ReplaceAll(string(data),
+		"__XRAY_CLIENTS_JSON__", `[{"id":"uuid-1","email":"viewer","flow":""}]`)
 	if strings.Contains(rendered, "__XRAY_") {
 		t.Fatal("rendered template still contains unreplaced __XRAY_* placeholders")
 	}
@@ -207,36 +178,19 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if !ok || !containsAny(ips, "geoip:private") || !containsAny(ips, "100.64.0.0/10") || !containsAny(ips, "fc00::/7") {
 		t.Fatalf("private routing rule missing expected ranges: %#v", privateRule["ip"])
 	}
+	// Reality 入站已移除：仅 xhttp-in + api。
 	inbounds, ok := doc["inbounds"].([]any)
-	if !ok || len(inbounds) != 3 {
-		t.Fatalf("expected xhttp-in + reality-in + api inbounds, got %#v", doc["inbounds"])
+	if !ok || len(inbounds) != 2 {
+		t.Fatalf("expected xhttp-in + api inbounds, got %#v", doc["inbounds"])
 	}
-	reality := outboundByTag(t, inbounds, "reality-in")
-	realitySettings := nestedMap(t, nestedMap(t, reality, "streamSettings"), "realitySettings")
-	shortIDs, ok := realitySettings["shortIds"].([]any)
-	if !ok || len(shortIDs) != 2 {
-		t.Fatalf("unexpected reality shortIds: %#v", realitySettings["shortIds"])
+	if strings.Contains(rendered, `"reality"`) {
+		t.Fatal("rendered template must not contain reality settings")
 	}
 	xhttpIn := outboundByTag(t, inbounds, "xhttp-in")
 	xhttpSockopt := nestedMap(t, nestedMap(t, xhttpIn, "streamSettings"), "sockopt")
 	trustedXFF, ok := xhttpSockopt["trustedXForwardedFor"].([]any)
 	if !ok || !containsAny(trustedXFF, "X-Real-IP") {
 		t.Fatalf("expected xhttp-in trustedXForwardedFor to include X-Real-IP, got %#v", xhttpSockopt["trustedXForwardedFor"])
-	}
-}
-
-func TestXrayShortIDsJSON(t *testing.T) {
-	t.Setenv("XRAY_SHORT_IDS", "0123456789abcdef, abcdef")
-
-	got, err := xrayShortIDsJSON()
-	if err != nil {
-		t.Fatalf("xrayShortIDsJSON: %v", err)
-	}
-	if got != `["0123456789abcdef","abcdef"]` {
-		t.Fatalf("unexpected short IDs JSON: %s", got)
-	}
-	if shortID := XrayClientShortID(); shortID != "0123456789abcdef" {
-		t.Fatalf("unexpected client short ID: %s", shortID)
 	}
 }
 

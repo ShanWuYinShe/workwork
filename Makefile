@@ -2,7 +2,7 @@
 # 部署推导逻辑在 scripts/deploy-changed.sh，本文件只做薄封装。
 
 COMPOSE := docker compose
-SERVICES := admin docker-proxy xray xray-forward nginx media_server vod_extractor netease_api music_server
+SERVICES := admin docker-proxy xray nginx media_server vod_extractor netease_api music_server
 
 # 版本号自动导出,compose build args 读取后烙进各服务二进制/镜像并经
 # 健康端点暴露;调用方显式传入时以传入值为准。

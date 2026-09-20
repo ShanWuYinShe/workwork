@@ -39,12 +39,8 @@ func ApiDashboard(cli *client.Client) http.HandlerFunc {
 				}
 			}
 			genJSON := accounts.GenerateClientConfig(myClients, accounts.ClientConfig{
-				RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
-				RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
-				RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
-				RealityShortID:    accounts.XrayClientShortID(),
-				XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
-				XHTTPProxyAuth:    proxyAuth,
+				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+				XHTTPProxyAuth: proxyAuth,
 			})
 			platform.WriteJSON(w, map[string]any{
 				"role":          userInfo.Role,

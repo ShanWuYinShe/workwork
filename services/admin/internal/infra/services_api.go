@@ -108,7 +108,7 @@ func ApiConfig(cli *client.Client) http.HandlerFunc {
 			}
 			if json.Unmarshal(raw, &cfg) == nil {
 				for _, ib := range cfg.Inbounds {
-					if ib.Tag == "reality-in" {
+					if ib.Tag == "xhttp-in" {
 						result["xrayClients"] = len(ib.Settings.Clients)
 					}
 				}

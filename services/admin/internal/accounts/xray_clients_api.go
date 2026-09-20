@@ -199,12 +199,8 @@ func ApiXrayClientConfig() http.HandlerFunc {
 		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 auth.ApiUsers 一致。
 		proxyAuth := auth.ProxyAuthForUserRead(client["owner"])
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
-			RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
-			RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
-			RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
-			RealityShortID:    XrayClientShortID(),
-			XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuth,
+			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+			XHTTPProxyAuth: proxyAuth,
 		})
 		platform.WriteJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client["owner"],

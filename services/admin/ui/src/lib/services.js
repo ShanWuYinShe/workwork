@@ -8,7 +8,6 @@ const SERVICE_LABELS = {
   netease_api: 'Netease API',
   nginx: 'Nginx',
   xray: 'Xray',
-  'xray-forward': 'Xray Forward',
 };
 
 export function serviceDisplayName(name) {

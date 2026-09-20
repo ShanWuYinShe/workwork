@@ -115,7 +115,6 @@ if printf '%s\n' "$changed" | grep -q '^services/nginx/'; then
 fi
 if printf '%s\n' "$changed" | grep -q '^services/xray/'; then
   add_svc xray
-  add_svc xray-forward
 fi
 
 # ---------- 提示性事项（不进入自动部署范围） ----------

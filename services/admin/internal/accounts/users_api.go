@@ -59,12 +59,8 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		genJSON := GenerateClientConfig(filtered, ClientConfig{
-			RealityDomain:     platform.GetEnv("XRAY_REALITY_DOMAIN"),
-			RealityServerName: platform.GetEnv("XRAY_REALITY_SERVER_NAME"),
-			RealityPublicKey:  platform.GetEnv("XRAY_PUBLIC_KEY"),
-			RealityShortID:    XrayClientShortID(),
-			XHTTPDomain:       platform.GetEnv("XHTTP_DOMAIN"),
-			XHTTPProxyAuth:    proxyAuth,
+			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+			XHTTPProxyAuth: proxyAuth,
 		})
 
 		// Build adminUsers with role info

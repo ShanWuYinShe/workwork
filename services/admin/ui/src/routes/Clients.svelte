@@ -235,9 +235,6 @@
                     </td>
                   {/if}
                   <td>
-                    <span class="badge badge-green"
-                      ><span class="badge-dot"></span>{t('protocolReality')}</span
-                    >
                     <span class="badge badge-blue">{t('protocolXhttp')}</span>
                   </td>
                   <td>
@@ -298,9 +295,7 @@
       <div class="badge-list config-badges">
         <span class="badge badge-gray">{t('socks5')}:10808</span>
         <span class="badge badge-gray">{t('http')}:10809</span>
-        <span class="badge badge-gray"
-          >{t('balancer')}: {t('protocolReality')} + {t('protocolXhttp')}</span
-        >
+        <span class="badge badge-gray">{t('protocolXhttp')}</span>
       </div>
       <textarea rows="16" readonly>{generatedJSON}</textarea>
     </div>

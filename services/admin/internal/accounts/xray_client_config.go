@@ -41,12 +41,8 @@ func readXrayClientMapsNoLock() ([]map[string]string, error) {
 }
 
 type ClientConfig struct {
-	RealityDomain     string
-	RealityServerName string
-	RealityPublicKey  string
-	RealityShortID    string
-	XHTTPDomain       string
-	XHTTPProxyAuth    string // "user:pass" for nginx basic auth
+	XHTTPDomain    string
+	XHTTPProxyAuth string // "user:pass" for nginx basic auth
 }
 
 // Ordered JSON builder: preserves field order in output.
@@ -77,10 +73,6 @@ func xhttpOutboundSockopt() map[string]any {
 	return sockopt
 }
 
-func realityOutboundSockopt() map[string]any {
-	return xhttpOutboundSockopt()
-}
-
 func autoProxyDomains() []string {
 	return []string{
 		"geosite:google", "geosite:github", "geosite:openai",
@@ -101,7 +93,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 	if len(clients) > 0 {
 		uuid = clients[0]["id"]
 	}
-	if cfg.RealityDomain == "" || cfg.RealityPublicKey == "" || cfg.XHTTPDomain == "" {
+	if cfg.XHTTPDomain == "" {
 		return "{\"error\": \"Server configuration incomplete\"}"
 	}
 	return orderedJSON([]jsonField{
@@ -128,25 +120,6 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		}},
 		{"outbounds", []any{
 			map[string]any{
-				"tag": "reality", "protocol": "vless",
-				"settings": map[string]any{
-					"vnext": []any{map[string]any{
-						"address": cfg.RealityDomain, "port": 443,
-						"users": []any{map[string]any{
-							"id": uuid, "email": uuid, "flow": "xtls-rprx-vision", "encryption": "none",
-						}},
-					}},
-				},
-				"streamSettings": map[string]any{
-					"network": "tcp", "security": "reality",
-					"realitySettings": map[string]any{
-						"serverName": cfg.RealityServerName, "fingerprint": "chrome",
-						"publicKey": cfg.RealityPublicKey, "shortId": cfg.RealityShortID,
-					},
-					"sockopt": realityOutboundSockopt(),
-				},
-			},
-			map[string]any{
 				"tag": "xhttp", "protocol": "vless",
 				"settings": map[string]any{
 					"vnext": []any{map[string]any{
@@ -168,22 +141,11 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 		}},
 		{"routing", map[string]any{
 			"domainStrategy": "AsIs",
-			"balancers": []any{map[string]any{
-				"tag":      "proxy",
-				"selector": []string{"reality", "xhttp"},
-				"strategy": map[string]any{"type": "leastLoad"},
-			}},
 			"rules": []any{
 				map[string]any{"type": "field", "outboundTag": "reject", "domain": []string{"geosite:category-ads-all"}},
-				map[string]any{"type": "field", "balancerTag": "proxy", "domain": autoProxyDomains()},
+				map[string]any{"type": "field", "outboundTag": "xhttp", "domain": autoProxyDomains()},
 				map[string]any{"type": "field", "outboundTag": "direct", "network": "tcp,udp"},
 			},
-		}},
-		{"observatory", map[string]any{
-			"subjectSelector":   []string{"reality", "xhttp"},
-			"probeURL":          "https://cp.cloudflare.com/generate_204",
-			"probeInterval":     "30s",
-			"enableConcurrency": true,
 		}},
 	})
 }

@@ -1,6 +1,6 @@
 # workwork
 
-Docker 代理基础设施：Xray VLESS Reality + XHTTP 代理 / Nginx 反代 / Go 管理面板。
+Docker 代理基础设施：Xray VLESS XHTTP 代理 / Nginx 反代 / Go 管理面板。
 
 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/AGENTS.md` 为准（各 AI 工具的全局指令文件均链接到该文件），本文件只做项目特有补充，不得放宽或违背全局约束。
 
@@ -19,7 +19,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 3. 冒烟：本地能独立启动的服务，`make up <svc...>` 后等 healthy，并按 README「版本排查」核对健康端点版本指纹。
 4. 以下服务本地不具备启动条件（本地仓库默认没有 `.env` / `cert/` / `.wework/`，也没有外部 `ipvlan_docker` 网络），做到第 2 步即视为本地验证通过，上线可靠性由服务器 `deploy-changed.sh` 的部署后自校验（等 healthy + 版本指纹核对，不通过即 fail）兜底：
    - `nginx`（需 `cert/` 证书与 admin 渲染到 `.wework/generated/` 的运行时配置）；
-   - `xray` / `xray-forward`（需外部 `ipvlan_docker` IPv6 网络）；
+   - `xray`（需外部 `ipvlan_docker` IPv6 网络）；
    - `vod_extractor` 全链路（需宿主机 `.wework/vod_extractor/youtube-cookies.txt` 真实 cookies）。
    不要为了验证而在本地伪造线上证书或密钥。
 
@@ -40,7 +40,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 ### 版本与构建约定
 
-- 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各仓库 `git describe`，compose 经 build args 传入（直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make）。健康端点均携带版本：`/api/admin/health`、`/api/media/health`、`/api/music/health`、vod_extractor `/health`（含 yt-dlp 版本，YouTube 排障关键字段）。OCI 标签并非所有镜像都有：admin/nginx/xray/media_server/music_server 有 `org.opencontainers.image.revision` 标签，docker_proxy 仅 `image.version`，xray-forward/netease_api 无——查版本优先用健康端点。
+- 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各仓库 `git describe`，compose 经 build args 传入（直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make）。健康端点均携带版本：`/api/admin/health`、`/api/media/health`、`/api/music/health`、vod_extractor `/health`（含 yt-dlp 版本，YouTube 排障关键字段）。OCI 标签并非所有镜像都有：admin/nginx/xray/media_server/music_server 有 `org.opencontainers.image.revision` 标签，docker_proxy 仅 `image.version`，netease_api 无——查版本优先用健康端点。
 - 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md“版本号规范”）。构建期自动派生 versionName/versionCode；发版前在子模块打 tag 即“自动更新版本”（tag 打在子模块仓库，非外层 workwork）。发版流程：commit / tag 在对应 Worktree 内完成；合并进主分支后，push（含 tag）一律在主工作树执行，见全局 Git 准则。无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
 - JDK（media_app 构建用）：以全局「本机环境」Android Studio JBR 条目为准（使用前以 ls 验证，变动时用 mdfind 定位）；Gradle 命令一律加 `--no-daemon`（Daemon 构建后 idle 常驻，多次构建会撑爆内存）。APK 有 normal + legacy（Android 4.4.2 / API 19）两变体，构建与上传步骤见 README「部署流程」media_app 条。
 - 子模块注意：`git pull` 不会更新子模块指针，手动部署时必须补 `git submodule update --init --recursive`，并用 `git submodule status` 检查漂移（行首 `+` 号 = 指针对应源码有更新），否则 build 出的仍是旧子模块源码（`make deploy-changed` 已自动处理）。

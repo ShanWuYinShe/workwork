@@ -49,7 +49,7 @@ docker run --rm -v <project>_media_center_data:/data -v /tmp/catalog-snap:/snap 
   sh -c 'apk add --no-cache sqlite >/dev/null && sqlite3 /snap/catalog.db "PRAGMA integrity_check;" \
          && cp /snap/catalog.db /data/catalog.db'
 # 4. sudo bash setup-networks.sh（ipvlan 网络），然后
-make build admin xray xray-forward nginx docker-proxy media_server vod_extractor netease_api music_server
+make build admin xray nginx docker-proxy media_server vod_extractor netease_api music_server
 docker compose up -d
 # 5. 按健康端点核对版本指纹（README「版本排查」）
 ```

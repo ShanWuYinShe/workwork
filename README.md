@@ -13,14 +13,15 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 ┌─────────────────────────────▼───────────────────────────────────┐
 │                           Nginx                                  │
 │                  (TLS termination + fail2ban)                   │
-│                    │              │              │                 │
-│            /admin/*          /api/admin/*      /proxy/query      │
-│                    │              │              │                 │
-│           ┌────────▼────────┐  ┌──▼────────┐  ┌──▼────────┐     │
-│           │     Admin       │  │   Xray    │  │  Xray     │     │
-│           │  (Go + Svelte)  │  │  XHTTP    │  │  Reality  │     │
-│           │    :8318        │  │unix socket│  │   :443    │     │
-│           └─────────────────┘  └───────────┘  └───────────┘     │
+│                    │              │                             │
+│            /admin/*          /proxy/query (XHTTP)                │
+│            /api/admin/*          │                               │
+│                    │              │                             │
+│           ┌────────▼────────┐  ┌──▼────────┐                     │
+│           │     Admin       │  │   Xray    │                     │
+│           │  (Go + Svelte)  │  │  XHTTP    │                     │
+│           │    :8318        │  │unix socket│                     │
+│           └─────────────────┘  └───────────┘                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,8 +30,7 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | 组件 | 技术栈 | 端口 | 说明 |
 |------|--------|------|------|
 | **nginx** | nginx:alpine + fail2ban | 443 | TLS 终结、反向代理、IP 防护 |
-| **xray** | XTLS 官方源码构建 | 443（Reality）；XHTTP 无独立端口（Unix socket 经 nginx `/proxy/query` 接入） | VLESS Reality + XHTTP 代理 |
-| **xray-forward** | alpine + socat | 0.0.0.0:443 → xray:443 | IPv4 直连发布转发容器（xray 连接 ipvlan 后端口映射失效，见架构文档） |
+| **xray** | XTLS 官方源码构建 | 无入站端口（XHTTP 经 Unix socket 由 nginx `/proxy/query` 接入） | VLESS XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成（docker API 经 **docker-proxy** 白名单代理） |
 | **docker-proxy** | Go | 2375（容器内，仅内网） | docker API 精确白名单反代：只放行 admin 所需端点，create/delete/images/networks 等逃逸面一律 403 |
 | **media_server** | Go | 8787（容器内，仅内网；对外经 nginx `/api/media`） | 合规公开视频聚合 API |
@@ -83,14 +83,11 @@ docker compose ps
 
 ### Xray 代理
 
-支持两种入站协议：
-
 | 协议 | 端口 | 用途 | 目标域名 |
 |------|------|------|----------|
-| **Reality** | 443 | 直接连接（抗审查） | `xray.yinghuoren.com` |
 | **XHTTP** | 无独立端口（nginx `/proxy/query` 经 Unix socket 转发） | 通过 Cloudflare 连接 | `yinghuoren.com` |
 
-客户端配置包含 Reality + XHTTP 两种出站协议，observatory 探测 + leastLoad 均衡自动选择延迟最低的线路；另内置并行 DNS 段加速代理域名解析。
+客户端配置只包含 XHTTP 出站（经 Cloudflare + nginx TLS 终结接入）；内置并行 DNS 段加速代理域名解析。
 
 ### Admin 管理面板
 
@@ -256,7 +253,7 @@ docker compose logs -f media_server
 make check                  # 本地门禁：gofmt/vet/test + 前端构建
 make build <受影响服务...>   # 受影响服务本地构建通过（版本号自动烙入）
 # 本地能独立启动的服务：make up <svc...> 后等 healthy 并核对版本指纹（见「版本排查」）
-# nginx / xray / xray-forward / vod_extractor 全链路本地不具备启动条件，以构建通过为准
+# nginx / xray / vod_extractor 全链路本地不具备启动条件，以构建通过为准
 
 # 1. 本地开发（worktree 分支）合并进 main 并推送
 git push origin main
@@ -273,7 +270,7 @@ ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-
 # 3. 按变更选择最小部署命令（或直接用 make），例如：
 make build admin && make up admin          # services/admin/**（含 ui 与配置模板）
 make build nginx && make up nginx          # services/nginx/**
-make build xray xray-forward && make up xray xray-forward   # services/xray/**
+make build xray && make up xray                             # services/xray/**
 make build media_server && make up media_server             # services/media_center/media_server/**
 
 # 4. media_app（Android APK，normal + legacy 两变体；源码在子模块 services/media_center，
@@ -298,7 +295,6 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
 | `AUTH_USER` / `AUTH_PASS` | 首启必需：初始管理员与密码（写入 htpasswd；面板改密后 `.env` 里的 `AUTH_PASS` 即作废） | - |
 | `ADMIN_PORT` | admin 容器内端口（改它需同步 compose healthcheck 与 fail2ban action 的硬编码） | `8318` |
-| `XRAY_PRIVATE_KEY` | 首启必需：X25519 私钥，渲染 Reality 入站；缺省 xray 起不来 | `xray x25519` 生成 |
 | `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
 | `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |
 | `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
@@ -307,7 +303,6 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `INTERNAL_TOKEN_ALLOWED_PREFIXES` | 可选：internal token 的路径前缀白名单（逗号分隔）。配置后该 token 只能豁免这些前缀，其余路径退回正常认证，被拒请求以 `[security]` 留痕；留空保持全权 | `/api/admin/security,/api/admin/dashboard` |
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
-| `XRAY_REALITY_DOMAIN` | Reality 目标域名 | `xray.yinghuoren.com` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
 | `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
 | `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
