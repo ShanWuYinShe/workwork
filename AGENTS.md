@@ -41,9 +41,9 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 ### 版本与构建约定
 
 - 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各仓库 `git describe`，compose 经 build args 传入（直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make）。健康端点均携带版本：`/api/admin/health`、`/api/media/health`、`/api/music/health`、vod_extractor `/health`（含 yt-dlp 版本，YouTube 排障关键字段）。OCI 标签并非所有镜像都有：admin/nginx/xray/media_server/music_server 有 `org.opencontainers.image.revision` 标签，docker_proxy 仅 `image.version`，netease_api 无——查版本优先用健康端点。
-- 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动（见该仓库 AGENTS.md“版本号规范”）。构建期自动派生 versionName/versionCode；发版前在子模块打 tag 即“自动更新版本”（tag 打在子模块仓库，非外层 workwork）。发版流程：commit / tag 在对应 Worktree 内完成；合并进主分支后，push（含 tag）一律在主工作树执行，见全局 Git 准则。无需手改 build.gradle。升版规则：major=破坏性 / minor=新功能 / patch=修复。
+- 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动，tag 打在子模块仓库（非外层 workwork）；升版规则、发版流程与 APK 部署以该子模块 `media_app/AGENTS.md` 为唯一维护处，此处不复述。tag 位置口径：commit 在对应 Worktree 内完成，合并进主分支后 tag 与 push（含 tag）一律在主工作树执行（与全局 Git 准则一致）。
 - JDK（media_app 构建用）：以全局「本机环境」Android Studio JBR 条目为准（使用前以 ls 验证，变动时用 mdfind 定位）；Gradle 命令一律加 `--no-daemon`（Daemon 构建后 idle 常驻，多次构建会撑爆内存）。APK 有 normal + legacy（Android 4.4.2 / API 19）两变体，构建与上传步骤见 README「部署流程」media_app 条。
-- 子模块注意：`git pull` 不会更新子模块指针，手动部署时必须补 `git submodule update --init --recursive`，并用 `git submodule status` 检查漂移（行首 `+` 号 = 指针对应源码有更新），否则 build 出的仍是旧子模块源码（`make deploy-changed` 已自动处理）。
+- 子模块注意：`git pull` 不会更新子模块指针，手动部署时必须补 `git submodule update --init --recursive`，并用 `git submodule status` 检查漂移（行首 `+` 号 = 指针对应源码有更新），否则 build 出的仍是旧子模块源码（`make deploy-changed` 已自动处理）。子仓库的**纯文档 commit** 同样要推进指针：子仓库 AGENTS.md 修订合并推送后，回本仓库 `git submodule update --remote <path>` 推进指针并提交——否则在本仓库工作的 AI 读到的是子模块旧文档。
 
 ### 权限注意（首次部署或权限异常时）
 
@@ -101,7 +101,7 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 - 文档单一来源：架构"是什么"只写在 `docs/architecture.md`，AGENTS 不复述实现细节。文档与可验证实现冲突时以代码为准并修正文档，不要按错误描述继续。
 - 配置字段核对: Xray、Nginx、Docker 等配置以官方源码/文档为准；优先读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档确认字段名大小写、合法值范围和字段语义。
 - Never use `RemoteAddr` for auth — 所有流量经 Docker bridge，看起来都是内网地址。
-- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/.fail2ban-token`）。`INTERNAL_TOKEN` 默认全权（仓库内无消费者，服务于外部自动化，默认收紧会静默破坏它们）；配置 `INTERNAL_TOKEN_ALLOWED_PREFIXES`（逗号分隔路径前缀）后只豁免白名单内路径，白名单外的使用会以 `[security]` 留痕——新部署建议按日志逐步收敛。
+- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/.fail2ban-token`）。`INTERNAL_TOKEN` 默认全权（仓库代码不主动发起携带该 token 的调用，它服务于外部自动化，默认收紧会静默破坏它们）；配置 `INTERNAL_TOKEN_ALLOWED_PREFIXES`（逗号分隔路径前缀）后只豁免白名单内路径，白名单外的使用会以 `[security]` 留痕——新部署建议按日志逐步收敛。
 - Secrets: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
 - Xray 客户端归属: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
 - 配置文件写入：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
