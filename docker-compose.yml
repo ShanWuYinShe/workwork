@@ -149,9 +149,12 @@ services:
       admin:
         condition: service_healthy
     healthcheck:
-      # 唯一监听面是 XHTTP Unix socket（无 TCP 入站），socket 存在即存活；
-      # 进程崩溃由 restart 策略兜底。
-      test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket"]
+      # 双条件:socket 存在 + xray 进程存在。仅探 socket 漏判两类假活:进程
+      # hang(socket 在但已不 accept)与崩溃后 socket 文件残留(仅启动时清理)。
+      # 按进程名匹配而不用 pgrep -f:healthcheck 自身 shell 命令行含 socket
+      # 路径里的 "xray" 字样,-f 会误匹配自身恒真(busybox pgrep 按名匹配
+      # 已实测:进程存活 exit 0,退出后 exit 1)。
+      test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket && pgrep xray >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -163,6 +166,9 @@ services:
       context: ./services/media_center/media_server
       dockerfile: Dockerfile
       args:
+        # 与主仓 Go 版本口径保持一致(覆盖子模块 Dockerfile 默认的 1.26.5),
+        # 升级时统一改,勿只改一侧。
+        GO_VERSION: ${GO_VERSION:-1.26.8}
         GIT_VERSION: ${MEDIA_CENTER_VERSION:-dev}
     restart: unless-stopped
     init: true
@@ -315,6 +321,9 @@ services:
       context: ./services/music_player/music_server
       dockerfile: Dockerfile
       args:
+        # 与主仓 Go 版本口径保持一致(覆盖子模块 Dockerfile 默认的 1.26.5),
+        # 升级时统一改,勿只改一侧。
+        GO_VERSION: ${GO_VERSION:-1.26.8}
         GIT_VERSION: ${MUSIC_PLAYER_VERSION:-dev}
     restart: unless-stopped
     init: true
@@ -391,6 +400,13 @@ services:
     # method+path 级,越权一律 403;新增 admin docker API 调用时同步。
     restart: unless-stopped
     init: true
+    deploy:
+      resources:
+        limits:
+          # 无依赖静态单文件程序,资源需求固定;64M/0.25 与 media_server 对齐,
+          # 防异常内存膨胀波及宿主(其余 7 个服务均有 limits)。
+          memory: 64M
+          cpus: "0.25"
     read_only: true
     tmpfs:
       - /tmp
