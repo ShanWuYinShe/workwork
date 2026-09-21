@@ -178,7 +178,28 @@ jobs:
           go install github.com/zricethezav/gitleaks/v8@v8.30.1
           gitleaks git . -c .gitleaks.toml
 
+  # 可构建服务镜像冒烟：四个非子模块服务在 CI 里真实 docker compose build，
+  # 把「Dockerfile 构建坏」从部署时提前到合并前。默认缓存即可：GHA runner
+  # 每次冷启本无缓存，--no-cache 只会在未来接入 build cache backend 时平白拖慢。
+  image-build:
+    name: Image build smoke (non-submodule)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      # 仅四个本仓源码组装的非子模块服务。media_server / music_server /
+      # vod_extractor 的构建上下文在私有子模块，本仓库 GITHUB_TOKEN 无权 clone
+      # （沿用文末约定），不能进 CI；netease_api 为第三方 npm 包的纯安装构建，
+      # 不含本仓源码，不在冒烟范围。compose 内 ${NGINX_IPV6} 等变量无 .env 时
+      # 为空串告警但不阻断 build（本地实测 exit 0）。
+      - name: docker compose build
+        run: docker compose build admin docker-proxy xray nginx
+
   # 注意：media_center / music_player 以 git submodule 引入，且均为私有仓库，
   # 本仓库的 GITHUB_TOKEN 无权 clone（SSH 更无 key），故不在此测它们。
   # 两仓库各自的 CI 门禁覆盖 media_server / music_server / vod_extractor；
-  # 集成形态（compose 构建）由部署时 docker compose build 保证。
+  # 集成形态（compose 构建）：四个非子模块服务镜像已由 image-build job 冒烟，
+  # 其余（media_server / music_server / vod_extractor / netease_api）仍由
+  # 部署时 docker compose build 保证。
