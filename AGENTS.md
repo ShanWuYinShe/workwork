@@ -25,32 +25,6 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 例外：纯文档/注释改动（`*.md`、代码注释）可跳过第 2、3 步，但仍执行第 1 步中有意义的部分。
 
-## 构建 & 部署
-
-### Makefile（部署/验证的可执行入口）
-
-根目录 `Makefile` 把本节命令与部署映射封装为规则，AI 与人工优先用 make，避免每次凭记忆拼写：
-
-- `make check` — 本地门禁：gofmt / go vet / go test / 前端构建（admin 改动的最低验证项）
-- `make build <svc...>` / `make up <svc...>` / `make restart <svc...>` / `make logs <svc...>` — compose 薄封装
-- `make submodule` — 子模块同步到主仓库记录的指针
-- `make deploy-changed` — 只在服务器执行的一键部署（逻辑在 `scripts/deploy-changed.sh`）：工作区校验 → `git pull --ff-only` → **子模块强制同步**（缺失子模块会被 Docker 把挂载源建成目录，必须先于任何 up）→ 按变更推导受影响服务 → 最小 build/up；支持 `scripts/deploy-changed.sh <old-commit>` 复跑模式
-
-路径 → 服务映射的唯一来源是 `scripts/deploy-changed.sh`，改动映射时只改脚本（本文件与 README 只描述行为，不复述映射表）。
-
-### 版本与构建约定
-
-- 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各仓库 `git describe`，compose 经 build args 传入（直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make）。健康端点均携带版本：`/api/admin/health`、`/api/media/health`、`/api/music/health`、vod_extractor `/health`（含 yt-dlp 版本，YouTube 排障关键字段）。OCI 标签并非所有镜像都有：admin/nginx/xray/media_server/music_server 有 `org.opencontainers.image.revision` 标签，docker_proxy 仅 `image.version`，netease_api 无——查版本优先用健康端点。
-- 版本号（media_app）：由子模块 services/media_center 的 git tag 驱动，tag 打在子模块仓库（非外层 workwork）；升版规则、发版流程与 APK 部署以该子模块 `media_app/AGENTS.md` 为唯一维护处，此处不复述。tag 位置口径：commit 在对应 Worktree 内完成，合并进主分支后 tag 与 push（含 tag）一律在主工作树执行（与全局 Git 准则一致）。
-- JDK（media_app 构建用）：以全局「本机环境」Android Studio JBR 条目为准（使用前以 ls 验证，变动时用 mdfind 定位）；Gradle 命令一律加 `--no-daemon`（Daemon 构建后 idle 常驻，多次构建会撑爆内存）。APK 有 normal + legacy（Android 4.4.2 / API 19）两变体，构建与上传步骤见 README「部署流程」media_app 条。
-- 子模块注意：`git pull` 不会更新子模块指针，手动部署时必须补 `git submodule update --init --recursive`，并用 `git submodule status` 检查漂移（行首 `+` 号 = 指针对应源码有更新），否则 build 出的仍是旧子模块源码（`make deploy-changed` 已自动处理）。子仓库的**纯文档 commit** 同样要推进指针：子仓库 AGENTS.md 修订合并推送后，回本仓库 `git submodule update --remote <path>` 推进指针并提交——否则在本仓库工作的 AI 读到的是子模块旧文档。
-
-### 权限注意（首次部署或权限异常时）
-
-- `.wework/` 和 `logs/` 必须归 uid=1001 (workuser) 所有（admin 以 user:1001:1001 运行）
-- 但 `logs/nginx/` 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
-- 修复：`sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/`
-
 ## 架构速览
 
 完整设计叙事（服务分工、网络拓扑、IPv6 寻址、RBAC 矩阵）见 [`docs/architecture.md`](./docs/architecture.md)，需要时再读，不要常驻记忆。本节只保留做错会出事的禁令：
@@ -60,41 +34,6 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - 不要为 IPv4 入站加其他转发方式（宿主 iptables DNAT 等）
 - 改 `services/admin/configs/` 下模板 = rebuild admin（模板与二进制原子对应）
 - `vod_extractor` 部署硬前提（宿主机 cookies）见构建节注释
-
-## Security — 多层防御
-
-1. Cloudflare Authenticated Origin Pulls (mTLS): 只接受 CF Origin Pull 证书。证书: `cert/cloudflare-origin-pull.pem`
-2. CSRF 中间件（Go，变更类请求）：浏览器发起的写请求 Origin 必须与 Host 一致（`auth.CSRFMiddleware`，位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 配额）
-3. Go rate limiter: 20 req/10s → 429 → 自动封禁 30min；IPv6 按 /64 网段聚合计数（换后缀不重置预算），封禁仍按具体 IP；`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束，多连接下载器勿用 Go 层限流惩罚）
-4. Go IP blocker: 持久黑名单 → 403
-5. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP
-6. Cloudflare DDoS/WAF 在边缘
-7. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
-
-"Never use `RemoteAddr`" 的原因就在这里——所有流量经 Docker bridge 内网地址（网段由 Docker 默认地址池动态分配），基于 RemoteAddr 的判断会全部失败。必须用 `X-Forwarded-User`（nginx 设置）或 `X-Internal-Token`（内部服务）。
-
-## RBAC — 不要破坏这个
-
-三层链：nginx basic auth → Go middleware chain → 前端路由守卫。
-
-### 请求流
-
-```
-csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
-```
-
-- `requireRole("admin")`: users.json 中 role=admin
-- `requireRole("viewer")`: 任何已认证用户
-- `X-Internal-Token` bypass: 仅保留给可信内部自动化的全权限共享 token；nginx/fail2ban 不挂载此 token
-- `X-Fail2Ban-Token` scoped bypass: 只允许 fail2ban 调用 `POST /api/admin/security/block|unblock`
-
-### 页面/API 访问矩阵
-
-完整矩阵见 [`docs/architecture.md`](./docs/architecture.md#rbac-访问矩阵)。新增端点按最小角色选 `viewer`/`admin` 包裹。
-
-## IPv6 寻址
-
-寻址规则见 [`docs/architecture.md`](./docs/architecture.md#ipv6-寻址)。
 
 ## 关键约定
 
@@ -109,3 +48,14 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 - 新增 API 端点：在 `main.go` 的 `mux.HandleFunc(...)` 区域注册，所有认证端点用 `auth.RequireRole("viewer")` 或 `auth.RequireRole("admin")` 包裹；健康检查用无认证的裸 handler。handler 实现放对应 internal/ 域包（platform←auth←accounts/proxy←media/infra/music/downloads/transfer，依赖单向无环）；大上传端点必须同步在 main.go 的 init() 里 `platform.ExemptBodyLimit(...)` 声明并在 main_test.go 契约测试登记。
 - 审计留痕：变更类端点（增删改、启停、发布、封禁等）必须在成功路径记 `log.Printf("[security] <动作> <关键标识> by=%s", actor)`，actor 取 `auth.GetUserFromContext(r)`；只读端点不需要。用户可控的标识（文件名、昵称等）必须 `%q` 转义——换行注入会伪造出假审计行。请求日志（RequestLogMiddleware）已带 user 字段兜底。
 - 环境变量：通过 `platform.GetEnv()` 读取（见 `services/admin/internal/platform/env.go`），不直接用 `os.Getenv`。
+
+## 主题索引（按需加载 skill）
+
+本仓库细则按主题拆为 skill，改对应模块前先加载：
+
+| skill | 何时加载 |
+|---|---|
+| `workwork-deploy` | 跑 make build/up/restart/deploy-changed；改版本烙印或健康端点；子模块指针漂移；容器权限异常 |
+| `workwork-security` | 改认证/鉴权/限流/封禁代码；新增 API 端点或页面；排查 401/403 或限流误伤；动 nginx/xray 网络配置 |
+
+> 新增主题优先建 skill 并在此登记，不要继续往本文件堆长内容。
