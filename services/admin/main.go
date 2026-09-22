@@ -5,8 +5,6 @@ import (
 	"admin/internal/auth"
 	"admin/internal/downloads"
 	"admin/internal/infra"
-	"admin/internal/media"
-	"admin/internal/music"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"admin/internal/transfer"
@@ -112,36 +110,6 @@ func main() {
 	mux.HandleFunc("GET /api/admin/network/status", auth.RequireRole("admin")(proxy.ApiNetworkStatus(cli)))
 	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", auth.RequireRole("admin")(proxy.ApiRotateIPv6(cli)))
 	mux.HandleFunc("POST /api/admin/network/sync-dns", auth.RequireRole("admin")(proxy.ApiSyncDNS(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/config", auth.RequireRole("admin")(media.ApiMediaCenterConfig()))
-	mux.HandleFunc("PUT /api/admin/media-center/config", auth.RequireRole("admin")(media.ApiSaveMediaCenterConfig(cli)))
-	mux.HandleFunc("GET /api/admin/media-center/credentials", auth.RequireRole("admin")(media.ApiMediaCenterCredentials()))
-	mux.HandleFunc("PUT /api/admin/media-center/credentials", auth.RequireRole("admin")(media.ApiSaveMediaCenterCredentials(cli)))
-	// 分类审核管理（catalog 人工审核：导入候选 → 审核 → 上线 approved）。
-	mux.HandleFunc("GET /api/admin/media-center/catalog/overview", auth.RequireRole("admin")(media.ApiMediaCatalogOverview()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/items", auth.RequireRole("admin")(media.ApiMediaCatalogItems()))
-	mux.HandleFunc("GET /api/admin/media-center/catalog/export", auth.RequireRole("admin")(media.ApiMediaCatalogExport()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/review", auth.RequireRole("admin")(media.ApiMediaCatalogReview()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/delete", auth.RequireRole("admin")(media.ApiMediaCatalogDelete()))
-	mux.HandleFunc("POST /api/admin/media-center/catalog/import", auth.RequireRole("admin")(media.ApiMediaCatalogImport()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release", auth.RequireRole("admin")(media.ApiMediaAppReleaseGet()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release", auth.RequireRole("admin")(media.ApiMediaAppReleaseUpload()))
-	// 版本管理：发布历史 / 回滚 / 删除历史版本 / 管理员下载指定版本 APK。
-	mux.HandleFunc("GET /api/admin/media-center/app-release/history", auth.RequireRole("admin")(media.ApiMediaAppReleaseHistory()))
-	mux.HandleFunc("GET /api/admin/media-center/app-release/download", auth.RequireRole("admin")(media.ApiMediaAppReleaseDownload()))
-	mux.HandleFunc("POST /api/admin/media-center/app-release/rollback", auth.RequireRole("admin")(media.ApiMediaAppReleaseRollback()))
-	mux.HandleFunc("DELETE /api/admin/media-center/app-release/history", auth.RequireRole("admin")(media.ApiMediaAppReleaseVersionDelete()))
-	// 音乐曲库：列表 / 上传 / 删除（写入 music_server 扫描目录，上传即入库）
-	mux.HandleFunc("GET /api/admin/music-library", auth.RequireRole("admin")(music.ApiMusicLibraryList()))
-	mux.HandleFunc("POST /api/admin/music-library/upload", auth.RequireRole("admin")(music.ApiMusicLibraryUpload()))
-	// 分片上传（大文件绕过 CF 单请求 100MB 上限 + 断点续传）
-	mux.HandleFunc("POST /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(music.ApiMusicChunkUpload()))
-	mux.HandleFunc("GET /api/admin/music-library/upload-chunk", auth.RequireRole("admin")(music.ApiMusicChunkQuery()))
-	mux.HandleFunc("DELETE /api/admin/music-library", auth.RequireRole("admin")(music.ApiMusicLibraryDelete()))
-	// 网易云账号扫码登录：二维码生成 / 轮询（成功写 cookie 文件）/ 状态 / 登出
-	mux.HandleFunc("POST /api/admin/music/netease/login/start", auth.RequireRole("admin")(music.ApiNeteaseLoginStart()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/poll", auth.RequireRole("admin")(music.ApiNeteaseLoginPoll()))
-	mux.HandleFunc("GET /api/admin/music/netease/login/state", auth.RequireRole("admin")(music.ApiNeteaseLoginState()))
-	mux.HandleFunc("POST /api/admin/music/netease/login/logout", auth.RequireRole("admin")(music.ApiNeteaseLoginLogout()))
 	// IP block management (Go-level, works behind Cloudflare)
 	mux.HandleFunc("GET /api/admin/security/blocked", auth.RequireRole("admin")(auth.ApiBlockedIPs()))
 	mux.HandleFunc("POST /api/admin/security/block", auth.RequireRole("admin")(auth.ApiBlockIP()))
@@ -259,15 +227,12 @@ func main() {
 	defer auth.StopRateLimiter()
 
 	// SIGKILL(磁盘满 OOM/宿主重启/部署 stop 超时)会让 defer 删除失效,残留
-	// 的 .tmp-*/.music-*/.chunk-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
+	// 的 .tmp-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
 	platform.CleanupStaleTempFiles(dataDir)
 
 	transfer.CleanupOrphanTempFiles()
 	daemonWG.Add(1)
 	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transfer.StartCleanupLoop(ctx) })
-	music.CleanupExpiredChunkUploads()
-	daemonWG.Add(1)
-	go daemonGuard(&daemonWG, "chunk-cleanup", func() { music.StartChunkCleanupLoop(ctx) })
 
 	go func() {
 		log.Printf("admin %s listening on %s", version, srv.Addr)
@@ -329,11 +294,7 @@ func daemonGuard(wg *sync.WaitGroup, name string, fn func()) {
 // 大上传端点豁免全局 1MB 请求体上限。与本文件路由注册一一对应,新增大
 // 上传端点时必须在此同步声明;main_test.go 的契约测试锁住该清单。
 func init() {
-	platform.ExemptBodyLimit("/api/admin/transfer/upload")             // handler: 2GB
-	platform.ExemptBodyLimit("/api/admin/media-center/app-release")    // APK 发布上传
-	platform.ExemptBodyLimit("/api/admin/media-center/catalog/import") // 目录导入
-	platform.ExemptBodyLimit("/api/admin/music-library/upload")        // handler: 408MB(multipart)
-	platform.ExemptBodyLimit("/api/admin/music-library/upload-chunk")  // handler: 单片 8MB+开销
+	platform.ExemptBodyLimit("/api/admin/transfer/upload") // handler: 2GB
 }
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {

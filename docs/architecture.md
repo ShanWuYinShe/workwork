@@ -28,13 +28,13 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 托管 admin SPA，反代 `/api/admin/` → admin:8318，`/proxy/query` → xray Unix socket。fail2ban 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实客户端 IP。
 
-### services/media_center/media_server/ — Media Center 目录服务（git submodule）
+### media/music — 已拆分至独立站
 
-目录服务：Go HTTP，从 catalog(SQLite) 提供 provider 列表、分类列表、视频元数据。播放按 provider 分发：bilibili 由 App 端 WBI 签名本地解析；youtube 由 server 端两个受控实时端点处理（`/api/providers/youtube/search` 经 `vod_extractor`（yt-dlp ytsearch）实时搜索、`/api/providers/youtube/resolve` 代理 `vod_extractor` 解析播放直链，均要求 X-App-Token + 独立限流，见 `media_server/youtube.go`）。不做 asset 代理。源码以 git submodule 形式引入自 `media_center` 仓库（`git submodule update --init --recursive` 拉取）。线上由 admin 生成运行时分类配置，nginx 默认通过 `/api/media` 转发到 `media_server:8787`。
+媒体中心（media_server + vod_extractor）与在线音乐（music_server + netease_api）已拆分为独立网站 `media.chaoset.com` / `music.chaoset.com`，源码、CI、部署随各自仓库（media_center / music_player，含独立 deploy/ 编排），与本项目零互通。旧前缀 `/api/media`、`/api/music` 的存量 App 连续性由 CF 边缘动态重定向（308 → 各新站 `/api/*`）承载。
 
 ## docker-compose
 
-8 服务: admin, docker-proxy, xray, nginx, media_server, vod_extractor, netease_api, music_server。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin/media/music/netease 内网 bridge，网段由 Docker 默认地址池动态分配）+ `xray_egress`（xray 专用 IPv4 egress bridge）+ `docker_proxy`（内部，仅 admin 与 docker-proxy）。`xray` 持有公网 IPv6（ipvlan L3 直连），仅作代理出站；公网入站统一经 nginx（IPv6），xray 无入站端口（曾用于发布 Reality 443 的 `xray-forward` 转发容器已随 Reality 移除）。
+4 服务: admin, docker-proxy, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin 内网 bridge，网段由 Docker 默认地址池动态分配）+ `xray_egress`（xray 专用 IPv4 egress bridge）+ `docker_proxy`（内部，仅 admin 与 docker-proxy）。`xray` 持有公网 IPv6（ipvlan L3 直连），仅作代理出站；公网入站统一经 nginx（IPv6），xray 无入站端口（曾用于发布 Reality 443 的 `xray-forward` 转发容器已随 Reality 移除）。
 vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data API 配额）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 搜索/解析全被 bot 检测拦截。
 
 ## RBAC 访问矩阵
@@ -48,10 +48,6 @@ vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data 
 | 账户 | `GET /api/admin/auth/me`, `GET /api/admin/users`, `POST /api/admin/users/password` | viewer+ |
 | Security | `GET/POST /api/admin/security/*` | admin |
 | Settings | `GET/POST /api/admin/network/*` | admin |
-| Media Center | `GET/PUT /api/admin/media-center/config`, `/credentials`; `GET/POST /api/admin/media-center/catalog/*` | admin |
-| App 版本管理 | `GET/POST /api/admin/media-center/app-release`；`GET .../app-release/history`、`GET .../app-release/download`、`POST .../app-release/rollback`、`DELETE .../app-release/history`（发布历史 / 回滚 / 删除历史版本 / 按版本下载 APK） | admin |
-| 音乐曲库 | `GET/POST/DELETE /api/admin/music-library*`（列表 / 上传 / 分片上传与续传查询 / 删除） | admin |
-| 网易云账号 | `POST /api/admin/music/netease/login/start`、`GET .../login/poll`、`GET .../login/state`、`POST .../login/logout`（扫码登录写 cookie / 状态 / 登出） | admin |
 | Downloads | `GET /api/admin/claude-code/stored`, `/downloads/*` | viewer+ |
 | Downloads 管理 | `GET/POST/DELETE /api/admin/claude-code/*` | admin |
 | Xray 二进制 | `GET /api/admin/xray/stored`, `/downloads/*` | viewer+ |

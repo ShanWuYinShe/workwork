@@ -2,20 +2,24 @@
 # 部署推导逻辑在 scripts/deploy-changed.sh，本文件只做薄封装。
 
 COMPOSE := docker compose
-SERVICES := admin docker-proxy xray nginx media_server vod_extractor netease_api music_server
+# 基础镜像版本唯一来源(独立站拆分后本仓仅剩编排栈自身版本):
+# 升级改 versions.env → make build 重建;compose 内的 :- 默认值仅为兜底,
+# 与 versions.env 必须保持一致(check 门禁/CI 校验)。
+-include versions.env
+export
+
+SERVICES := admin docker-proxy xray nginx
 
 # 版本号自动导出,compose build args 读取后烙进各服务二进制/镜像并经
 # 健康端点暴露;调用方显式传入时以传入值为准。
 export GIT_VERSION ?= $(shell git describe --always --tags --dirty 2>/dev/null || echo dev)
-export MEDIA_CENTER_VERSION ?= $(shell git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)
-export MUSIC_PLAYER_VERSION ?= $(shell git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)
 # 不可变镜像 tag（与 deploy-changed.sh 一致）：回滚 = IMAGE_TAG=<旧tag> make up <svc...>。
 export IMAGE_TAG ?= $(GIT_VERSION)
 
 .DEFAULT_GOAL := help
-.PHONY: help $(SERVICES) build up restart logs ps submodule check backup deploy-changed
+.PHONY: help $(SERVICES) build up restart logs ps check backup deploy-changed
 
-KNOWN_TARGETS := help build up restart logs ps submodule check backup deploy-changed
+KNOWN_TARGETS := help build up restart logs ps check backup deploy-changed
 
 # 变长服务名目标的兜底规则（make build admin 中的 "admin" 不是 make 目标）。
 # 必须校验：无守卫时拼错目标（make buil admin）会静默成功退出 0。
@@ -45,9 +49,6 @@ logs: ## 跟踪指定服务日志: make logs nginx
 ps: ## 查看服务状态
 	$(COMPOSE) ps
 
-submodule: ## 同步子模块到主仓库记录的指针
-	git submodule update --init --recursive
-
 check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	@test -z "$$(gofmt -l services/admin/)" || { echo 'gofmt 未通过:'; gofmt -l services/admin/; exit 1; }
 	@test -z "$$(gofmt -l services/docker_proxy/)" || { echo 'gofmt 未通过:'; gofmt -l services/docker_proxy/; exit 1; }
@@ -60,6 +61,14 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	  if command -v shellcheck >/dev/null 2>&1; then shellcheck -S warning "$$sh" || exit 1; fi; \
 	done
 	@docker compose config -q 2>/dev/null || echo '(compose config 校验跳过:需 .env,由 CI 兜底)'
+	@# 版本口径门禁:versions.env 与 compose 内 :- 兜底值不得漂移
+	@for v in GO_VERSION ALPINE_VERSION BUN_VERSION NGINX_VERSION; do \
+	  want=$$(grep -E "^$$v=" versions.env | cut -d= -f2); \
+	  got=$$(grep -oE "\$${$$v:-[^}]*}" docker-compose.yml | head -1 | sed 's/.*:-//;s/}//'); \
+	  if [ -n "$$got" ] && [ "$$want" != "$$got" ]; then \
+	    echo "$$v 漂移:versions.env=$$want compose兜底=$$got"; exit 1; \
+	  fi; \
+	done
 	bun install --frozen-lockfile --cwd services/admin/ui
 	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui lint
@@ -69,5 +78,5 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 backup: ## 备份运行时数据: scripts/backup.sh（BACKUP_DIR/BACKUP_RSYNC_TARGET 见脚本头）
 	./scripts/backup.sh
 
-deploy-changed: ## 服务器部署: pull + 子模块同步 + 按变更最小 build/up
+deploy-changed: ## 服务器部署: pull + 按变更最小 build/up
 	./scripts/deploy-changed.sh

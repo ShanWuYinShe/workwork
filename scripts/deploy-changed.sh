@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 服务器部署入口：同步 main 与子模块后，按两次提交间的文件变更推导受影响服务，
+# 服务器部署入口：同步 main 后，按两次提交间的文件变更推导受影响服务，
 # 执行最小化 build + up。路径 → 服务映射的唯一来源是本脚本（AGENTS.md/README 只描述行为，不复述映射表）。
 #
 # 用法:
-#   scripts/deploy-changed.sh          # 完整流程: 校验工作区 → pull → 子模块同步 → 按变更部署
+#   scripts/deploy-changed.sh          # 完整流程: 校验工作区 → pull → 按变更部署
 #   scripts/deploy-changed.sh <old>    # 复跑模式: 跳过 pull，从 <old> 到 HEAD 的变更重新推导
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -67,11 +67,7 @@ else
 fi
 new=$(git rev-parse HEAD)
 
-# 子模块必须先于任何 build/up: compose 把子模块内文件挂载/用作 build context，
-# 缺失的挂载源会被 Docker 自动建成目录（首次部署死锁的经典诱因）。
-git submodule update --init --recursive
-
-if [ "$old" = "$new" ] && [ -z "$(git submodule status | grep '^+' || true)" ]; then
+if [ "$old" = "$new" ]; then
   echo "已是最新，无需部署"
   exit 0
 fi
@@ -84,23 +80,16 @@ echo
 
 # ---------- 路径 → 服务映射 ----------
 services=""
+ALL_SERVICES="admin docker-proxy xray nginx"
 add_svc() {
   if ! printf '%s\n' $services | grep -qx "$1"; then
     services="$services $1"
   fi
 }
 
-# 子模块指针变化 → 该产品仓的容器镜像全部重建
-if printf '%s\n' "$changed" | grep -qx 'services/media_center'; then
-  add_svc media_server
-  add_svc vod_extractor
-fi
-if printf '%s\n' "$changed" | grep -qx 'services/music_player'; then
-  add_svc music_server
-fi
-
-if printf '%s\n' "$changed" | grep -q '^services/netease_api/'; then
-  add_svc netease_api
+# 版本文件变更 → 全部服务重建(基础镜像统一升级的最小安全集)
+if printf '%s\n' "$changed" | grep -q '^versions.env$'; then
+  for svc in $ALL_SERVICES; do add_svc "$svc"; done
 fi
 if printf '%s\n' "$changed" | grep -q '^services/admin/'; then
   add_svc admin
@@ -117,32 +106,18 @@ if printf '%s\n' "$changed" | grep -q '^services/xray/'; then
   add_svc xray
 fi
 
-# ---------- 提示性事项（不进入自动部署范围） ----------
-# media_app 是 Android 客户端,不参与 compose 部署。超项目 diff 只能看到子模块
-# gitlink(services/media_center),需进子模块比对新旧指针间的 media_app/ 变更
-# 才能给出有效提示（直接 grep 超项目 diff 永不命中）。
-if printf '%s\n' "$changed" | grep -qx 'services/media_center'; then
-  mc_old="$(git rev-parse -q --verify "$old:services/media_center" 2>/dev/null || true)"
-  mc_new="$(git rev-parse -q --verify "$new:services/media_center" 2>/dev/null || true)"
-  if [ -n "$mc_old" ] && [ -n "$mc_new" ] &&
-     [ -n "$(git -C services/media_center diff --name-only "$mc_old" "$mc_new" -- media_app/ 2>/dev/null || true)" ]; then
-    echo "⚠ media_app 源码变更: APK 需手动构建上传（见 AGENTS.md media_app 条目）"
-  fi
-fi
 if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; then
   echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"
 fi
 
-# 版本号烙进镜像(经健康端点暴露);子模块刚同步,describe 即本次部署版本。
+# 版本号烙进镜像(经健康端点暴露),describe 即本次部署版本。
 # 先赋值再 export(SC2155):export 与赋值同行时,命令替换的失败码会被
 # export 的成功掩盖,退化逻辑依赖不了 $?。
 GIT_VERSION="$(git describe --always --tags --dirty 2>/dev/null || echo dev)"
-MEDIA_CENTER_VERSION="$(git -C services/media_center describe --tags --always --dirty 2>/dev/null || echo dev)"
-MUSIC_PLAYER_VERSION="$(git -C services/music_player describe --tags --always --dirty 2>/dev/null || echo dev)"
-export GIT_VERSION MEDIA_CENTER_VERSION MUSIC_PLAYER_VERSION
+export GIT_VERSION
 # 不可变镜像 tag：同一产物可回滚；回滚 = IMAGE_TAG=<旧tag> up -d。
 export IMAGE_TAG="$GIT_VERSION"
-echo "版本: workwork=$GIT_VERSION media_center=$MEDIA_CENTER_VERSION music_player=$MUSIC_PLAYER_VERSION (IMAGE_TAG=$IMAGE_TAG)"
+echo "版本: workwork=$GIT_VERSION (IMAGE_TAG=$IMAGE_TAG)"
 
 # ---------- 执行最小部署 ----------
 if [ -z "${services// /}" ]; then
@@ -195,16 +170,12 @@ done
 expected_version() {
   case "$1" in
     admin) echo "$GIT_VERSION" ;;
-    media_server) echo "$MEDIA_CENTER_VERSION" ;;
-    music_server) echo "$MUSIC_PLAYER_VERSION" ;;
     *) return 0 ;;
   esac
 }
 health_version() {
   case "$1" in
     admin) url="http://localhost:${ADMIN_PORT}/api/admin/health" ;;
-    media_server) url="http://localhost:8787/health" ;;
-    music_server) url="http://localhost:8790/health" ;;
     *) return 0 ;;
   esac
   docker compose exec -T "$1" wget -qO- "$url" 2>/dev/null |

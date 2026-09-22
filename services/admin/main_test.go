@@ -14,10 +14,6 @@ import (
 func TestBodyLimitExemptionsRegistered(t *testing.T) {
 	expected := []string{
 		"/api/admin/transfer/upload",
-		"/api/admin/media-center/app-release",
-		"/api/admin/media-center/catalog/import",
-		"/api/admin/music-library/upload",
-		"/api/admin/music-library/upload-chunk",
 	}
 	for _, path := range expected {
 		if !platform.BodyLimitExempt(path) {

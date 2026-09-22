@@ -8,8 +8,6 @@
  */
 export const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
-const MEDIA_CENTER_SAVE_TIMEOUT = 90000;
-const APK_UPLOAD_TIMEOUT = 30 * 60 * 1000;
 
 // ApiError 保留服务端 error_code 与原始响应体，供 UI 按业务分支展示。
 // message 始终是服务端 error 原文（原始错误信息完整透传，不被统一文案覆盖）。
@@ -165,147 +163,7 @@ export async function syncDNS() {
   return req('/network/sync-dns', { method: 'POST' });
 }
 
-export async function getMediaCenterConfig() {
-  return req('/media-center/config');
-}
-
-export async function saveMediaCenterConfig(config) {
-  return req('/media-center/config', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
-export async function getMediaCenterCredentials() {
-  return req('/media-center/credentials');
-}
-
-export async function saveMediaCenterCredentials(credentials) {
-  return req('/media-center/credentials', {
-    method: 'PUT',
-    body: JSON.stringify({ credentials }),
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
-export async function getMediaCatalogOverview() {
-  return req('/media-center/catalog/overview');
-}
-
-export async function getMediaCatalogItems(category, status = '', limit = 200, offset = 0) {
-  const params = new URLSearchParams({ category });
-  if (status) params.set('status', status);
-  if (limit) params.set('limit', String(limit));
-  if (offset > 0) params.set('offset', String(offset));
-  return req(`/media-center/catalog/items?${params.toString()}`);
-}
-
-export async function reviewMediaCatalogItem(change) {
-  return req('/media-center/catalog/review', {
-    method: 'POST',
-    body: JSON.stringify(change),
-  });
-}
-
-export async function deleteMediaCatalogItem(item) {
-  return req('/media-center/catalog/delete', {
-    method: 'POST',
-    body: JSON.stringify({
-      categoryId: item.categoryId,
-      provider: item.provider,
-      nativeId: item.nativeId,
-    }),
-  });
-}
-
-export async function exportMediaCatalog(category = '', status = '') {
-  const params = new URLSearchParams();
-  if (category) params.set('category', category);
-  if (status) params.set('status', status);
-  const qs = params.toString();
-  return req(`/media-center/catalog/export${qs ? `?${qs}` : ''}`, {
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
-export async function importMediaCatalog(doc, approved = false) {
-  const list = (Array.isArray(doc?.items) ? doc.items : []).map((it) =>
-    approved ? { ...it, status: 'approved' } : it,
-  );
-  return req('/media-center/catalog/import', {
-    method: 'POST',
-    body: JSON.stringify({ ...doc, items: list }),
-    timeout: MEDIA_CENTER_SAVE_TIMEOUT,
-  });
-}
-
-export async function getMediaAppRelease(variant) {
-  const q = variant ? `?variant=${encodeURIComponent(variant)}` : '';
-  return req('/media-center/app-release' + q);
-}
-
-export async function uploadMediaAppRelease(formData, variant) {
-  const ctrl = new AbortController();
-  // APK 最大 300MB，90s 的通用保存超时会在慢速网络下掐断上传，单独放宽。
-  const timeout = setTimeout(() => ctrl.abort(), APK_UPLOAD_TIMEOUT);
-  // clearTimeout 必须在 finally：fetch 抛错（网络/超时/4xx）时定时器若悬挂，
-  // 30 分钟内会一直持有引用并在触发时 abort 一个已失效的 controller。
-  try {
-    if (variant) formData.append('variant', variant);
-    const r = await fetch(BASE + '/media-center/app-release', {
-      credentials: 'same-origin',
-      method: 'POST',
-      body: formData,
-      signal: ctrl.signal,
-    });
-    const json = await parseJSONResponse(r);
-    if (!r.ok || !json.success) throw new Error(json.error || `${r.status} ${r.statusText}`);
-    return json.data;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 // ── App 版本管理：历史 / 回滚 / 删除 / 下载 ──
-
-export async function getMediaAppReleaseHistory(variant) {
-  const q = variant ? `?variant=${encodeURIComponent(variant)}` : '';
-  return req('/media-center/app-release/history' + q);
-}
-
-export async function rollbackMediaAppRelease(variant, versionCode) {
-  return req('/media-center/app-release/rollback', {
-    method: 'POST',
-    body: JSON.stringify({ variant, versionCode }),
-  });
-}
-
-export async function deleteMediaAppReleaseVersion(variant, versionCode) {
-  return req('/media-center/app-release/history', {
-    method: 'DELETE',
-    body: JSON.stringify({ variant, versionCode }),
-  });
-}
-
-// 管理员下载 APK（basic auth 同源自动携带凭证），触发浏览器另存为。
-export function mediaAppReleaseDownloadUrl(variant, versionCode) {
-  const params = new URLSearchParams();
-  if (variant) params.set('variant', variant);
-  if (versionCode) params.set('versionCode', String(versionCode));
-  const qs = params.toString();
-  // 必须指向 /download 端点：GET /app-release(无 download)返回的是 manifest JSON
-  return `${BASE}/media-center/app-release/download${qs ? `?${qs}` : ''}`;
-}
-
-export function triggerMediaAppReleaseDownload(variant, versionCode) {
-  const a = document.createElement('a');
-  a.href = mediaAppReleaseDownloadUrl(variant, versionCode);
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 export async function getBlockedIPs() {
   return req('/security/blocked');
@@ -446,40 +304,9 @@ export const transferUploadUrl = BASE + '/transfer/upload';
 
 // ── Music library ──
 
-export async function getMusicLibrary() {
-  return req('/music-library');
-}
-
 // 上传走组件内 XHR(进度/取消),这里只暴露端点 URL(同 transferUploadUrl 模式)。
-export const musicLibraryUploadUrl = BASE + '/music-library/upload';
-export const musicChunkUploadUrl = BASE + '/music-library/upload-chunk';
-
-// 分片续传查询:返回 {received, total, fileName}(无会话时 received 为空)。
-export async function getMusicChunks(uploadId) {
-  return req(`/music-library/upload-chunk?uploadId=${encodeURIComponent(uploadId)}`);
-}
-
-export async function deleteMusicLibraryFile(name) {
-  return req(`/music-library?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-}
 
 // ── NetEase account (QR login) ──
-
-export async function neteaseLoginStart() {
-  return req('/music/netease/login/start', { method: 'POST' });
-}
-
-export async function neteaseLoginPoll(key) {
-  return req(`/music/netease/login/poll?key=${encodeURIComponent(key)}`);
-}
-
-export async function neteaseLoginState() {
-  return req('/music/netease/login/state');
-}
-
-export async function neteaseLogout() {
-  return req('/music/netease/login/logout', { method: 'POST' });
-}
 
 /** 拉取按用户累计的代理流量(xray StatsService,每分钟采集)。 */
 export async function getTraffic() {

@@ -123,11 +123,7 @@
       </button>
       <span class="topbar-title">WorkWork</span>
     </div>
-    <div
-      class="main-scroll"
-      class:main-scroll-wide={nav.path === '/media-center'}
-      bind:this={mainScroll}
-    >
+    <div class="main-scroll" bind:this={mainScroll}>
       {#if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
           <currentRoute.component />

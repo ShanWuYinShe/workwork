@@ -18,8 +18,8 @@ resolver 127.0.0.11 valid=30s;
 # $binary_remote_addr 经 real_ip 模块解析(CF-Connecting-IP),按它限速即按真实
 # 客户端 IP 限速。这是 fail2ban(只数 401)之外的第二道闸:持有有效凭证的滥用、
 # 公开下载的 code 穷举不产生 401,fail2ban 看不见。
-# 刻意不覆盖 /proxy/query(XHTTP packet-up 高频 POST 是代理数据面)与
-# /api/media、/api/music(应用层自带 per-IP 限流)——误限会直接打断正常使用。
+# 刻意不覆盖 /proxy/query(XHTTP packet-up 高频 POST 是代理数据面)。
+# (media/music API 已拆分至独立站,其 per-IP 限流随站走。)
 limit_req_zone $binary_remote_addr zone=admin_api:10m rate=10r/s;
 limit_req_zone $binary_remote_addr zone=transfer_dl:10m rate=1r/s;
 limit_conn_zone $binary_remote_addr zone=transfer_conn:10m;
@@ -73,7 +73,6 @@ server {
     if ($workwork_blocked_direct) { return 403; }
 
     set $admin_upstream admin:__ADMIN_PORT__;
-    set $media_upstream __MEDIA_CENTER_UPSTREAM__;
     set $proxy_forwarded_prefix "";
 
     proxy_http_version 1.1;
@@ -96,35 +95,11 @@ server {
         return 308 /admin/;
     }
 
-    location = __MEDIA_CENTER_PUBLIC_PATH__ {
-        # media_server 是纯目录服务,路由只有 /api/providers、/api/providers/{p}/categories
-        # 等——没有 /api/categories,原重定向落地即 404。指向真实存在的入口。
-        return 308 __MEDIA_CENTER_PUBLIC_PATH__/providers;
-    }
-
-    location __MEDIA_CENTER_PUBLIC_PATH__/ {
-        set $proxy_forwarded_prefix __MEDIA_CENTER_PUBLIC_PATH__;
-        rewrite ^__MEDIA_CENTER_PUBLIC_PATH_REGEX__(/.*)$ /api$1 break;
-        proxy_pass http://$media_upstream;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-    }
-
-    # 在线音乐服务:/api/music/ 前缀去前缀转发到 music_server。
-    # 与 media_center 不同,该服务无需管理面板开关,静态暴露;认证模型同
-    # media API(边缘 Cloudflare mTLS),服务内自带 per-IP 限流。
-    # music_server 内部路由带 /api 前缀(/api/songs、/api/stream/...),
-    # 重写须补 /api(同 media 段),否则转发 /songs 会 404。
-    # proxy_buffering off:音频 Range 请求逐段下发,不在 nginx 侧缓冲整文件。
-    set $music_upstream music_server:8790;
-    location /api/music/ {
-        rewrite ^/api/music(/.*)$ /api$1 break;
-        proxy_pass http://$music_upstream;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        proxy_buffering off;
-    }
-
+    # media/music 已拆分至独立站 media.chaoset.com / music.chaoset.com
+    # (web-service-conventions)。旧前缀的存量 App 连续性由 CF 边缘动态重定向
+    # 承载(yinghuoren.com/api/media/* → media 新站 /api/*,music 同理,308;
+    # 先加 CF 规则再部署本瘦身版,顺序见 subdomain-split-plan Phase 5),
+    # 本机不再反代,旧路径落到下方 404 兜底。
     location /proxy/query {
         __XHTTP_PROXY_AUTH__
         access_log /var/log/nginx/admin-access.log auth_log;
@@ -150,25 +125,6 @@ server {
         limit_req zone=admin_api burst=50 nodelay;
         limit_req_status 429;
         proxy_pass http://$admin_upstream;
-    }
-
-    # Binary/NDJSON downloads stream for both Claude Code and Xray, plus the
-    # APK release download(300MB 级,与 claude/xray 下载一致走无缓冲流式:
-    # 默认 proxy_buffering on 会把整包 spool 进 nginx 临时文件,且继承
-    # /api/admin/ 的 300s 读超时,慢速客户端下载中途会被掐断)。
-    location ~ ^/api/admin/(?:claude-code|xray)/(?:download$|downloads/)|^/api/admin/media-center/app-release/download$ {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        access_log /var/log/nginx/admin-access.log auth_log;
-        access_log /dev/stdout auth_log;
-        limit_req zone=admin_api burst=50 nodelay;
-        limit_req_status 429;
-        proxy_pass http://$admin_upstream;
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        send_timeout 600s;
     }
 
     # Transfer public download — no authentication required.
@@ -214,38 +170,6 @@ server {
         client_max_body_size 2g;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
-        proxy_request_buffering off;
-    }
-
-    # 音乐曲库批量上传 — 单文件 200MB×50 + multipart 开销,admin 侧请求体
-    # 上限约 408MB。不放宽带 auth 的 /api/admin/(继承默认 1MB 会 413)。
-    location = /api/admin/music-library/upload {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        access_log /var/log/nginx/admin-access.log auth_log;
-        access_log /dev/stdout auth_log;
-        limit_req zone=admin_api burst=50 nodelay;
-        limit_req_status 429;
-        proxy_pass http://$admin_upstream;
-        client_max_body_size 500m;
-        proxy_read_timeout 600s;
-        proxy_send_timeout 600s;
-        proxy_request_buffering off;
-    }
-
-    # 音乐曲库分片上传 — 大文件按 8MB 分片(绕过 CF 单请求 100MB 上限),
-    # 单请求 = 8MB 分片 + multipart 开销。GET 续传查询也落在此段,无 body。
-    location = /api/admin/music-library/upload-chunk {
-        auth_basic "Restricted";
-        auth_basic_user_file /etc/nginx/htpasswd/.htpasswd;
-        access_log /var/log/nginx/admin-access.log auth_log;
-        access_log /dev/stdout auth_log;
-        limit_req zone=admin_api burst=50 nodelay;
-        limit_req_status 429;
-        proxy_pass http://$admin_upstream;
-        client_max_body_size 16m;
-        proxy_read_timeout 120s;
-        proxy_send_timeout 120s;
         proxy_request_buffering off;
     }
 

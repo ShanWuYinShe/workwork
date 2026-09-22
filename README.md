@@ -33,18 +33,14 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 | **xray** | XTLS 官方源码构建 | 无入站端口（XHTTP 经 Unix socket 由 nginx `/proxy/query` 接入） | VLESS XHTTP 代理 |
 | **admin** | Go + Svelte 5 | 8318 | 管理面板、用户管理、配置生成（docker API 经 **docker-proxy** 白名单代理） |
 | **docker-proxy** | Go | 2375（容器内，仅内网） | docker API 精确白名单反代：只放行 admin 所需端点，create/delete/images/networks 等逃逸面一律 403 |
-| **media_server** | Go | 8787（容器内，仅内网；对外经 nginx `/api/media`） | 合规公开视频聚合 API |
-| **vod_extractor** | Python (yt-dlp) | 8790（容器内，仅内网，media_server 调用；需宿主机 cookies） | YouTube 搜索/播放解析 |
-| **music_server** | Go | 8790（容器内，仅内网；对外经 nginx `/api/music`，与 vod_extractor 同端口但不同容器，不冲突） | 在线音乐 API（本地曲库 + 网易云网络源聚合，服务端代理流） |
-| **netease_api** | Node(Bun) | 3000（容器内，仅内网，music_server 调用） | 网易云 API 上游 |
 
-Media Center 源码通过 git submodule 引入到 [`services/media_center`](./services/media_center)（仓库 [`media_center`](https://github.com/ShanWuYinShe/media_center)），App 对接文档见 [`services/media_center/media_server/API.md`](./services/media_center/media_server/API.md)。Music Player 源码通过 submodule 引入到 [`services/music_player`](./services/music_player)（仓库 [`music_player`](https://github.com/ShanWuYinShe/music_player)，HarmonyOS 客户端 `music_app/` + Go 服务端 `music_server/`，组织方式同 media_center）。首次克隆后需执行 `git submodule update --init --recursive`。
+> media/music 已拆分至独立站：媒体中心（media_server + vod_extractor）在 [`media.chaoset.com`](https://media.chaoset.com)（仓库 `media_center`），在线音乐（music_server + netease_api）在 [`music.chaoset.com`](https://music.chaoset.com)（仓库 `music_player`，含 `deploy/` 自洽编排与 `netease_api/`）。旧前缀 `/api/media`、`/api/music` 的存量 App 由 CF 边缘动态重定向（308 → 各新站 `/api/*`）承载。
 
 ### 网络架构
 
 - **ipvlan_docker** (external): IPv6 L3 出口，分配 `/64` 子网
 - **internal_docker** (bridge): Docker 内部网络（网段由 Docker 默认地址池动态分配）
-- **xray_egress** (bridge): Xray 专用 IPv4 egress/NAT 网络，不加入 admin/media 内网
+- **xray_egress** (bridge): Xray 专用 IPv4 egress/NAT 网络，不加入 admin 内网
 
 完整服务说明见 [docs/architecture.md](./docs/architecture.md)。
 
@@ -119,11 +115,11 @@ docker compose ps
 
 ```
 workwork/
-├── docker-compose.yml        # 生产环境 Docker Compose（9 服务）
+├── docker-compose.yml        # 生产环境 Docker Compose（4 服务）
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
 │   ├── backup.sh
-│   ├── deploy-changed.sh     # 服务器部署：pull + 子模块同步 + 按变更最小 build/up
+│   ├── deploy-changed.sh     # 服务器部署：pull + 按变更最小 build/up
 │   └── restore-verify.sh     # 备份恢复机械校验：哈希/状态文件/sqlite 完整性/证书配对
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
@@ -142,8 +138,7 @@ workwork/
 │   │       ├── accounts/    # 用户管理 + Xray 客户端管理(删用户级联删客户端,故合域)
 │   │       ├── proxy/       # xray/nginx 配置路径、IPv6 轮换、CF DNS、服务守护 watcher
 │   │       ├── infra/       # docker 服务管理、日志流、Dashboard
-│   │       ├── media/       # 媒体中心配置、目录审核、APK 发布、nginx 接线渲染
-│   │       ├── music/       # 曲库、分片上传、网易云扫码登录
+│   │       ├── nginxcfg/    # nginx 模板渲染(XHTTP 认证/端口/IPv6 注入)
 │   │       ├── downloads/   # Claude Code / Xray 二进制下载
 │   │       └── transfer/    # 文件中转(公开分享下载)
 │   │
@@ -155,19 +150,8 @@ workwork/
 │   │   ├── config/fail2ban/
 │   │   └── Dockerfile
 │   │
-│   ├── media_center/        # git submodule（独立产品仓库）
-│   │   ├── media_app/       # Android TV 客户端（版本号由子仓 git tag 驱动）
-│   │   ├── media_app_legacy/ # Android 4.4.2 兼容变体
-│   │   ├── media_server/    # Go 聚合后端
-│   │   └── vod_extractor/   # YouTube yt-dlp 解析服务
-│   │
-│   ├── music_player/        # git submodule（独立产品仓库）
-│   │   ├── music_app/       # HarmonyOS 客户端
-│   │   ├── music_server/    # Go 在线音乐服务(本地曲库+网易网络源)
-│   │   ├── tools/           # 子仓内部工具
-│   │   └── shader_playground/ # 子仓实验项目
-│   │
-│   └── netease_api/         # 网易云 API 上游(Bun 运行 npm 包)
+│
+├── versions.env             # 基础镜像版本唯一来源(make check 门禁校验与 compose 兜底一致)
 │
 ├── cert/                    # TLS 证书（不提交）
 ├── logs/                    # 日志输出
@@ -180,16 +164,15 @@ workwork/
 
 ```bash
 # 服务端健康端点(自带版本号)
-curl -s https://yinghuoren.com/api/media/health   # {"status":"ok","version":"v1.7.0"}
-curl -s https://yinghuoren.com/api/music/health   # music_server 版本
+curl -s https://yinghuoren.com/admin/api/health    # admin 版本(经 nginx)
 docker compose exec nginx curl -s http://admin:8318/api/admin/health   # admin 版本
-curl -s http://内网地址:8790/health                # vod_extractor(含 yt-dlp 版本)
 
 # 镜像构建源(OCI revision 标签)
-docker image inspect workwork-media_server --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+docker image inspect workwork-admin --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
 
 # 服务启动日志首行均打印版本
-docker compose logs admin media_server music_server vod_extractor | head
+docker compose logs admin xray nginx docker-proxy | head
+# media/music 各自独立站的版本排查见其仓库 deploy/README.md
 ```
 
 ## 备份与恢复
@@ -198,7 +181,7 @@ docker compose logs admin media_server music_server vod_extractor | head
 与 named volume，必须定期备份且异机存放：
 
 ```bash
-make backup                    # 打包 .wework/ + cert/ + .env + media_center_data volume
+make backup                    # 打包 .wework/ + cert/ + .env
 BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 rsync（推荐，cron 配置见 docs/operations.md）
 ```
 
@@ -243,7 +226,7 @@ make check                  # 本地门禁：gofmt/vet/test + 前端构建
 docker compose build admin
 docker compose up -d --no-deps admin
 docker compose restart xray
-docker compose logs -f media_server
+docker compose logs -f xray
 ```
 
 ## 部署流程（先本地验证，再发布）
@@ -258,32 +241,15 @@ make build <受影响服务...>   # 受影响服务本地构建通过（版本�
 # 1. 本地开发（worktree 分支）合并进 main 并推送
 git push origin main
 
-# 2. 服务器一键部署（推荐）：pull + 子模块同步 + 按变更最小 build/up，
+# 2. 服务器一键部署（推荐）：pull + 按变更最小 build/up，
 #    部署后自带健康自校验（等 healthy + 版本指纹核对，不通过即 fail 并给出回滚命令）
 ssh workwork-server "cd workwork && make deploy-changed"
 # 复跑/指定基线: scripts/deploy-changed.sh <old-commit>
-
-# 2'. 手动部署时务必同步子模块（git pull 不会更新子模块指针，
-#     跳过这步会用旧子模块源码构建而不自知）：
-ssh workwork-server "cd workwork && old=\$(git rev-parse HEAD) && git pull --ff-only origin main && git submodule update --init --recursive && git diff --name-only \$old HEAD && git submodule status"
 
 # 3. 按变更选择最小部署命令（或直接用 make），例如：
 make build admin && make up admin          # services/admin/**（含 ui 与配置模板）
 make build nginx && make up nginx          # services/nginx/**
 make build xray && make up xray                             # services/xray/**
-make build media_server && make up media_server             # services/media_center/media_server/**
-
-# 4. media_app（Android APK，normal + legacy 两变体；源码在子模块 services/media_center，
-#    版本号由子模块 git tag 驱动，构建前先在子模块打 tag；Gradle 一律加 --no-daemon；
-#    release 变体已配 debug 签名 + R8 minify；JAVA_HOME 以全局「本机环境」为准）：
-#    normal 变体（legacy 变体把 media_app 换成 media_app_legacy）：
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  services/media_center/media_app/gradlew -p services/media_center/media_app :app:assembleRelease --no-daemon && \
-scp services/media_center/media_app/app/build/outputs/apk/release/app-release.apk \
-  workwork-server:workwork/.wework/generated/media_center/media-center-app-v<vc>-<sha12>.apk
-# 上传后手写 app-update.json / app-update-legacy.json（含 versionCode/versionName/
-# apkFilename/sizeBytes/sha256/releaseNotes），或在管理面板“Android TV App 更新发布”
-# 页选变体后上传（admin 自动写 manifest + APK）。
 ```
 
 ## 环境变量
@@ -304,11 +270,5 @@ scp services/media_center/media_app/app/build/outputs/apk/release/app-release.ap
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
-| `MEDIA_CENTER_UPSTREAM` | nginx 转发到媒体服务的内部 upstream | `media_server:8787` |
-| `MEDIA_CENTER_PUBLIC_PATH` | 媒体 API 线上公开前缀 | `/api/media` |
-| `CONTENT_CATEGORIES_FILE` | Media Server 运行时来源和分类配置（compose 内由 admin 生成） | `/config/contentCategories.json` |
-| `MEDIA_SERVER_PUBLIC_URL` | 媒体 API 公网基址，固定用于拼接 App 更新下载地址（防 Host 投毒，需含 `/api/media` 前缀） | `https://yinghuoren.com/api/media` |
-| `MEDIA_SERVER_APP_API_TOKEN` | 凭证接口令牌，与 App 构建时注入的 `APP_API_TOKEN` 一致；为空则凭证接口 401 | `openssl rand -hex 32` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
 | `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志 | `https://notify.example.com/hook` |
-| `MUSIC_SERVER_APP_API_TOKEN` | 可选：music_server 应用层鉴权令牌，配置后业务端点要求 `X-App-Token` 头；为空不鉴权（依赖边缘 mTLS） | `openssl rand -hex 32` |

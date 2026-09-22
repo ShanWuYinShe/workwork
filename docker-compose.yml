@@ -136,7 +136,7 @@ services:
       - "1001"
     networks:
       # xray_egress 仅为 IPv4 出站 NAT bridge（entrypoint.sh 设默认路由），
-      # 不加入 private admin/media 网络。公网 IPv6 经 ipvlan_docker 直连。
+      # 不加入 private admin 网络。公网 IPv6 经 ipvlan_docker 直连。
       xray_egress: {}
       ipvlan_docker:
         ipv6_address: "${XRAY_IPV6}"
@@ -155,224 +155,6 @@ services:
       # 路径里的 "xray" 字样,-f 会误匹配自身恒真(busybox pgrep 按名匹配
       # 已实测:进程存活 exit 0,退出后 exit 1)。
       test: ["CMD-SHELL", "test -S /run/xray/xrxh.socket && pgrep xray >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  media_server:
-    image: workwork-media_server:${IMAGE_TAG:-latest}
-    build:
-      context: ./services/media_center/media_server
-      dockerfile: Dockerfile
-      args:
-        # 与主仓 Go 版本口径保持一致(覆盖子模块 Dockerfile 默认的 1.26.5),
-        # 升级时统一改,勿只改一侧。
-        GO_VERSION: ${GO_VERSION:-1.26.8}
-        GIT_VERSION: ${MEDIA_CENTER_VERSION:-dev}
-    restart: unless-stopped
-    init: true
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: "0.25"
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    tmpfs:
-      # /cache 在 Dockerfile 中声明为 VOLUME 但服务未使用；用 tmpfs 覆盖避免匿名卷累积。
-      - /cache
-    environment:
-      - TZ=Asia/Shanghai
-      - HOST=0.0.0.0
-      - PORT=8787
-      - CONTENT_CATEGORIES_FILE=/config/contentCategories.json
-      # Provider 凭证（如 bilibili SESSDATA），由 admin 生成注入。
-      - PROVIDER_CREDENTIALS_FILE=/config/providerCredentials.json
-      # 分类维护数据库(catalog)与内部管理接口令牌。
-      - MEDIA_SERVER_CATALOG_DB=/app/data/catalog.db
-      - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
-      # App 更新下载地址:显式固定公网基址,禁止从请求 Host 头推导(防 Host 头投毒
-      # 引导恶意 APK)。留空时 media_server 只接受白名单/内网 Host,公网不可用。
-      - MEDIA_SERVER_PUBLIC_URL=${MEDIA_SERVER_PUBLIC_URL:-https://yinghuoren.com/api/media}
-      # App 端凭证接口令牌:与 App 构建时注入的 APP_API_TOKEN 一致;为空则凭证
-      # 接口一律 401(App 降级无凭证模式)。
-      - MEDIA_SERVER_APP_API_TOKEN=${MEDIA_SERVER_APP_API_TOKEN:-}
-      # youtube provider 实时通道:搜索与播放解析均经 vod_extractor(yt-dlp),
-      # 无 Data API 配额;基址为空则两个端点都返回 503,见 media_server/youtube.go。
-      - MEDIA_SERVER_VOD_EXTRACTOR_URL=${MEDIA_SERVER_VOD_EXTRACTOR_URL:-http://vod_extractor:8790}
-    volumes:
-      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-      - ./.wework/generated/media_center:/config:ro
-      - media_center_data:/app/data
-    depends_on:
-      admin:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8787/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-  # YouTube 点播解析(yt-dlp 的 HTTP 封装):供 media_server 的
-  # /api/providers/youtube/resolve 解析播放直链;仅容器内网,不对外暴露端口。
-  # 播放硬前提:YouTube 对数据中心 IP 一律 bot 检测,必须在宿主机放置 cookies:
-  #   .wework/vod_extractor/youtube-cookies.txt (Netscape 格式,只读挂载为 /config)
-  vod_extractor:
-    image: workwork-vod_extractor:${IMAGE_TAG:-latest}
-    build:
-      context: ./services/media_center/vod_extractor
-      dockerfile: Dockerfile
-      args:
-        GIT_VERSION: ${MEDIA_CENTER_VERSION:-dev}
-    restart: unless-stopped
-    init: true
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    environment:
-      - TZ=Asia/Shanghai
-      - HOST=0.0.0.0
-      - PORT=8790
-      - VOD_EXTRACTOR_TIMEOUT_MS=${VOD_EXTRACTOR_TIMEOUT_MS:-30000}
-      - VOD_EXTRACTOR_MAX_OUTPUT_BYTES=${VOD_EXTRACTOR_MAX_OUTPUT_BYTES:-20971520}
-      - VOD_EXTRACTOR_MAX_CONCURRENT=${VOD_EXTRACTOR_MAX_CONCURRENT:-2}
-      # 如 youtube:player_client=tv;留空走 yt-dlp 默认
-      - VOD_EXTRACTOR_EXTRACTOR_ARGS=${VOD_EXTRACTOR_EXTRACTOR_ARGS:-}
-      # 显式置空(默认自动用 /config/youtube-cookies.txt,存在即生效)
-      - VOD_EXTRACTOR_COOKIES_FILE=${VOD_EXTRACTOR_COOKIES_FILE:-}
-    volumes:
-      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-      - ./.wework/vod_extractor:/config:ro
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/health', timeout=2).read()",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  # 网易云 API 上游(NeteaseCloudMusicApi Enhanced,非官方接口仅限个人使用):
-  # 仅容器内网,供 music_server 聚合搜索与流解析;不对外暴露端口。
-  netease_api:
-    image: workwork-netease_api:${IMAGE_TAG:-latest}
-    build:
-      context: ./services/netease_api
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    init: true
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    tmpfs:
-      - /tmp
-    environment:
-      - TZ=Asia/Shanghai
-
-  # 在线音乐服务:聚合本地曲库目录(扫描/搜索/Range 流式播放)与网易云网络源
-  # (netease_api 上游,失败自动降级为仅本地)。曲库音频经管理面板「音乐曲库」
-  # 页上传(admin rw 挂载同目录)或手动投放;经 nginx 以 /api/music/ 前缀对外
-  # 暴露,认证模型同 media API(边缘 CF mTLS)。网络源音频由本服务代理转发。
-  # 服务源码在 music_player 子模块内(客户端+服务端同仓库,组织方式同 media_center)。
-  music_server:
-    image: workwork-music_server:${IMAGE_TAG:-latest}
-    build:
-      context: ./services/music_player/music_server
-      dockerfile: Dockerfile
-      args:
-        # 与主仓 Go 版本口径保持一致(覆盖子模块 Dockerfile 默认的 1.26.5),
-        # 升级时统一改,勿只改一侧。
-        GO_VERSION: ${GO_VERSION:-1.26.8}
-        GIT_VERSION: ${MUSIC_PLAYER_VERSION:-dev}
-    restart: unless-stopped
-    init: true
-    # 以 uid 1001(workuser)运行:曲库音频(admin 1001 上传/手动投放,0600)与
-    # admin 写入的网易云 cookie 文件(0600)仅属主可读;镜像默认 appuser(10001)
-    # 读两者都会 permission denied——表现为曲库能列出但播放 404、扫码登录
-    # 不生效。二进制 0755 任意用户可执行,/tmp 为 tmpfs,无其他 uid 依赖。
-    user: "1001:1001"
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-    security_opt:
-      - "no-new-privileges:true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal_docker
-    cap_drop:
-      - ALL
-    tmpfs:
-      - /tmp
-    environment:
-      - TZ=Asia/Shanghai
-      - HOST=0.0.0.0
-      - PORT=8790
-      - LIBRARY_DIR=/data/library
-      - NETEASE_API_BASE=http://netease_api:3000
-      - NETEASE_MUSIC_COOKIE=${NETEASE_MUSIC_COOKIE:-}
-      # 管理面板扫码登录写入的 cookie(热加载);目录与 admin 共享(.wework)
-      - NETEASE_COOKIE_FILE=/data/netease/netease-cookie.txt
-      # 可选应用层鉴权:配置后业务端点要求 X-App-Token(与 media_server 的
-      # MEDIA_SERVER_APP_API_TOKEN 同构);空 = 依赖边缘 CF mTLS,不鉴权。
-      - MUSIC_SERVER_APP_API_TOKEN=${MUSIC_SERVER_APP_API_TOKEN:-}
-    volumes:
-      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-      - ./.wework/music-library:/data/library:ro
-      - ./.wework/generated/music:/data/netease:ro
-    depends_on:
-      # netease_api 镜像自带 HEALTHCHECK(容器内 :3000),以此门控启动,
-      # 上游未就绪时不再先起一轮 5xx。
-      netease_api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8790/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -403,8 +185,8 @@ services:
     deploy:
       resources:
         limits:
-          # 无依赖静态单文件程序,资源需求固定;64M/0.25 与 media_server 对齐,
-          # 防异常内存膨胀波及宿主(其余 7 个服务均有 limits)。
+          # 无依赖静态单文件程序,资源需求固定;64M/0.25 防异常内存膨胀波及宿主
+          # (全部服务均有 limits)。
           memory: 64M
           cpus: "0.25"
     read_only: true
@@ -472,11 +254,6 @@ services:
       - IPV6_SUBNET=${IPV6_SUBNET:-}
       - XRAY_IPV6=${XRAY_IPV6:-}
       - NGINX_IPV6=${NGINX_IPV6:-}
-      # 媒体中心分类预采集管理：admin 代理 media_server 内部接口（同一令牌）
-      - MEDIA_SERVER_INTERNAL_TOKEN=${MEDIA_SERVER_INTERNAL_TOKEN:-}
-      - MEDIA_CENTER_INTERNAL_URL=${MEDIA_CENTER_INTERNAL_URL:-http://media_server:8787}
-      # 网易云扫码登录：admin 调 netease_api 上游
-      - NETEASE_API_BASE=${NETEASE_API_BASE:-http://netease_api:3000}
       # 可选:关键事件通知(Security 封禁/解封、限流自动封禁、xhttp 自愈达上限),
       # admin 异步 POST JSON,失败只记日志;部署失败通知也读同名变量。
       - WEBHOOK_URL=${WEBHOOK_URL:-}
@@ -487,9 +264,6 @@ services:
       - ./cert:/app/certs:ro
       - ./logs:/app/logs
       - ./.wework:/app/data
-      # 媒体默认分类来自 media_center 子模块(子模块源文件,不随 admin 镜像
-      # 分发,故保持挂载;nginx/xray 模板已改为构建期 COPY 进 admin 镜像)。
-      - ./services/media_center/media_server/src/contentCategories.json:/app/configs/media-center-content-categories.json:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:${ADMIN_PORT:-8318}/api/admin/health"]
       interval: 30s
@@ -512,11 +286,10 @@ networks:
   xray_egress:
     driver: bridge
   # docker API 白名单代理专用:仅 admin 与 docker-proxy 接入,
-  # netease_api 等第三方镜像容器无法触达 docker API 面。
+  # 第三方镜像容器无法触达 docker API 面。
   docker_proxy:
     driver: bridge
     internal: true
 
 volumes:
   xray_socket:
-  media_center_data:

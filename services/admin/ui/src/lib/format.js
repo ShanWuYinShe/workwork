@@ -1,6 +1,6 @@
 // @ts-check
 // 全站统一的时间/大小格式化工具。
-// 此前各页面各自实现（Downloads/Transfer/MusicLibrary/MediaCenter 各一份），
+// 此前各页面各自实现（Downloads/Transfer 等各一份），
 // 行为不一致：日期有 UTC slice 也有 toLocaleString，大小单位有 MB 也有 MiB。
 // 统一约定：时间一律转本地时区显示；大小一律用 MB/KB 十进制标注（二进制换算）。
 

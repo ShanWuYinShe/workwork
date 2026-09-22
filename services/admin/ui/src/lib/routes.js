@@ -5,8 +5,6 @@ import Clients from '../routes/Clients.svelte';
 import Users from '../routes/Users.svelte';
 import Security from '../routes/Security.svelte';
 import Settings from '../routes/Settings.svelte';
-import MediaCenter from '../routes/MediaCenter.svelte';
-import MusicLibrary from '../routes/MusicLibrary.svelte';
 import Downloads from '../routes/Downloads.svelte';
 import Transfer from '../routes/Transfer.svelte';
 import Logs from '../routes/Logs.svelte';
@@ -18,8 +16,6 @@ export const routes = [
   { path: '/users', component: Users },
   { path: '/security', component: Security, adminOnly: true },
   { path: '/settings', component: Settings, adminOnly: true },
-  { path: '/media-center', component: MediaCenter, adminOnly: true },
-  { path: '/music-library', component: MusicLibrary, adminOnly: true },
   { path: '/downloads', component: Downloads },
   { path: '/transfer', component: Transfer },
   { path: '/logs', component: Logs, adminOnly: true },
@@ -43,8 +39,6 @@ export const navSections = [
     items: [
       { path: '/services', key: 'services', icon: 'box', adminOnly: true },
       { path: '/settings', key: 'settings', icon: 'settings', adminOnly: true },
-      { path: '/media-center', key: 'mediaCenter', icon: 'layers', adminOnly: true },
-      { path: '/music-library', key: 'musicLibrary', icon: 'music', adminOnly: true },
       { path: '/logs', key: 'logs', icon: 'file-text', adminOnly: true },
     ],
   },
@@ -64,8 +58,6 @@ export const routeTitles = {
   '/users': 'users',
   '/security': 'security',
   '/settings': 'settings',
-  '/media-center': 'mediaCenter',
-  '/music-library': 'musicLibrary',
   '/downloads': 'downloads',
   '/transfer': 'transfer',
   '/logs': 'logs',

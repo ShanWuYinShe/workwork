@@ -4,7 +4,7 @@ import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
 	"admin/internal/downloads"
-	"admin/internal/media"
+	"admin/internal/nginxcfg"
 	"admin/internal/proxy"
 	"fmt"
 	"os"
@@ -25,16 +25,10 @@ func generateConfigs() error {
 	if err := accounts.EnsureXrayClients(); err != nil {
 		return fmt.Errorf("xray clients init: %w", err)
 	}
-	if err := media.EnsureMediaCenterConfig(); err != nil {
-		return fmt.Errorf("media center config init: %w", err)
-	}
 	if err := accounts.GenXrayConfig(); err != nil {
 		return fmt.Errorf("xray config: %w", err)
 	}
-	if err := media.GenMediaCenterCategories(); err != nil {
-		return fmt.Errorf("media center categories: %w", err)
-	}
-	if err := media.EnsureNginxConfig(); err != nil {
+	if err := nginxcfg.EnsureNginxConfig(); err != nil {
 		return fmt.Errorf("nginx config: %w", err)
 	}
 	// 封禁 map 配置是 nginx 配置的硬依赖(undefined variable 即 emerg),
@@ -64,7 +58,6 @@ func runtimeFilesReady() error {
 	required := []string{
 		proxy.XrayConfigPath,
 		proxy.NginxConfigPath,
-		media.CategoriesPath,
 		auth.HtpasswdFile,
 		auth.ProxyHtpasswdPath,
 		auth.InternalTokenPath,
