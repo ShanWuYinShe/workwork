@@ -61,14 +61,10 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	  if command -v shellcheck >/dev/null 2>&1; then shellcheck -S warning "$$sh" || exit 1; fi; \
 	done
 	@docker compose config -q 2>/dev/null || echo '(compose config 校验跳过:需 .env,由 CI 兜底)'
-	@# 版本口径门禁:versions.env 与 compose 内 :- 兜底值不得漂移
-	@for v in GO_VERSION ALPINE_VERSION BUN_VERSION NGINX_VERSION; do \
-	  want=$$(grep -E "^$$v=" versions.env | cut -d= -f2); \
-	  got=$$(grep -oE "\$${$$v:-[^}]*}" docker-compose.yml | head -1 | sed 's/.*:-//;s/}//'); \
-	  if [ -n "$$got" ] && [ "$$want" != "$$got" ]; then \
-	    echo "$$v 漂移:versions.env=$$want compose兜底=$$got"; exit 1; \
-	  fi; \
-	done
+	@# 版本口径门禁:以 versions.env 为主本,校验本仓 compose 兜底与并列站点仓
+	@# (media_center/music_player)的 versions.env、Dockerfile ARG、CI 全部一致;
+	@# 站点目录缺失时(CI)仅告警不失败。
+	@bash scripts/sync-versions.sh check
 	bun install --frozen-lockfile --cwd services/admin/ui
 	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui lint

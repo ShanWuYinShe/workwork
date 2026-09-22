@@ -55,6 +55,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 | skill | 何时加载 |
 |---|---|
+| `workwork-versions` | 跨仓基础镜像版本统一：改 versions.env、跑 scripts/sync-versions.sh check/sync、版本漂移排查 |
 | `workwork-deploy` | 跑 make build/up/restart/deploy-changed；改版本烙印或健康端点；versions.env 与 compose 兜底值漂移；容器权限异常 |
 | `workwork-security` | 改认证/鉴权/限流/封禁代码；新增 API 端点或页面；排查 401/403 或限流误伤；动 nginx/xray 网络配置 |
 

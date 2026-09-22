@@ -229,6 +229,20 @@ docker compose restart xray
 docker compose logs -f xray
 ```
 
+## 基础镜像版本统一（跨仓）
+
+`versions.env` 是本仓基础镜像版本的唯一主本，同时统一并列站点仓
+（`media_center` / `music_player`）的版本：脚本扫描三仓的 versions.env、
+Dockerfile ARG 默认值、CI 的 go-version/bun-version、compose 兜底值，
+发现漂移即报错（已挂 `make check`）。
+
+```bash
+# 升级某个基础镜像版本（例：Go 1.26.8 → 1.26.9）：
+vim versions.env                     # 只改主本一处
+bash scripts/sync-versions.sh sync   # 把主本值刷写到三仓全部点位
+# 然后三仓各自按 worktree 流程提交推送，服务器 pull 后 make build && make up
+```
+
 ## 部署流程（先本地验证，再发布）
 
 ```bash
