@@ -18,7 +18,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。**无公网入站端口**（XHTTP 经 nginx Unix socket 接入；曾有的 Reality 443 入站与 `xray-forward` 转发容器已移除）。注意：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）——若未来需要入站端口，不能直接声明 ports。不要让 xray 加入 `internal_docker`
+- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。出站拨号 IPv6 优先、IPv4 兜底（freedom 出站 `happyEyeballs.prioritizeIPv6: true` + DNS `UseIP`：双栈目标走 v6，仅 v4 目标落回 NAT）。**无公网入站端口**（XHTTP 经 nginx Unix socket 接入；曾有的 Reality 443 入站与 `xray-forward` 转发容器已移除）。注意：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）——若未来需要入站端口，不能直接声明 ports。不要让 xray 加入 `internal_docker`
 - Inbounds: `xhttp-in`（Unix socket `/run/xray/xrxh.socket`，nginx `/proxy/query` 转发，Cloudflare 前置；无独立 TCP 端口）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
 - 客户端单出站 xhttp（经 Cloudflare + nginx TLS 终结）；客户端内置并行 DNS 段加速代理域名解析
