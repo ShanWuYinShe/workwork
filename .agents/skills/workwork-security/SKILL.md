@@ -34,8 +34,8 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 
 ### 页面/API 访问矩阵
 
-完整矩阵见 [`docs/architecture.md`](./docs/architecture.md#rbac-访问矩阵)。新增端点按最小角色选 `viewer`/`admin` 包裹。
+完整矩阵见 [`docs/architecture.md`](../../../docs/architecture.md#rbac-访问矩阵)。新增端点按最小角色选 `viewer`/`admin` 包裹。
 
 ## IPv6 寻址
 
-寻址规则见 [`docs/architecture.md`](./docs/architecture.md#ipv6-寻址)。
+寻址规则见 [`docs/architecture.md`](../../../docs/architecture.md#ipv6-寻址)。
