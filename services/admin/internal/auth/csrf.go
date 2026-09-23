@@ -5,12 +5,14 @@ package auth
 // enctype=text/plain 可拼出合法 JSON body——已登录管理员打开恶意页面即可被
 // 跨站创建 admin/封禁 IP/停服。此前全仓无任何 Origin 校验,这里整体封死。
 //
-// 策略:变更类请求(非 GET/HEAD/OPTIONS)携带 Origin 头时,其 host 必须与
-// 请求 Host 一致(管理面经多域名访问时 Host 恒为用户实际输入的域名,天然
-// 覆盖 NGINX_DOMAINS 全部站点)。不携带 Origin 的调用方(curl、fail2ban
-// token、INTERNAL_TOKEN 自动化、以及不带 Origin 的老式浏览器)放行——
-// CSRF 的前提是浏览器发起,非浏览器流量无此威胁模型。Origin: null(沙箱
-// iframe/data: 来源)一律拒绝。
+// 策略:变更类请求(非 GET/HEAD/OPTIONS)携带 Origin 头时,其 host 必须
+// 落在域名白名单内:XHTTP_DOMAIN 已配置(生产恒为已配置)时以它为锚——
+// Host 回射校验的本质是"请求声称什么域名就信什么",未来出现兄弟域名、
+// 任意 Host 回源等部署变化时回射即失效;白名单把信任锚固定到已知域名。
+// XHTTP_DOMAIN 未配置时退回 Host 回射(本地/测试部署无已知域名)。
+// 不携带 Origin 的调用方(curl、fail2ban token、INTERNAL_TOKEN 自动化、
+// 以及不带 Origin 的老式浏览器)放行——CSRF 的前提是浏览器发起,非浏览器
+// 流量无此威胁模型。Origin: null(沙箱 iframe/data: 来源)一律拒绝。
 
 import (
 	"admin/internal/platform"
@@ -35,13 +37,27 @@ func CSRFMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		u, err := url.Parse(origin)
 		// u.Host 为空涵盖 Origin: null 与任何非 authority 形式,统一拒绝。
-		if err != nil || u.Host == "" || !originHostMatches(u.Host, r.Host) {
-			log.Printf("[security] csrf origin rejected origin=%q host=%q path=%s", origin, r.Host, r.URL.Path)
+		if err != nil || u.Host == "" || !originAllowed(u.Host, r.Host) {
+			log.Printf("[security] csrf origin rejected origin=%q host=%q path=%q", origin, r.Host, r.URL.Path)
 			platform.WriteError(w, "已拒绝跨站请求", http.StatusForbidden)
 			return
 		}
 		next(w, r)
 	}
+}
+
+// originAllowed 判定 Origin host 是否在白名单。XHTTP_DOMAIN 已配置时严格
+// 比对白名单域名(端口不敏感,理由同下);未配置时退回与请求 Host 的回射
+// 比较——回射的已知弱点见文件头,属无域名配置环境的兼容降级。
+func originAllowed(originHost, reqHost string) bool {
+	if domain := strings.TrimSpace(platform.GetEnv("XHTTP_DOMAIN")); domain != "" {
+		oName, _, oErr := hostName(originHost)
+		if oErr != nil {
+			return false
+		}
+		return strings.EqualFold(oName, strings.TrimSuffix(domain, "."))
+	}
+	return originHostMatches(originHost, reqHost)
 }
 
 // originHostMatches 比较 Origin host 与请求 Host。宽松到端口粒度:nginx 以
