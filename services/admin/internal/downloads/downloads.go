@@ -307,7 +307,9 @@ func (s *downloadService) fetchVersions() ([]releaseInfo, error) {
 	}
 
 	var ghReleases []ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&ghReleases); err != nil {
+	// 响应体大小封顶(10MB,正常 per_page=30 的响应远小于此):上游被攻陷时
+	// 无上限 decode 是内存放大面。
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&ghReleases); err != nil {
 		return nil, fmt.Errorf("parse releases: %w", err)
 	}
 
@@ -450,6 +452,12 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 		})
 		if err := s.saveManifestLocked(m); err != nil {
 			s.mu.Unlock()
+			// 对称回滚(与 transfer.ApiTransferUpload 的孤儿治理一致):manifest
+			// 未持久化时文件已 rename 落盘,不回滚就是孤儿——列表不可见、删除
+			// 接口删不到、cleanupOld 按条目清理也够不着。
+			if rmErr := os.Remove(finalPath); rmErr != nil {
+				log.Printf("ERROR: downloads orphan cleanup failed, manual removal needed: %s: %v", finalPath, rmErr)
+			}
 			return 0, "", fmt.Errorf("persist downloads manifest: %w", err)
 		}
 	}
