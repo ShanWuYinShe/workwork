@@ -37,19 +37,19 @@
 
   async function loadDashboard() {
     const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
-      isAdmin = user.role === 'admin';
-      username = d.username || user.username;
+    isAdmin = user.role === 'admin';
+    username = d.username || user.username;
 
-      if (isAdmin) {
-        stats = d.stats || stats;
-        const raw = d.services || [];
-        // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部去重表,非响应式状态
-        const seen = new Set();
-        services = raw.filter((s) => {
-          if (seen.has(s.name)) return false;
-          seen.add(s.name);
-          return true;
-        });
+    if (isAdmin) {
+      stats = d.stats || stats;
+      const raw = d.services || [];
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity -- 函数内局部去重表,非响应式状态
+      const seen = new Set();
+      services = raw.filter((s) => {
+        if (seen.has(s.name)) return false;
+        seen.add(s.name);
+        return true;
+      });
     } else {
       myClients = d.myClients || [];
       generatedJSON = d.generatedJSON || '';
