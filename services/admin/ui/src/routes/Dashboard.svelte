@@ -35,9 +35,8 @@
   ];
   let quickActions = $derived(isAdmin ? adminQuickActions : viewerQuickActions);
 
-  onMount(async () => {
-    try {
-      const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
+  async function loadDashboard() {
+    const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
       isAdmin = user.role === 'admin';
       username = d.username || user.username;
 
@@ -51,12 +50,25 @@
           seen.add(s.name);
           return true;
         });
-      } else {
-        myClients = d.myClients || [];
-        generatedJSON = d.generatedJSON || '';
-      }
+    } else {
+      myClients = d.myClients || [];
+      generatedJSON = d.generatedJSON || '';
+    }
+  }
+
+  onMount(async () => {
+    try {
+      await loadDashboard();
     } catch (e) {
-      toast(e.message, 'error');
+      // 冷启动竞态兜底:浏览器 basic auth 质询期间,并发的接口请求可能各吃
+      // 一次 401 而进入本分支。此刻凭证缓存其实已就绪,延时自动重试一次即
+      // 可自愈,错误不再以横幅形式滞留;只重试一次,真实故障仍会如实露出。
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        await loadDashboard();
+      } catch (e2) {
+        toast(e2.message, 'error');
+      }
     } finally {
       loading = false;
     }

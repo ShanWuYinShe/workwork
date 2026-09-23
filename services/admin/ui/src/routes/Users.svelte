@@ -31,21 +31,42 @@
   let showPwPass = $state(false);
   let addUserError = $state('');
   let pwError = $state('');
+  let loadFailed = $state(false);
+
+  async function loadUsers() {
+    const d = await getUsers();
+    adminUsers = d.adminUsers || [];
+    const me = await getCurrentUser();
+    isAdmin = me?.role === 'admin';
+    currentUsername = me?.username || '';
+    pwUser = currentUsername;
+  }
 
   onMount(async () => {
     try {
-      const d = await getUsers();
-      adminUsers = d.adminUsers || [];
-      const me = await getCurrentUser();
-      isAdmin = me?.role === 'admin';
-      currentUsername = me?.username || '';
-      pwUser = currentUsername;
+      await loadUsers();
     } catch (e) {
+      // 加载失败必须显式可见:静默吞掉会让 admin 看到只剩改密码的
+      // "非管理员视图",误以为权限丢失。
+      loadFailed = true;
       toast(e.message, 'error');
     } finally {
       loading = false;
     }
   });
+
+  async function retryLoad() {
+    loading = true;
+    loadFailed = false;
+    try {
+      await loadUsers();
+    } catch (e) {
+      loadFailed = true;
+      toast(e.message, 'error');
+    } finally {
+      loading = false;
+    }
+  }
 
   // 字段级校验：与后端 IsValidUsername（^[a-zA-Z0-9_-]+$，≤64）对齐，
   // 空字段给出明确提示而不是静默 return。
@@ -129,6 +150,15 @@
   <div class="page-header">
     <h1 class="page-title">{t('users')}</h1>
   </div>
+
+  {#if loadFailed}
+    <div class="card">
+      <div class="empty-state">
+        {t('loadFailed')}
+        <button class="btn btn-primary btn-sm" onclick={retryLoad}>{t('retry')}</button>
+      </div>
+    </div>
+  {/if}
 
   {#if isAdmin}
     <div class="card">
