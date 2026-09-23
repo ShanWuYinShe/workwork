@@ -196,7 +196,7 @@ func StartTrafficCollector(ctx context.Context, cli *client.Client) {
 			return
 		}
 		out, err := platform.ContainerExecOutput(pollCtx, cli, xrayID,
-			"xray", "api", "statsquery", "--server=127.0.0.1:10085", "")
+			"xray", "api", "statsquery", "--server=127.0.0.1:10085")
 		if err != nil {
 			logTrafficFailure("statsquery", err)
 			return

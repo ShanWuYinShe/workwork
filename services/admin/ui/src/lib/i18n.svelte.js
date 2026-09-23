@@ -47,6 +47,7 @@ const zh = {
   socks5: 'SOCKS5',
   http: 'HTTP',
   // Dashboard
+  hostContainers: '宿主容器',
   servicesCount: '服务数量',
   running: '运行中',
   stopped: '已停止',
@@ -495,6 +496,7 @@ const en = {
   socks5: 'SOCKS5',
   http: 'HTTP',
   // Dashboard
+  hostContainers: 'Host containers',
   servicesCount: 'Services',
   running: 'Running',
   stopped: 'Stopped',

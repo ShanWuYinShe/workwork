@@ -20,8 +20,12 @@ var tempFilePrefixes = []string{
 	".media-center-app.apk.tmp-", // media_app_release.go APK 上传
 }
 
-// CleanupStaleTempFiles 启动时清理 root 树内已知的临时文件残留
-// (CreateTemp 模式 + AtomicWriteFile 的 .<name>.tmp-* 模式)。
+// CleanupStaleTempFiles 启动时清理 root 树内已知临时文件残留
+// (上方 tempFilePrefixes 的 CreateTemp 模式 + AtomicWriteFile 的
+// .<name>.tmp-* 模式)。注意 transfer 的 .upload-*.tmp 与 downloads 的
+// .download-* 不在清单内——它们各有专门的启动清理
+// (transfer.CleanupOrphanTempFiles / downloads.PurgeStaleDownloadTemps),
+// 两者分别以 "." 开头和不以 "." 开头,不匹配本函数的扫描模式。
 // 尽力而为:删除失败只记日志,不影响启动。返回清理的文件数。
 func CleanupStaleTempFiles(root string) int {
 	removed := 0

@@ -103,7 +103,9 @@
             /></svg
           >
         </div>
-        <div class="label">{t('servicesCount')}</div>
+        <!-- stats.services 来自 docker info 全宿主计数(含其他 compose 项目),
+             与下方 workwork 服务表(4 个)口径不同,标签必须区分,避免误读。 -->
+        <div class="label">{t('hostContainers')}</div>
         <div class="value">{stats.services}</div>
       </div>
       <div class="stat">
