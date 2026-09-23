@@ -17,13 +17,17 @@ func EnsureHtpasswd() error {
 	if err := os.MkdirAll(NginxAuthDir, 0755); err != nil {
 		return err
 	}
+	if err := validateAuthUserEnv(); err != nil {
+		return err
+	}
 	if data, err := os.ReadFile(HtpasswdFile); err == nil {
 		// "文件存在且超过 10 字节"不足以判定完好:截断到几十字节时启动
 		// 照常通过,但所有行(含 AUTH_USER)都不是有效的 user:hash 条目,
 		// 面板与 nginx basic auth 全员校验失败 = 整站锁死且无提示。
 		// 校验"至少一行合法条目",零条目时隔离损坏文件并按 env 重建。
 		if htpasswdHasValidEntry(data) {
-			return platform.EnsurePerm(HtpasswdFile, 0644)
+			ensureHtpasswdPerm(HtpasswdFile)
+			return nil
 		}
 		log.Printf("ERROR: htpasswd %s has no valid user:hash entry, quarantining and rebuilding from AUTH_USER/AUTH_PASS", HtpasswdFile)
 		if qerr := os.Rename(HtpasswdFile, HtpasswdFile+".corrupt"); qerr != nil {
@@ -39,7 +43,23 @@ func EnsureHtpasswd() error {
 	if err != nil {
 		return err
 	}
-	return platform.AtomicWriteFile(HtpasswdFile, []byte(out), 0644)
+	return writeHtpasswdFile(HtpasswdFile, []byte(out))
+}
+
+// validateAuthUserEnv 校验 AUTH_USER(env 直入 htpasswd 行与 users.json 键,
+// 不经过 API 路径的 IsValidUsername 校验):含冒号/换行会破坏 htpasswd 行
+// 结构(注入任意凭证条目),格式非法时启动即失败,不让坏配置上线。
+func validateAuthUserEnv() error {
+	user := platform.GetEnv("AUTH_USER")
+	if user == "" {
+		// 空值本身合法(不种子内置管理员);危害是 IsProtectedAdmin 守卫
+		// 静默失活,在 SeedAdminUser 里告警。
+		return nil
+	}
+	if !IsValidUsername(user) {
+		return fmt.Errorf("AUTH_USER %q is invalid: must match [a-zA-Z0-9_-]{1,64}", user)
+	}
+	return nil
 }
 
 // htpasswdHasValidEntry 判断文件内容中是否存在至少一行 "user:hash" 形式
@@ -60,6 +80,9 @@ func htpasswdHasValidEntry(data []byte) bool {
 func SeedAdminUser() error {
 	adminUser := platform.GetEnv("AUTH_USER")
 	if adminUser == "" {
+		// 空值时 IsProtectedAdmin(AUTH_USER 比对)恒为 false——内置管理员
+		// 保护静默失活,这不是合法配置,启动时明确告警。
+		log.Printf("WARNING: AUTH_USER not set; the protected-admin guard (role/demote/delete protection) is INACTIVE")
 		return nil
 	}
 	return UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
@@ -162,7 +185,7 @@ func EnsureProxyHtpasswd() error {
 	if len(entries) == 0 {
 		data = []byte{}
 	}
-	if err := platform.AtomicWriteFile(ProxyHtpasswdPath, data, 0644); err != nil {
+	if err := writeHtpasswdFile(ProxyHtpasswdPath, data); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil

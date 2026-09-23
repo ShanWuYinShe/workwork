@@ -6,6 +6,7 @@ import (
 	"admin/internal/proxy"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/docker/docker/client"
 	"log"
 	"net/http"
@@ -17,6 +18,10 @@ import (
 // 之下的层,accounts 不能直接 import transfer,故用钩子注入而不是直接调用。
 // 未装配(nil)时跳过级联——单元测试环境无需构造 transfer 状态。
 var CascadeDeleteUploads func(uploader string) (int, error)
+
+// minPasswordLen 是密码最小长度。此前无任何强度约束,viewer 可把密码设成
+// "1"——面板 basic auth 是唯一的登录门,空强度密码直接击穿它。
+const minPasswordLen = 8
 
 // -- User management APIs --
 func ApiUsers(cli *client.Client) http.HandlerFunc {
@@ -115,6 +120,10 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "用户名与密码必填", 400)
 			return
 		}
+		if len(body.Password) < minPasswordLen {
+			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", minPasswordLen), 400)
+			return
+		}
 		if !auth.IsValidUsername(body.Username) {
 			platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
 			return
@@ -124,6 +133,16 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "无权操作：只能修改自己的密码", 403)
 			return
 		}
+		// 目标用户必须存在于 users.json:此前 admin 可为不存在的用户名写入
+		// htpasswd——能过 nginx basic auth、被 Go 以"用户未初始化"403,留下
+		// htpasswd/users.json 双真相源漂移的幽灵凭证。
+		if doc, err := auth.ReadUsersMeta(); err != nil {
+			platform.WriteInternalError(w, err)
+			return
+		} else if _, ok := doc.Users[body.Username]; !ok {
+			platform.WriteError(w, "用户不存在", 404)
+			return
+		}
 		// Protected admin account (AUTH_USER) can only change its own password:
 		// 防止任意 admin 重置超级管理员密码并接管该账号(纵深防御,与
 		// ApiSetRole/ApiDeleteAdmin 的 auth.IsProtectedAdmin 守卫对齐)。
@@ -131,17 +150,25 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "内置管理员账号密码请经修改密码功能变更", 403)
 			return
 		}
-		// Verify old password for non-admin users（持锁校验，见
-		// auth.VerifyHtpasswdPasswordLocked 注释——与后续重写共用 htpasswdMu）
+		// Verify old password for non-admin users（校验+重写在单次持锁内完成,
+		// 消除两段式之间并发改密互相覆盖的窗口）
 		if userInfo == nil || userInfo.Role != "admin" {
 			if body.OldPassword == "" {
 				platform.WriteError(w, "旧密码必填", 400)
 				return
 			}
-			if !auth.VerifyHtpasswdPasswordLocked(body.Username, body.OldPassword) {
+			ok, err := auth.HtpasswdChangePassword(body.Username, body.OldPassword, body.Password)
+			if err != nil {
+				platform.WriteInternalError(w, err)
+				return
+			}
+			if !ok {
 				platform.WriteError(w, "旧密码不正确", 401)
 				return
 			}
+			log.Printf("[security] password change user=%s by=%s", body.Username, username)
+			platform.WriteJSON(w, map[string]string{"status": "ok"})
+			return
 		}
 		if err := auth.HtpasswdAddUser(body.Username, body.Password); err != nil {
 			platform.WriteInternalError(w, err)
@@ -165,6 +192,10 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		if body.Username == "" || body.Password == "" {
 			platform.WriteError(w, "用户名与密码必填", 400)
+			return
+		}
+		if len(body.Password) < minPasswordLen {
+			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", minPasswordLen), 400)
 			return
 		}
 		if !auth.IsValidUsername(body.Username) {
