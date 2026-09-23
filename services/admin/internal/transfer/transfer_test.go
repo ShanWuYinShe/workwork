@@ -2,6 +2,8 @@ package transfer
 
 import (
 	"mime"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -74,5 +76,66 @@ func TestTransferContentDispositionUnicode(t *testing.T) {
 	}
 	if disposition == "" {
 		t.Fatal("FormatMediaType 不应返回空串")
+	}
+}
+
+// TestDeliveredFullDownload 锁定下载计数的"实际交付"判定:HEAD、416、
+// 中途断开、不覆盖末字节的中间分段都不消耗 MaxDownloads;完整 200、
+// 覆盖末字节的 206 分段计数。
+func TestDeliveredFullDownload(t *testing.T) {
+	size := int64(100)
+
+	cw := func(status int, written int64, writeErr bool) *countingResponseWriter {
+		return &countingResponseWriter{status: status, written: written, writeErr: writeErr}
+	}
+	req := func(method, rangeHeader string) *http.Request {
+		r := httptest.NewRequest(method, "/api/transfer/abc12345", nil)
+		if rangeHeader != "" {
+			r.Header.Set("Range", rangeHeader)
+		}
+		return r
+	}
+
+	cases := []struct {
+		name           string
+		r              *http.Request
+		cw             *countingResponseWriter
+		specCoversLast bool
+		want           bool
+	}{
+		{"HEAD 不计数", req(http.MethodHead, ""), cw(200, 0, false), true, false},
+		{"200 完整交付计数", req(http.MethodGet, ""), cw(200, size, false), true, true},
+		{"200 发送不全(断开)不计数", req(http.MethodGet, ""), cw(200, 40, true), true, false},
+		{"416 越界 range 不计数", req(http.MethodGet, "bytes=999999999-"), cw(416, 0, false), true, false},
+		{"中间分段不计数", req(http.MethodGet, "bytes=10-19"), cw(206, 10, false), false, false},
+		{"覆盖末字节的分段计数", req(http.MethodGet, "bytes=50-"), cw(206, 50, false), true, true},
+		{"后缀分段计数", req(http.MethodGet, "bytes=-30"), cw(206, 30, false), true, true},
+		{"304 Not Modified 不计数", req(http.MethodGet, ""), cw(304, 0, false), true, false},
+	}
+	for _, tc := range cases {
+		if got := deliveredFullDownload(tc.r, tc.cw, tc.specCoversLast, size); got != tc.want {
+			t.Errorf("%s: delivered=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestValidTransferFilenameRejectsBidi 拒绝 Unicode 双向排版控制字符
+// (视觉反转扩展名伪装),正常 Unicode 文件名不受影响。
+func TestValidTransferFilenameRejectsBidi(t *testing.T) {
+	rejected := []string{
+		"exe.jar\u202Eexe", // RLO 反转显示
+		"\u2066dir\u2069/x",
+		"file\u202Dname.txt",
+	}
+	for _, name := range rejected {
+		if validTransferFilename(name) {
+			t.Errorf("bidi filename should be rejected: %q", name)
+		}
+	}
+	accepted := []string{"文件 名.txt", "report-v1.pdf", "archivo año.csv"}
+	for _, name := range accepted {
+		if !validTransferFilename(name) {
+			t.Errorf("normal unicode filename should pass: %q", name)
+		}
 	}
 }
