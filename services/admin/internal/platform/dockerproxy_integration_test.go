@@ -18,7 +18,9 @@ import (
 // 的 docker API 调用面,且越权端点(containers create/delete/images/networks/
 // volumes/swarm)被拒。需真实 proxy(仓库根构建后):
 //
+//	docker build -t workwork-docker-proxy services/docker_proxy
 //	docker run -d --name wk-proxy-test -p 127.0.0.1:23750:2375 \
+//	  -e ALLOWED_COMPOSE_PROJECTS=test \
 //	  -v /var/run/docker.sock:/var/run/docker.sock:ro workwork-docker-proxy
 //	TEST_DOCKER_HOST=tcp://127.0.0.1:23750 go test -run TestDockerProxyWhitelist ./internal/platform/
 //
@@ -50,6 +52,9 @@ func TestDockerProxyWhitelist(t *testing.T) {
 		Image: "alpine:3.24.1",
 		Cmd:   []string{"sh", "-c", "echo hello-from-exec; sleep 30"},
 		Tty:   true,
+		// 归属校验(proxy 端 ALLOWED_COMPOSE_PROJECTS)只放行名单内项目,
+		// 测试容器必须落在 label 圈定的项目里才能走通执行类端点。
+		Labels: map[string]string{"com.docker.compose.project": "test"},
 	}, nil, nil, nil, "wk-proxy-whitelist-test")
 	if err != nil {
 		t.Fatalf("create test container via local daemon: %v", err)
@@ -125,6 +130,24 @@ func TestDockerProxyWhitelist(t *testing.T) {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+
+	// 归属校验拒绝路径:无 compose 项目 label 的容器,per-container 端点
+	// 一律 403(与白名单 403 同形,SDK 侧表现为错误返回)。
+	deniedResp, err := localCli.ContainerCreate(ctx, &container.Config{
+		Image: "alpine:3.24.1",
+		Cmd:   []string{"sh", "-c", "sleep 30"},
+		Tty:   true,
+	}, nil, nil, nil, "wk-proxy-scope-denied-test")
+	if err == nil {
+		t.Cleanup(func() {
+			rmCtx, rmCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_ = localCli.ContainerRemove(rmCtx, deniedResp.ID, container.RemoveOptions{Force: true})
+			rmCancel()
+		})
+		if _, err := proxyCli.ContainerInspect(ctx, deniedResp.ID); err == nil {
+			t.Error("inspect on out-of-project container should be denied by proxy scope check")
+		}
 	}
 
 	// start/stop/restart 放行(ApiServiceAction)。
