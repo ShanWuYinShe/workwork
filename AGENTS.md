@@ -49,14 +49,3 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - 审计留痕：变更类端点（增删改、启停、发布、封禁等）必须在成功路径记 `log.Printf("[security] <动作> <关键标识> by=%s", actor)`，actor 取 `auth.GetUserFromContext(r)`；只读端点不需要。用户可控的标识（文件名、昵称等）必须 `%q` 转义——换行注入会伪造出假审计行。请求日志（RequestLogMiddleware）已带 user 字段兜底。
 - 环境变量：通过 `platform.GetEnv()` 读取（见 `services/admin/internal/platform/env.go`），不直接用 `os.Getenv`。
 
-## 主题索引（按需加载 skill）
-
-本仓库细则按主题拆为 skill，改对应模块前先加载：
-
-| skill | 何时加载 |
-|---|---|
-| `workwork-versions` | 跨仓基础镜像版本统一：改 versions.env、跑 scripts/sync-versions.sh check/sync、版本漂移排查 |
-| `workwork-deploy` | 跑 make build/up/restart/deploy-changed；改版本烙印或健康端点；versions.env 与 compose 兜底值漂移；容器权限异常 |
-| `workwork-security` | 改认证/鉴权/限流/封禁代码；新增 API 端点或页面；排查 401/403 或限流误伤；动 nginx/xray 网络配置 |
-
-> 新增主题优先建 skill 并在此登记，不要继续往本文件堆长内容。
