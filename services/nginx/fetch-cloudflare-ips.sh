@@ -10,6 +10,27 @@ trap 'rm -f "$TMP" "$V4" "$V6"' EXIT
 
 write_include() {
   generated_at=$1
+  # 逐行 CIDR 白名单校验后才写进 nginx 配置:此文件是 real_ip 的信任锚,
+  # 上游响应(TLS 被破/被劫持)若含任意指令文本,不校验直接拼进 include
+  # 即可注入 nginx 配置(如 set_real_ip_from 0.0.0.0/0 伪造真实 IP,
+  # 污染限流键与封禁 map)。不合法的行直接丢弃。
+  filter_cidrs() {
+    while IFS= read -r ip; do
+      case "$ip" in
+        # IPv4 CIDR
+        [0-9]*.*.*.*/*)
+          if [ -n "$(printf '%s' "$ip" | tr -d '0-9./')" ]; then continue; fi
+          echo "$ip" ;;
+        # IPv6 CIDR
+        \[*\]/*|[0-9a-fA-F:]*/*)
+          if [ -n "$(printf '%s' "$ip" | tr -d '0-9a-fA-F:/')" ]; then continue; fi
+          echo "$ip" ;;
+      esac
+    done
+  }
+  filter_cidrs < "$V4" > "$V4.filtered"; mv "$V4.filtered" "$V4"
+  filter_cidrs < "$V6" > "$V6.filtered"; mv "$V6.filtered" "$V6"
+
   {
     echo "# Cloudflare IP ranges — auto-generated at ${generated_at}"
     echo "# Cloudflare IPv4"

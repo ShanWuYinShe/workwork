@@ -167,7 +167,10 @@ server {
         limit_req zone=admin_api burst=50 nodelay;
         limit_req_status 429;
         proxy_pass http://$admin_upstream;
-        client_max_body_size 2g;
+        # Go 端权威上限 = 2GB 文件 + 64MiB 余量(2112MiB,含 multipart 开销)。
+        # 这里只须不小于它:写 2g 会让贴近上限的合法文件先被 nginx 413,
+        # Go 端的截断检测永远够不到。2148m 留出实现余量。
+        client_max_body_size 2148m;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
         proxy_request_buffering off;
