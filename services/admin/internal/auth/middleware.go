@@ -78,8 +78,9 @@ const (
 
 var trustedProxyHostCache = struct {
 	sync.Mutex
-	ips     []net.IP
-	expires time.Time
+	ips      []net.IP
+	lastGood []net.IP // 上次成功解析结果,DNS 故障期间回退用
+	expires  time.Time
 }{}
 
 // trustedProxyCIDRCache caches the parsed CIDR set. Re-parse only when the
@@ -369,6 +370,17 @@ func trustedProxyHostIPs() []net.IP {
 		ttl = trustedProxyHostFailureCache
 	}
 	trustedProxyHostCache.Lock()
+	if len(ips) > 0 {
+		trustedProxyHostCache.lastGood = ips
+	} else if !hardFailed && len(trustedProxyHostCache.lastGood) > 0 {
+		// DNS 全解析失败(网络抖动/daemon DNS 短暂不可用):沿用上次成功
+		// 结果而不是清空信任集。清空的后果是故障期间所有经 nginx 的请求
+		// 401 = 全站拒绝;沿用旧值的残余风险仅是"nginx 容器在故障窗口内被
+		// 换到新 IP"——内网容器 IP 远比 DNS 稳定,可用性优先。硬失败(多 IP
+		// 抢注)不回退:那是主动攻击信号,fail-closed。
+		log.Printf("WARNING: trusted proxy DNS resolution failed; reusing last known good IPs %v", trustedProxyHostCache.lastGood)
+		ips = trustedProxyHostCache.lastGood
+	}
 	trustedProxyHostCache.ips = ips
 	trustedProxyHostCache.expires = now.Add(ttl)
 	trustedProxyHostCache.Unlock()

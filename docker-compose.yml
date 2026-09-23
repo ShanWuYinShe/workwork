@@ -49,7 +49,6 @@ services:
       - ./.wework/generated/nginx:/etc/nginx/conf.d:ro
       - ./.wework/nginx-auth:/etc/nginx/htpasswd:ro
       - ./logs/nginx:/var/log/nginx
-      - ./services/nginx/config/fail2ban:/etc/fail2ban/custom:ro
       - ./services/nginx/fail2ban-data:/var/lib/fail2ban/data
       # 目录挂载(勿改回单文件):单文件 bind 会把缺失 source 建成目录导致首次
       # 部署死锁;且绑定 inode 后 admin 的 rename 轮换在容器内不可见。
@@ -193,6 +192,9 @@ services:
     tmpfs:
       - /tmp
     volumes:
+      # :ro 只约束 bind mount 的打开语义,经 socket 发起的 API 读写不受限——
+      # 实际防线是容器内 docker-proxy 的 method+path 白名单 + 容器归属校验。
+      # 保留 :ro 仅表达"代理不修改 socket 文件本身"的意图,勿视作安全边界。
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - docker_proxy
@@ -236,6 +238,11 @@ services:
     networks:
       - internal_docker
       - docker_proxy
+    group_add:
+      # 101 = nginx worker 组:admin 以它写 htpasswd(0640 group 101,nginx
+      # worker 可读、宿主其他用户不可读)。代码侧 chgrp 失败会自动退回 0644,
+      # 不会造成 nginx 读不了凭证的整站锁死。
+      - "101"
     cap_drop:
       - ALL
     environment:
