@@ -131,8 +131,17 @@ func TestScopeCheck(t *testing.T) {
 		}
 	}
 
-	// exec 两段链:exec json 的 .Container 再查容器归属。
+	// exec 两段链:exec inspect 的容器字段再查容器归属。字段名取自
+	// engine 29.x 实测响应("ContainerID"),并兼容旧文档的 "Container"。
 	execChain := func(containerBody string) inspectFunc {
+		return func(apiPath string) (int, []byte, error) {
+			if apiPath == "/exec/e123/json" {
+				return 200, []byte(`{"ContainerID":"abc","Running":false}`), nil
+			}
+			return 200, []byte(containerBody), nil
+		}
+	}
+	execChainLegacy := func(containerBody string) inspectFunc {
 		return func(apiPath string) (int, []byte, error) {
 			if apiPath == "/exec/e123/json" {
 				return 200, []byte(`{"Container":"abc"}`), nil
@@ -140,10 +149,20 @@ func TestScopeCheck(t *testing.T) {
 			return 200, []byte(containerBody), nil
 		}
 	}
+	// 两个键都缺失 = 无容器引用,必须拒绝。
+	execChainNoRef := func(apiPath string) (int, []byte, error) {
+		return 200, []byte(`{"Running":false}`), nil
+	}
 	if !scopeCheck("/v1.47/exec/e123/start", execChain(containerJSON("workwork"))) {
 		t.Error("exec on workwork container should be allowed")
 	}
 	if scopeCheck("/v1.47/exec/e123/start", execChain(containerJSON("other"))) {
 		t.Error("exec on cross-project container should be denied")
+	}
+	if !scopeCheck("/v1.47/exec/e123/start", execChainLegacy(containerJSON("workwork"))) {
+		t.Error("legacy Container key should be accepted")
+	}
+	if scopeCheck("/v1.47/exec/e123/start", execChainNoRef) {
+		t.Error("exec inspect without container reference should be denied")
 	}
 }

@@ -122,20 +122,31 @@ func scopeCheck(rawPath string, inspect inspectFunc) bool {
 		return containerInAllowedProject(m[1], inspect)
 	}
 	if m := execRefRe.FindStringSubmatch(rawPath); m != nil {
-		// exec id 不能直接查容器,先取 /exec/{id}/json 的 .Container。
+		// exec id 不能直接查容器,先取 exec inspect 的容器 ID 再核对归属。
+		// 字段名以实测为准(engine 29.x / API v1.51 返回 "ContainerID",
+		// 旧版文档作 "Container"),两者都收,空即拒绝。
 		status, body, err := inspect("/exec/" + m[1] + "/json")
 		if err != nil || status != http.StatusOK {
 			log.Printf("scope: exec inspect failed status=%d err=%v (deny)", status, err)
 			return false
 		}
 		var execInfo struct {
-			Container string `json:"Container"`
+			ContainerID string `json:"ContainerID"`
+			Container   string `json:"Container"`
 		}
-		if err := json.Unmarshal(body, &execInfo); err != nil || execInfo.Container == "" {
+		if err := json.Unmarshal(body, &execInfo); err != nil {
 			log.Printf("scope: exec inspect parse failed err=%v (deny)", err)
 			return false
 		}
-		return containerInAllowedProject(execInfo.Container, inspect)
+		target := execInfo.ContainerID
+		if target == "" {
+			target = execInfo.Container
+		}
+		if target == "" {
+			log.Printf("scope: exec inspect has no container reference (deny)")
+			return false
+		}
+		return containerInAllowedProject(target, inspect)
 	}
 	return true
 }
