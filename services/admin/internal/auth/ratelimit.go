@@ -238,8 +238,11 @@ func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// 公开分享下载不经 Go 限流:nginx 已按 IP 施加 transfer_dl(1r/s,
 		// burst=5)与 transfer_conn(3 并发)约束,而多连接下载器合法场景下
 		// 会突破 Go 层 20req/10s 窗口,被误封 30min 并写入持久封禁表。
-		// 只放行 GET 分享下载,上传仍走管理面限流。
-		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/transfer/") {
+		// HEAD 与 GET 一并放行:下载器探测文件头/浏览器预取会发 HEAD,nginx
+		// 侧 limit_req 对两种方法同等计数,Go 层豁免口径必须一致,否则 HEAD
+		// 落进管理面 20req/10s 窗口触发 30min 误封。上传仍走管理面限流。
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+			strings.HasPrefix(r.URL.Path, "/api/transfer/") {
 			next(w, r)
 			return
 		}

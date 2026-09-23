@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -63,5 +65,54 @@ func TestRateLimiterPrefixAggregation(t *testing.T) {
 	// 已封禁的 C 在封禁期内持续被拒。
 	if rl.allow(p1 + "3") {
 		t.Fatal("banned suffix should stay rejected within banTime")
+	}
+}
+
+// TestRateLimitExemptsTransferGETAndHEAD 验证公开分享下载的豁免口径与
+// nginx limit_req 一致:GET 与 HEAD 都不经 Go 限流(下载器探测文件头会发
+// HEAD,落进管理面 20req/10s 窗口会触发 30min 误封);POST(上传)仍受限流。
+func TestRateLimitExemptsTransferGETAndHEAD(t *testing.T) {
+	oldBlocker := ipBlocker
+	ipBlocker = &ipBlockStore{path: t.TempDir() + "/blocked-ips.json"}
+	t.Cleanup(func() { ipBlocker = oldBlocker })
+
+	rl := &rateLimiter{
+		entries: make(map[string]*rateLimitEntry),
+		maxReqs: 1,
+		window:  10 * time.Second,
+		banTime: time.Minute,
+	}
+	origRL := authRateLimiter
+	authRateLimiter = rl
+	t.Cleanup(func() { authRateLimiter = origRL })
+
+	reached := false
+	handler := RateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+	})
+
+	req := httptest.NewRequest(http.MethodHead, "/api/transfer/abc12345", nil)
+	req.RemoteAddr = "198.51.100.7:1234"
+	reached = false
+	handler(httptest.NewRecorder(), req)
+	if !reached {
+		t.Error("HEAD /api/transfer/ should bypass Go rate limit like GET")
+	}
+
+	// 同一 IP 已把 1 次预算用尽:GET/HEAD 仍豁免,POST 被限流挡下。
+	rl.allow("198.51.100.7")
+	req = httptest.NewRequest(http.MethodGet, "/api/transfer/abc12345", nil)
+	req.RemoteAddr = "198.51.100.7:1234"
+	reached = false
+	handler(httptest.NewRecorder(), req)
+	if !reached {
+		t.Error("GET /api/transfer/ should bypass exhausted rate limit")
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/transfer/upload", nil)
+	req.RemoteAddr = "198.51.100.7:1234"
+	reached = false
+	handler(httptest.NewRecorder(), req)
+	if reached {
+		t.Error("POST /api/transfer/upload should be rate limited")
 	}
 }
