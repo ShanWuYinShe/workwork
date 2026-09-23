@@ -198,10 +198,12 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			return
 		}
 		assetURL := ""
+		assetName := ""
 		filename := ""
 		for _, a := range release.Assets {
 			if s.parseAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
+				assetName = a.Name
 				filename = s.buildFilename(body.Version, body.Plat, a.Name)
 				break
 			}
@@ -221,6 +223,10 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		// Stream progress as NDJSON
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
+		// 进度流要实时到达浏览器:nginx /api/admin/ 默认开 proxy_buffering,
+		// 不关缓冲会把 NDJSON 攒到响应结束才发,前端进度条全程停摆
+		// (SSE 日志流有专门的关缓冲 location,transfer 下载带头,唯独此处漏)。
+		w.Header().Set("X-Accel-Buffering", "no")
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			platform.WriteError(w, "当前连接不支持流式响应", 500)
@@ -266,6 +272,21 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			log.Printf("download failed (%s): %v", s.manifestPath, err)
 			sendEvent(map[string]any{"type": "error", "error": "Download failed"})
 			return
+		}
+
+		// 官方校验和比对(keepChecksumsFile 的下载面):不符即删产物并报错,
+		// 校验不过的分发文件绝不出库。
+		if s.keepChecksumsFile {
+			if err := s.verifySHASUMS256(release, assetName, checksum); err != nil {
+				if rmErr := s.deleteStored(filename); rmErr != nil {
+					// 删除失败时条目仍在 manifest,管理员可见可删,不算孤儿。
+					log.Printf("ERROR: remove failed download %s after checksum mismatch: %v", filename, rmErr)
+				}
+				log.Printf("[security] checksum verify failed tool=%s version=%s file=%s: %v",
+					filepath.Base(s.dir), body.Version, filename, err)
+				sendEvent(map[string]any{"type": "error", "error": "Checksum verification failed"})
+				return
+			}
 		}
 
 		s.cleanupOld()

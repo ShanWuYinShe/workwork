@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -46,9 +47,92 @@ var safeVersionTag = regexp.MustCompile(`^[0-9A-Za-z.+_-]+$`)
 
 // githubClient / downloadClient 供两个下载面共用（原各文件顶层变量）。
 var (
-	githubClient   = &http.Client{Timeout: 15 * time.Second}
-	downloadClient = &http.Client{Timeout: 10 * time.Minute}
+	githubClient = &http.Client{Timeout: 15 * time.Second}
+	// downloadClient 带 asset 域名白名单:assetURL 取自 GitHub API 响应,
+	// 响应被篡改时该字段可指向任意 URL(含 internal_docker 内网地址)——
+	// 下载器会变成 SSRF 跳板,响应体还会被存成分发文件。初始 URL 与每一跳
+	// 重定向都必须落在白名单内(CheckRedirect 对每个后续请求触发)。
+	downloadClient = &http.Client{
+		Timeout: 10 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if !trustedAssetHost(req.URL.String()) {
+				return fmt.Errorf("redirect host %q not in asset allowlist", req.URL.Host)
+			}
+			return nil
+		},
+	}
 )
+
+// trustedAssetHost 白名单:GitHub release 资产的下载链只应落在 github.com
+// 及其 release CDN 子域。
+func trustedAssetHost(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "github.com" || strings.HasSuffix(host, ".githubusercontent.com")
+}
+
+// verifySHASUMS256 拉取 release 的 SHASUMS256.txt 与下载产物比对该资产的
+// 官方 sha256。此前 SHASUMS256.txt 只被保留从未被比对("完整性校验"注释
+// 与实现不符):HTTPS 只保证传输完整,不防 CDN 调包/资产错位。真正的完全
+// 供应链投毒(仓库与校验文件同时被换)超出本层防御,由域名白名单、大小
+// 上限与 [security] 审计留痕兜底。
+func (s *downloadService) verifySHASUMS256(release *releaseInfo, assetName, checksum string) error {
+	sumURL := ""
+	for _, a := range release.Assets {
+		if a.Name == "SHASUMS256.txt" {
+			sumURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if sumURL == "" {
+		return fmt.Errorf("release %s has no SHASUMS256.txt asset", release.Version)
+	}
+	if !trustedAssetHost(sumURL) {
+		return fmt.Errorf("SHASUMS256.txt URL host %q not in allowlist", sumURL)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sumURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "workwork-admin")
+	resp, err := downloadClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fetch SHASUMS256.txt: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d fetching SHASUMS256.txt", resp.StatusCode)
+	}
+	// 校验和文件极小,1MB 封顶防异常响应撑爆内存。
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("read SHASUMS256.txt: %w", err)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		// shasum 格式:"<hex>  <name>"(两空格,二进制模式为 " *")。
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if name != assetName {
+			continue
+		}
+		if !strings.EqualFold(fields[0], checksum) {
+			return fmt.Errorf("checksum mismatch for %s: expected %s got %s", assetName, fields[0], checksum)
+		}
+		return nil
+	}
+	return fmt.Errorf("asset %s not listed in SHASUMS256.txt", assetName)
+}
 
 // ghAsset 是 GitHub release asset 的通用形状（此前 claudeReleaseAsset /
 // xrayReleaseAsset 成对重复）。
@@ -256,6 +340,10 @@ func (s *downloadService) fetchVersions() ([]releaseInfo, error) {
 // downloadArchive 流式下载资产到 s.dir：Content-Length 预检 + 流式累计双重
 // 大小限制，SHA-256 校验和随流计算，原子 rename 落盘，manifest 去重追加。
 func (s *downloadService) downloadArchive(parentCtx context.Context, filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
+	// CheckRedirect 只覆盖重定向跳,首个 URL 必须单独校验。
+	if !trustedAssetHost(assetURL) {
+		return 0, "", fmt.Errorf("asset URL host %q not in allowlist, refusing to download", assetURL)
+	}
 	if err := os.MkdirAll(s.dir, 0755); err != nil {
 		return 0, "", err
 	}
