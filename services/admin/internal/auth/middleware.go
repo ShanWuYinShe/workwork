@@ -328,6 +328,7 @@ func trustedProxyHostIPs() []net.IP {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	var ips []net.IP
+	hardFailed := false // 多 IP 拒信属稳定状态,缓存用正常 TTL 而非故障短缓存
 	for _, host := range hosts {
 		if ip := net.ParseIP(host); ip != nil {
 			ips = append(ips, ip)
@@ -337,12 +338,34 @@ func trustedProxyHostIPs() []net.IP {
 		if err != nil {
 			continue
 		}
+		// fail-closed:Docker 用户定义网络允许多个容器共享同一
+		// network-alias,同网容器以 "nginx" 别名抢注后,DNS 会把攻击者 IP
+		// 与真 nginx IP 一并返回——若全部纳入信任集,攻击者即可直连
+		// admin:8318 伪造 X-Forwarded-User 冒充任意用户。因此同一主机名
+		// 解析出多个不同 IP 时整体弃用该主机(本周期内不作信任代理),
+		// 并留 [security] 痕迹。
+		seen := make(map[string]bool, len(addrs))
+		var hostIPs []net.IP
 		for _, addr := range addrs {
-			ips = append(ips, addr.IP)
+			key := addr.IP.String()
+			if !seen[key] {
+				seen[key] = true
+				hostIPs = append(hostIPs, addr.IP)
+			}
 		}
+		if len(hostIPs) > 1 {
+			list := make([]string, 0, len(hostIPs))
+			for _, ip := range hostIPs {
+				list = append(list, ip.String())
+			}
+			log.Printf("[security] trusted proxy host %q resolved to multiple IPs %v; refusing to trust any of them", host, list)
+			hardFailed = true
+			continue
+		}
+		ips = append(ips, hostIPs...)
 	}
 	ttl := trustedProxyHostCacheTTL
-	if len(ips) == 0 {
+	if len(ips) == 0 && !hardFailed {
 		ttl = trustedProxyHostFailureCache
 	}
 	trustedProxyHostCache.Lock()
@@ -490,7 +513,10 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 					// internal_docker 上的第三方容器持续探测身份伪造时,
 					// 运维能像 internal-token 白名单拒绝一样从日志察觉。
 					if r.Header.Get("X-Forwarded-User") != "" {
-						log.Printf("[security] x-forwarded-user spoof attempt ip=%s path=%s", remoteIP(r.RemoteAddr), r.URL.Path)
+						// path 用 %q:URL 路径可含 %0A 解码后的换行,不转义会
+						// 被用来注入伪造的 "[security]" 日志行(与 AGENTS 审计
+						// 转义规范对齐)。
+						log.Printf("[security] x-forwarded-user spoof attempt ip=%s path=%q", remoteIP(r.RemoteAddr), r.URL.Path)
 					}
 					platform.WriteError(w, "未认证", 401)
 					return
