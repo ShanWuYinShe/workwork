@@ -19,8 +19,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 3. 冒烟：本地能独立启动的服务，`make up <svc...>` 后等 healthy，并按 README「版本排查」核对健康端点版本指纹。
 4. 以下服务本地不具备启动条件（本地仓库默认没有 `.env` / `cert/` / `.wework/`，也没有外部 `ipvlan_docker` 网络），做到第 2 步即视为本地验证通过，上线可靠性由服务器 `deploy-changed.sh` 的部署后自校验（等 healthy + 版本指纹核对，不通过即 fail）兜底：
    - `nginx`（需 `cert/` 证书与 admin 渲染到 `.wework/generated/` 的运行时配置）；
-   - `xray`（需外部 `ipvlan_docker` IPv6 网络）；
-   - `vod_extractor` 全链路（需宿主机 `.wework/vod_extractor/youtube-cookies.txt` 真实 cookies）。
+   - `xray`（需外部 `ipvlan_docker` IPv6 网络）。
    不要为了验证而在本地伪造线上证书或密钥。
 
 例外：纯文档/注释改动（`*.md`、代码注释）可跳过第 2、3 步，但仍执行第 1 步中有意义的部分。
@@ -33,7 +32,6 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - XHTTP 模式必须是 `packet-up`，不要改成 `stream-up`
 - 不要为 IPv4 入站加其他转发方式（宿主 iptables DNAT 等）
 - 改 `services/admin/configs/` 下模板 = rebuild admin（模板与二进制原子对应）
-- `vod_extractor` 部署硬前提（宿主机 cookies）见构建节注释
 
 ## 关键约定
 

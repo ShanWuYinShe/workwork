@@ -15,6 +15,7 @@ description: 跨仓基础镜像版本统一：改 versions.env、跑 scripts/syn
   - `media_center`：`deploy/versions.env`、`media_server/Dockerfile`、`deploy/nginx/Dockerfile`、`.github/workflows/*.yml`
   - `music_player`：`deploy/versions.env`、`music_server/Dockerfile`、`netease_api/Dockerfile`、`deploy/nginx/Dockerfile`、`.github/workflows/*.yml`
 - **站点专属键**：如 `PYTHON_VERSION` 只在 `media_center` 内部生效，不参与跨仓主本同步。
+- **运行前提**：站点仓须与本仓并列检出（本地 `~/work` 与服务器 `~` 布局一致）；缺失的站点目录自动跳过并告警，不判失败；可用 `SITES` 环境变量覆盖定位（见脚本头部注释）。
 
 ## 常用命令
 
