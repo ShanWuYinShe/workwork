@@ -552,6 +552,7 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 		nginxIP := selectContainerDNSIP(ctx, cli, nginxID, platform.GetEnv("NGINX_IPV6"), oldNginxIP)
 
 		var results []string
+		failed := 0
 		for _, di := range allDomainInfos() {
 			ip := nginxIP
 			if di.Container == "xray" {
@@ -561,13 +562,16 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 				// CF 错误详情只进日志,客户端只看到通用文案。
 				log.Printf("sync-dns: upsert %s: %v", di.Domain, err)
 				results = append(results, fmt.Sprintf("%s: DNS 更新失败", di.Domain))
+				failed++
 			} else {
 				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, ip))
 			}
 		}
 		saveCurrentIPs(xrayIP, nginxIP)
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] sync-dns records=%d xray_ip=%s nginx_ip=%s by=%s", len(results), xrayIP, nginxIP, actor)
+		// 审计区分成败:全失败也记成功形态的行,审计线无法区分事故(对照
+		// rotate-ipv6 只在真正成功后留痕)。
+		log.Printf("[security] sync-dns ok=%d failed=%d xray_ip=%s nginx_ip=%s by=%s", len(results)-failed, failed, xrayIP, nginxIP, actor)
 		platform.WriteJSON(w, map[string]any{"results": results})
 	}
 }
@@ -625,8 +629,12 @@ func RestartXray(ctx context.Context, cli *client.Client) error {
 	restartErr := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t})
 
 	// 始终尝试恢复轮换 IP。Docker restart 超时/cancel 时容器可能已完成重启，
-	// 不恢复会导致 DNS 指向不存在的地址。
-	RestoreServiceRotatingIP(ctx, cli, id, "xray")
+	// 不恢复会导致 DNS 指向不存在的地址。恢复必须用独立 ctx:补偿针对的正是
+	// restart 超时/取消场景,复用已死的 ctx 会让 CF 查询与 IP 补挂立即失败,
+	// 补偿退化为一条误导性 WARNING(还因回退 env 报错静态 IP)。
+	restoreCtx, restoreCancel := context.WithTimeout(context.WithoutCancel(ctx), platform.RestartTimeout)
+	defer restoreCancel()
+	RestoreServiceRotatingIP(restoreCtx, cli, id, "xray")
 
 	if restartErr != nil {
 		return fmt.Errorf("restart xray: %w", restartErr)

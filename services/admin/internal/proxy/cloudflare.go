@@ -83,9 +83,13 @@ func cfResolveZoneID(ctx context.Context, domain string) (string, error) {
 	cfZoneCacheMu.Unlock()
 
 	// 锁外执行 CF API 查询
+	var lastErr error
 	for _, candidate := range cfZoneCandidates(domain) {
 		cr, err := cfRequest(ctx, "GET", fmt.Sprintf("/zones?name=%s", url.QueryEscape(candidate)), nil)
 		if err != nil {
+			// 记住传输/认证/限流类根因:全部候选失败时把真实错误向上带,
+			// 避免被下方 "zone not found" 统一替换,把排障引向"域名配错"。
+			lastErr = err
 			continue
 		}
 		var zones []cfZone
@@ -99,6 +103,9 @@ func cfResolveZoneID(ctx context.Context, domain string) (string, error) {
 			cfZoneCacheMu.Unlock()
 			return zones[0].ID, nil
 		}
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("resolve zone for domain %s: %w", domain, lastErr)
 	}
 	return "", fmt.Errorf("zone not found for domain %s", domain)
 }
@@ -140,8 +147,12 @@ func cfRequest(ctx context.Context, method, path string, body any) (*cfResponse,
 	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
 		return nil, fmt.Errorf("cf decode failed: %w", err)
 	}
-	if !cr.Success && len(cr.Errors) > 0 {
-		return nil, fmt.Errorf("cf api error: %s (code %d)", cr.Errors[0].Message, cr.Errors[0].Code)
+	if !cr.Success {
+		if len(cr.Errors) > 0 {
+			return nil, fmt.Errorf("cf api error: %s (code %d)", cr.Errors[0].Message, cr.Errors[0].Code)
+		}
+		// Success=false 且无错误明细:不能当成功放行(Result 会是 nil)。
+		return nil, fmt.Errorf("cf api error: request failed without error details (HTTP %d)", resp.StatusCode)
 	}
 	return &cr, nil
 }

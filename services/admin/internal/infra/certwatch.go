@@ -79,7 +79,8 @@ func checkCertExpiry(dir string, now time.Time) {
 			// 非证书 PEM(私钥改了 .pem 后缀等)静默跳过,正常数据不告警。
 			continue
 		}
-		days := int(time.Until(earliest).Hours() / 24)
+		// 用传入的 now 而非 time.Until:注入固定时间(测试/演练)时结果才不失真。
+		days := int(earliest.Sub(now).Hours() / 24)
 		switch {
 		case days < certWarnDays:
 			log.Printf("WARNING: certificate %s expires in %d days (%s)", e.Name(), days, earliest.Format(time.RFC3339))

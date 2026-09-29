@@ -35,10 +35,10 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 		// 避免 "550e8400-…" 与 "550E8400-…" 作为两个条目写入配置导致 Xray
 		// 加载重复 user 失败。
 		body.UUID = strings.ToLower(body.UUID)
-		// internal 伪用户(X-Internal-Token 调用)不建 proxy 密码:否则
-		// users.json 出现 role 为空的 "internal" 条目,并在 .htpasswd-proxy
-		// 留下有效凭证行(与 auth.ProxyAuthForUser 的排除逻辑对齐)。
-		if username != "internal" {
+		// 保留伪用户(internal/fail2ban)不建 proxy 密码:否则 users.json 出现
+		// role 为空的同名条目,并在 .htpasswd-proxy 留下有效凭证行(与
+		// auth.ProxyAuthForUser 的排除逻辑对齐;此前漏了 fail2ban)。
+		if !auth.IsReservedUsername(username) {
 			if _, err := auth.GetOrCreateProxyPassword(username); err != nil {
 				log.Printf("Failed to create proxy password for %s: %v", username, err)
 				platform.WriteInternalError(w, err)
@@ -155,7 +155,7 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		cancel()
-		log.Printf("[security] xray client delete uuid=%s by=%s", body.UUID, username)
+		log.Printf("[security] xray client delete uuid=%q by=%s", body.UUID, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

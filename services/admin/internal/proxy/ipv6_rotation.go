@@ -58,7 +58,16 @@ func loadRotatingIPStateLocked() rotatingIPState {
 
 	var legacy map[string]string
 	if err := json.Unmarshal(data, &legacy); err != nil {
-		log.Printf("WARNING: parse rotating IP state: %v", err)
+		// 与 platform.LoadJSONFile 同策略:损坏现场隔离为 .corrupt——下一次
+		// 保存会静默覆盖原文件,不隔离则 Retired 清理队列无法事后恢复。
+		log.Printf("ERROR: parse rotating IP state: %v", err)
+		quarantine := rotatingIPStatePath + ".corrupt"
+		if qerr := os.Rename(rotatingIPStatePath, quarantine); qerr != nil {
+			log.Printf("ERROR: quarantine rotating IP state %s: %v", quarantine, qerr)
+		}
+		platform.NotifyWebhook("data.corrupt", "状态文件损坏已隔离: "+rotatingIPStatePath, map[string]string{
+			"path": rotatingIPStatePath, "quarantined_as": quarantine,
+		})
 		return defaultState
 	}
 	state.Current = legacy

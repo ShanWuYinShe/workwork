@@ -174,7 +174,9 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 					send(frame{nil, err})
 					return
 				}
-				size := int(binary.BigEndian.Uint32(hdr[4:8]))
+				// int64:32 位平台 int 为 32 位,uint32 高位置 1 会溢出为负,
+				// 绕过 maxFrameSize 检查导致 buf[:size] 越界 panic。
+				size := int64(binary.BigEndian.Uint32(hdr[4:8]))
 				if size > maxFrameSize {
 					send(frame{nil, fmt.Errorf("frame too large: %d bytes", size)})
 					return
@@ -185,7 +187,7 @@ func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 					}
 					continue
 				}
-				if size > cap(buf) {
+				if size > int64(cap(buf)) {
 					buf = make([]byte, size)
 				}
 				if _, err := io.ReadFull(logs, buf[:size]); err != nil {

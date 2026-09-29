@@ -81,7 +81,13 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 		}
 		var adminUsers []adminUserJSON
 		if userInfo != nil && userInfo.Role == "admin" {
-			for _, u := range auth.ReadHtpasswdUsers() {
+			htpasswdUsers, err := auth.ReadHtpasswdUsers()
+			if err != nil {
+				log.Printf("read htpasswd: %v", err)
+				platform.WriteInternalError(w, err)
+				return
+			}
+			for _, u := range htpasswdUsers {
 				au := adminUserJSON{Username: u, Role: "viewer"}
 				if info, ok := doc.Users[u]; ok {
 					au.Role = info.Role
@@ -224,11 +230,16 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 		// 它直达 auth.HtpasswdAddUser——与 ApiChangePassword 对同一攻击的阻断对齐
 		// (防止任意 admin 重置超管密码接管账号，也让 UI 误填超管用户名时明确报错)。
 		if body.Username == platform.GetEnv("AUTH_USER") {
-			if doc, err := auth.ReadUsersMeta(); err == nil {
-				if _, exists := doc.Users[body.Username]; exists {
-					platform.WriteError(w, "内置管理员账号不可修改，请使用修改密码功能", 403)
-					return
-				}
+			doc, err := auth.ReadUsersMeta()
+			if err != nil {
+				// fail-closed:读不到现状时拒绝写入,防止绕过内置管理员保护。
+				log.Printf("read users meta for protected-admin guard: %v", err)
+				platform.WriteInternalError(w, err)
+				return
+			}
+			if _, exists := doc.Users[body.Username]; exists {
+				platform.WriteError(w, "内置管理员账号不可修改，请使用修改密码功能", 403)
+				return
 			}
 		}
 
@@ -286,14 +297,31 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		if err := auth.HtpasswdAddUser(body.Username, body.Password); err != nil {
-			var rollbackErr error
-			if hadPrevious {
-				rollbackErr = auth.UpdateUserMeta(body.Username, previousInfo)
-			} else {
-				rollbackErr = auth.DeleteUserMeta(body.Username)
-			}
+			// 回滚禁止用旧快照整条覆盖(UpdateUserMeta):bcrypt 耗时窗口内并发
+			// SetRole/改密会被静默回滚(丢失更新,可把被降级的 admin 恢复成
+			// admin)。锁内重读,仅当条目仍是本次写入的角色时回退该角色。
+			rollbackErr := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
+				cur, ok := doc.Users[body.Username]
+				if !ok {
+					if !hadPrevious {
+						return false, nil // 已被并发删除,无需回滚
+					}
+					doc.Users[body.Username] = previousInfo
+					return true, nil
+				}
+				if cur.Role != body.Role {
+					return false, nil // 已被并发修改,保留现状不覆盖
+				}
+				if hadPrevious {
+					cur.Role = previousInfo.Role
+					doc.Users[body.Username] = cur
+					return true, nil
+				}
+				delete(doc.Users, body.Username)
+				return true, nil
+			})
 			if rollbackErr != nil {
-				log.Printf("WARNING: failed to roll back user meta for %s after htpasswd error: %v", body.Username, rollbackErr)
+				log.Printf("WARNING: failed to roll back user meta for %q after htpasswd error: %v", body.Username, rollbackErr)
 			}
 			platform.WriteInternalError(w, err)
 			return
@@ -417,7 +445,7 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] user delete user=%s xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, removed, uploadsRemoved, actor)
+		log.Printf("[security] user delete user=%q xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, removed, uploadsRemoved, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -484,7 +512,7 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] role set user=%s role=%s by=%s", body.Username, body.Role, actor)
+		log.Printf("[security] role set user=%q role=%s by=%s", body.Username, body.Role, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

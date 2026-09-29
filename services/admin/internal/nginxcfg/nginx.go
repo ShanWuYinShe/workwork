@@ -5,7 +5,9 @@ package nginxcfg
 // 含媒体占位符,本包只剩与媒体无关的通用渲染(此前内嵌于 internal/media)。
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"admin/internal/platform"
@@ -17,6 +19,13 @@ func EnsureNginxConfig() error {
 	tmpl, err := os.ReadFile(proxy.NginxConfigTemplatePath)
 	if err != nil {
 		return err
+	}
+	// ADMIN_PORT 原样注入 nginx conf,含换行/非法字符可注入伪指令:启动期
+	// fail-fast(与 auth.validateAuthUserEnv 同策略),不带脏配置上线。
+	if p := platform.GetEnv("ADMIN_PORT"); p != "" {
+		if n, err := strconv.Atoi(p); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("ADMIN_PORT %q is invalid: must be an integer in 1-65535", p)
+		}
 	}
 	out := string(tmpl)
 	// XHTTP proxy auth: always use per-user proxy htpasswd

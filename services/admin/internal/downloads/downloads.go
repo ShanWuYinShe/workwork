@@ -479,7 +479,9 @@ func (s *downloadService) cleanupOld() {
 	drop := len(m.Downloads) - s.maxKeep
 	kept := keepNewestDownloads(m.Downloads, s.maxKeep)
 	for _, d := range m.Downloads[:drop] {
-		os.Remove(filepath.Join(s.dir, d.Filename))
+		if rmErr := os.Remove(filepath.Join(s.dir, d.Filename)); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("WARNING: cleanup old download %q: %v", d.Filename, rmErr)
+		}
 	}
 	m.Downloads = kept
 	if err := s.saveManifestLocked(m); err != nil {
@@ -491,7 +493,13 @@ func (s *downloadService) cleanupOld() {
 // platform.WriteInternalError）与文件删除错误。
 func (s *downloadService) deleteStored(filename string) error {
 	if err := os.Remove(filepath.Join(s.dir, filename)); err != nil {
-		return err
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// 文件已不在(此前删文件成功但 manifest 保存失败等):继续清理 manifest
+		// 条目。不容忍 ENOENT 会让该条目卡死——每次 DELETE 都 500,永远无法
+		// 经 API 移除(与 transfer.Delete 的容忍语义对齐)。
+		log.Printf("deleteStored: file already gone, cleaning manifest entry: %q", filename)
 	}
 	s.mu.Lock()
 	m := s.loadManifestLocked()

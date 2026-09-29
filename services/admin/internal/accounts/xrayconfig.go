@@ -8,18 +8,26 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"admin/internal/platform"
 )
 
+// genMu 串行化"读客户端快照→写配置文件"的完整生成过程。仅有
+// xrayClientsMu 的锁内复制不够:两个并发生成者 A(旧快照)/B(新快照)的写盘
+// 顺序不受锁保护,B 落盘后 A 仍可用过期客户端集覆盖,且调用方随后的
+// RestartXray 会立即加载过期配置——刚拿到 add/delete 成功响应的用户实际
+// 未生效,直到下次变更才自愈。
+var genMu sync.Mutex
+
 // GenXrayConfig generates xray.json from the template + persisted client data.
 // Always regenerates — client data lives in /app/data/xray-clients.json.
-// Reads clients under xrayClientsMu, copies, then releases the lock before
-// generating the config. This avoids blocking concurrent client add/delete
-// operations during the (potentially slow) template processing + file write.
-// The brief inconsistency window is benign: the next add/delete call triggers
-// another GenXrayConfig that will include the latest client set.
+// xrayClientsMu 只在读取快照时短暂持有,生成与写盘由 genMu 串行化,客户端
+// 增删不会被慢速模板处理/写盘阻塞,同时保证后完成的生成者必然持有更新快照。
 func GenXrayConfig() error {
+	genMu.Lock()
+	defer genMu.Unlock()
+
 	tmpl, err := os.ReadFile(proxy.XrayConfigTemplatePath)
 	if err != nil {
 		return err

@@ -242,16 +242,22 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// %q:URL.Path 是一次解码后的字符串,%0A 换行会伪造日志行;而 deny 行
+		// 是本代理唯一的安全事件留痕,不可被污染。
 		if !allowed(r.Method, r.URL.Path) {
-			log.Printf("denied %s %s (not in whitelist)", r.Method, r.URL.Path)
+			log.Printf("denied %s %q (not in whitelist)", r.Method, r.URL.Path)
 			http.Error(w, "endpoint not allowed", http.StatusForbidden)
 			return
 		}
 		if !scopeCheck(r.URL.Path, daemonInspect) {
-			log.Printf("denied %s %s (target container out of allowed compose projects %v)", r.Method, r.URL.Path, projects)
+			log.Printf("denied %s %q (target container out of allowed compose projects %v)", r.Method, r.URL.Path, projects)
 			http.Error(w, "container not in allowed project", http.StatusForbidden)
 			return
 		}
+		// 允许的请求同样留痕:代理无认证,唯一边界是 docker_proxy 网络可达性;
+		// 头注释"残余暴露面在日志可审计"(跨项目 list/events)依赖这里,否则
+		// exec/启停/列表全部无痕迹,deny 有日志、allow 零日志,补偿声明不成立。
+		log.Printf("allowed %s %q", r.Method, r.URL.Path)
 		proxy.ServeHTTP(w, r)
 	})
 

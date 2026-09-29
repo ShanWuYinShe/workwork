@@ -20,18 +20,21 @@ import (
 	"time"
 )
 
-// transferDir/transferManifestPath 是 var 供测试替换(与 musicLibraryDir
-// /xrayClientsPath 同一模式);生产路径不变。
+// transferDir/transferManifestPath 是 var 供测试替换(与 xrayClientsPath
+// 同一模式);生产路径不变。
 var (
 	transferDir          = "/app/data/transfer"
 	transferManifestPath = "/app/data/transfer/manifest.json"
 )
 
 const (
-	transferMaxTotal   = 20 << 30 // 20GB
-	transferMaxFile    = 2 << 30  // 2GB per file
-	transferCodeLen    = 8
-	transferDefaultExp = 7 * 24 * time.Hour
+	transferMaxTotal = 20 << 30 // 20GB
+	transferMaxFile  = 2 << 30  // 2GB per file
+	transferCodeLen  = 8
+	// reservedTransferCode 与 manifest.json 文件名(无扩展名部分)重合,禁止用作
+	// 分享码,防止上传文件落盘覆盖 transferManifestPath(见 generateUniqueTransferCode)。
+	reservedTransferCode = "manifest"
+	transferDefaultExp   = 7 * 24 * time.Hour
 	// transferDefaultPerUserQuota 是每用户默认上传配额;防止单个 viewer 用
 	// 2GB×N 次上传填满全局 20GB。可用 env TRANSFER_USER_QUOTA 覆盖(0 = 不限)。
 	transferDefaultPerUserQuota = 5 << 30 // 5GB
@@ -151,7 +154,9 @@ func generateUniqueTransferCode(m transferManifest) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if !existing[code] {
+		// "manifest" 保留:该 code + ".json" 扩展名会与 transferManifestPath
+		// 同目录同名,上传落盘会覆盖 manifest 本身(概率 62^-8,零成本设防)。
+		if !existing[code] && code != reservedTransferCode {
 			return code, nil
 		}
 	}
@@ -478,7 +483,7 @@ func ApiTransferUpload() http.HandlerFunc {
 			return
 		}
 
-		log.Printf("[security] transfer upload code=%s file=%s size=%d by=%s", code, entry.Filename, entry.Size, username)
+		log.Printf("[security] transfer upload code=%q file=%q size=%d by=%s", code, entry.Filename, entry.Size, username)
 		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
 			"code":   code,
@@ -584,7 +589,7 @@ func ApiTransferDelete() http.HandlerFunc {
 		}
 		// 审计带上命中条目的文件名(服务端可控值,无注入面):事后审计不必
 		// 反查 manifest——那时条目已删。
-		log.Printf("[security] transfer delete code=%s files=%q by=%s", code, removedNames, username)
+		log.Printf("[security] transfer delete code=%q files=%q by=%s", code, removedNames, username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

@@ -50,6 +50,14 @@ else
 fi
 
 # ---------- 输入与前置校验 ----------
+# 分支断言:部署只允许发生在 main 上。在 origin/main 的祖先分支上 pull
+# --ff-only 会静默快进该分支指针并照常部署,操作者却以为在别的分支
+# (复跑模式同样要求 main:HEAD 即部署对象)。
+current_branch="$(git branch --show-current)"
+if [ "$current_branch" != "main" ]; then
+  echo "错误: 当前分支 $current_branch 非 main,拒绝部署(切到 main 后重试)" >&2
+  exit 1
+fi
 old=${1:-}
 if [ -n "$old" ]; then
   echo "复跑模式: 从 $old 推导变更（跳过 pull）"
@@ -165,8 +173,9 @@ for svc in $services; do
 done
 
 # 版本指纹：健康端点自报的构建期烙入版本必须等于本次期望版本。不一致说明
-# 容器仍在跑旧镜像（build 失败/up 未生效），同样是校验失败。三个服务健康
-# JSON 同形：{"status":"ok","version":"..."}。
+# 容器仍在跑旧镜像（build 失败/up 未生效），同样是校验失败。当前仅 admin
+# 暴露带版本的健康端点 {"status":"ok","version":"..."}；nginx(/nginx-health
+# 204)、xray(socket+pgrep)、docker-proxy(/_ping) 仅做 healthy 存活校验。
 expected_version() {
   case "$1" in
     admin) echo "$GIT_VERSION" ;;

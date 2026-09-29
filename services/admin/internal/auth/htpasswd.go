@@ -219,13 +219,16 @@ func HtpasswdRemoveUser(username string) error {
 	if err := os.MkdirAll(filepath.Dir(HtpasswdFile), 0755); err != nil {
 		return err
 	}
-	return platform.AtomicWriteFile(HtpasswdFile, []byte(content), 0644)
+	// 必须走 writeHtpasswdFile(0640+chgrp 101):此前直接 0644 落盘,删除用户后
+	// bcrypt 哈希对本机全部用户可读,直到下次凭证写入或重启自愈才恢复收敛。
+	return writeHtpasswdFile(HtpasswdFile, []byte(content))
 }
 
-func ReadHtpasswdUsers() []string {
+// 返回错误而非静默 nil:吞错会让 admin 用户列表静默为空(展示误导)。
+func ReadHtpasswdUsers() ([]string, error) {
 	data, err := os.ReadFile(HtpasswdFile)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var users []string
 	for _, line := range strings.Split(string(data), "\n") {
@@ -233,7 +236,7 @@ func ReadHtpasswdUsers() []string {
 			users = append(users, line[:idx])
 		}
 	}
-	return users
+	return users, nil
 }
 
 // IsValidUsername 校验用户名(小写字母/数字/_/-,≤64 字符),自 accounts 迁入共享。

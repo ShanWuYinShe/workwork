@@ -2,13 +2,11 @@
 # workwork 数据备份：把灾备恢复所需的一切打成带时间戳的 tar 包。
 #
 # 覆盖内容（缺哪个跳哪个，各自独立告警）：
-#   .wework/    运行时数据全集：htpasswd+users.json(登录能力)、generated/(admin
-#               生成的 nginx/xray/媒体配置)、music-library(曲库)、网易云/YouTube
-#               cookies(凭证)、internal token（fail2ban 持久库单独打包，见下）
+#   .wework/    运行时数据全集：htpasswd+users.json(登录能力)、generated/
+#               (admin 生成的 nginx/xray 配置)、transfer 上传、内部令牌
+#               (media/music 已拆分至独立站,其数据随各自仓库备份,与本仓零互通)
 #   cert/       TLS 证书与私钥（存在时）
 #   .env        环境变量（存在时）
-#   named volume media_center_data：catalog.db 用 sqlite3 .backup 一致性快照
-#               （活跃库直接 tar 会页级撕裂），其余文件照常 tar
 #   services/nginx/fail2ban-data  fail2ban 持久库（撞库计数/封禁状态）
 #
 # 备份是敏感数据整体打包：归档权限 0600，异机传输用 BACKUP_RSYNC_TARGET。
@@ -22,12 +20,15 @@
 #   BACKUP_RETENTION_DAYS=30 scripts/backup.sh
 #   WORKWORK_ROOT=/tmp/fake-root scripts/backup.sh # 测试：指定仓库根
 set -euo pipefail
+# 归档含全部凭据:创建即 0600(tar/清单按进程 umask 落盘),消除"0644 落盘→
+# 尾部 chmod 0600"之间的窗口期。
+umask 077
 
 ROOT="${WORKWORK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/workwork}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_RSYNC_TARGET="${BACKUP_RSYNC_TARGET:-}"
-# 额外排除项（相对 ROOT 的路径，逗号分隔，如 ".wework/music-library"）。
+# 额外排除项（相对 ROOT 的路径，逗号分隔）。
 # 默认排除 upload-chunks:分片暂存目录 TTL 清理只在 admin 运行时生效,停机
 # 期间堆积且被打包纯属浪费(每个中断会话最多 200MB+meta,无恢复价值)。
 BACKUP_EXCLUDE="${BACKUP_EXCLUDE:-.wework/upload-chunks}"
@@ -50,8 +51,11 @@ notify_backup_failure() {
 trap 'rc=$?; [ "$rc" -ne 0 ] && notify_backup_failure "$rc"; exit $rc' EXIT
 
 mkdir -p "$BACKUP_DIR"
-# 备份目录含全部凭据与配置，权限收紧；已存在时 chmod 不报错。
-chmod 700 "$BACKUP_DIR" 2>/dev/null || true
+# 备份目录含全部凭据与配置，权限收紧。chmod 失败(如目录归 root 而当前非
+# root)必须显式告警:文件级已由 umask 077 兜底,但目录级隔离失效会暴露清单。
+if ! chmod 700 "$BACKUP_DIR" 2>/dev/null; then
+  echo "⚠ BACKUP_DIR $BACKUP_DIR chmod 700 失败(目录属主非当前用户?),请人工核对其权限" >&2
+fi
 
 echo "=== workwork 备份 $STAMP ==="
 echo "仓库根: $ROOT"
@@ -94,50 +98,7 @@ else
   echo "  跳过: .env 不存在"
 fi
 
-# 3) named volume media_center_data。catalog.db 是 media_server 持续写入的
-#    活跃 SQLite,tar 顺序拷贝 db/-wal/-shm 不在同一时点,恢复端可能页级撕裂;
-#    一致性快照走 sqlite3 .backup(在线备份 API,恢复端拿到免 WAL 的完整库)。
-#    快照成功时 tar 排除 db 文件(避免热拷贝被误作恢复源);快照失败时回退为
-#    整卷 tar 并告警(恢复前必须 PRAGMA integrity_check)。volume 实际名字带
-#    compose 项目前缀,按后缀匹配;docker 不可用(本地开发)时跳过。
-if command -v docker >/dev/null 2>&1; then
-  vol="$(docker volume ls --format '{{.Name}}' | grep -i 'media_center_data$' | head -1 || true)"
-  if [ -n "$vol" ]; then
-    snap_dir="$BACKUP_DIR/.sqlite-snap-$STAMP"
-    mkdir -p "$snap_dir"
-    # 挂载不加 :ro:WAL 模式下读者也要建 -shm,.backup 需要写侧通道。
-    if docker run --rm -v "$vol:/data" -v "$snap_dir:/backup" alpine:3.24.1 \
-        sh -c 'apk add --no-cache sqlite >/dev/null 2>&1; found=0
-               for db in /data/*.db; do
-                 [ -e "$db" ] || continue
-                 sqlite3 "$db" ".backup \"/backup/$(basename "$db")\"" || exit 1
-                 found=1
-               done
-               [ "$found" = 1 ]' ; then
-      db_tar="$BACKUP_DIR/workwork-media_center_data-db-$STAMP.tar.gz"
-      tar -czf "$db_tar" -C "$snap_dir" .
-      rm -rf "$snap_dir"
-      parts+=("$db_tar")
-      db_exclude=(--exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm')
-    else
-      echo "  ⚠ sqlite3 一致性快照失败,catalog.db 回退为热拷贝 tar(恢复前须 integrity_check)" >&2
-      missing="$missing media_center_data-sqlite-snapshot"
-      db_exclude=()
-    fi
-    f="$BACKUP_DIR/workwork-media_center_data-$STAMP.tar.gz"
-    docker run --rm -v "$vol:/data:ro" -v "$BACKUP_DIR:/backup" alpine:3.24.1 \
-      tar czf "/backup/$(basename "$f")" -C /data ${db_exclude[@]+"${db_exclude[@]}"} .
-    parts+=("$f")
-  else
-    echo "  跳过: 未找到 media_center_data volume（服务未部署？）"
-    missing="$missing media_center_data"
-  fi
-else
-  echo "  跳过: docker 不可用，未导出 media_center_data"
-  missing="$missing media_center_data"
-fi
-
-# 3.5) fail2ban 持久库（services/nginx/fail2ban-data:sqlite 计数/封禁状态）。
+# 3) fail2ban 持久库（services/nginx/fail2ban-data:sqlite 计数/封禁状态）。
 #      此前不在备份内而文档声称覆盖——整机故障后撞库计数清零。
 #      库文件归 root(容器内 fail2ban 写入),宿主用户读不了:经 docker 助手
 #      容器打包(daemon 侧读取),产物落在 BACKUP_DIR。
