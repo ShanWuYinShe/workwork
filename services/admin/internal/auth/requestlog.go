@@ -107,9 +107,6 @@ func redactRequestPath(r *http.Request) string {
 		return "/api/transfer/[redacted]" + q
 	case strings.HasPrefix(path, "/api/admin/users/xray/config/"):
 		return "/api/admin/users/xray/config/[redacted]" + q
-	case strings.HasPrefix(path, "/api/admin/music/netease/login/poll"):
-		// poll 的 ?key= 是扫码会话标识,与二维码绑定。
-		return "/api/admin/music/netease/login/poll?key=[redacted]"
 	}
 	return path + q
 }

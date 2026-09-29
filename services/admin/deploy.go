@@ -79,8 +79,6 @@ func ensureRuntimeDirs() error {
 	for _, dir := range []string{
 		"/app/data/generated/xray",
 		"/app/data/generated/nginx",
-		"/app/data/generated/media_center",
-		"/app/data/media-center",
 		auth.NginxAuthDir,
 	} {
 		if err := os.MkdirAll(dir, 0755); err != nil {

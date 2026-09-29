@@ -645,11 +645,6 @@
     width: 100%;
     min-width: 0;
   }
-  .main-scroll.main-scroll-wide {
-    margin: 0 auto;
-    max-width: 1480px;
-  }
-
   /* ── Page ── */
   :global(.page) {
     animation: pageIn 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);

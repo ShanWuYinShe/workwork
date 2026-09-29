@@ -19,13 +19,6 @@ func TestCleanupStaleTempFiles(t *testing.T) {
 		"users.json":                 false, // 正常数据
 		".users.json.tmp-123456":     true,
 		".rotating-ips.json.tmp-abc": true,
-		// music 上传/合并
-		".music-upload-999": true,
-		".music-merge-777":  true,
-		// music 分片
-		".chunk-000123": true,
-		// APK
-		".media-center-app.apk.tmp-42": true,
 		// 不应被误删的:点开头但非临时模式
 		".htpasswd":            false,
 		".internal-token":      false,
@@ -37,11 +30,12 @@ func TestCleanupStaleTempFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p := filepath.Join(sub, ".netease-cookie.tmp-1")
-	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+	// 子目录扫描:generated/ 下的同模式残留同样被清理。
+	subFile := filepath.Join("generated", "nginx", ".blocked-ips.conf.tmp-1")
+	if err := os.WriteFile(filepath.Join(dir, subFile), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	files[".netease-cookie.tmp-1"] = true
+	files[subFile] = true
 
 	removed := CleanupStaleTempFiles(dir)
 	if removed == 0 {

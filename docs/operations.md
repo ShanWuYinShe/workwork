@@ -8,11 +8,10 @@
 ### 为什么必须备份
 
 所有运行时状态都在单机 `.wework/`（htpasswd + users.json = 登录能力、admin 生成的
-nginx/xray/媒体配置、曲库、网易云/YouTube cookies 凭证、内部令牌）、
-`services/nginx/fail2ban-data/`（fail2ban 持久库：撞库计数与封禁状态）、
-named volume `workwork_media_center_data`（catalog.db SQLite）里，另加 `cert/` 与
-`.env`。宿主机盘损 = 数据永久丢失，其中登录能力与 App 更新链路（APK+manifest）不可
-重建。
+nginx/xray 配置、transfer 上传、内部令牌）、`services/nginx/fail2ban-data/`
+（fail2ban 持久库：撞库计数与封禁状态）里，另加 `cert/` 与 `.env`。
+media/music 已拆分至独立站，其数据随各自仓库（media_center / music_player）备份，
+与本仓零互通。宿主机盘损 = 数据永久丢失，其中登录能力不可重建。
 
 ### 每日备份（服务器 cron）
 
@@ -23,12 +22,11 @@ named volume `workwork_media_center_data`（catalog.db SQLite）里，另加 `ce
 
 环境变量（见 `scripts/backup.sh` 头注释）：`BACKUP_DIR`（默认 `/var/backups/workwork`）、
 `BACKUP_RSYNC_TARGET`（异机 rsync 目标，强烈建议配置）、`BACKUP_RETENTION_DAYS`
-（默认 14）、`BACKUP_EXCLUDE`（额外排除，如超大曲库 `.wework/music-library`）。
+（默认 14）、`BACKUP_EXCLUDE`（额外排除项，逗号分隔，如 `.wework/upload-chunks`）。
 
-归档为 0600 权限 tar.gz，附 sha256 清单。catalog.db 不做热拷贝（活跃 SQLite 顺序
-tar 可能页级撕裂），改用 `sqlite3 .backup` 一致性快照（`workwork-media_center_data-db-*.tar.gz`，
-内含免 WAL 的完整库）；volume 内其余文件仍走普通 tar。备份失败会向 `WEBHOOK_URL`
-发 `backup.failure` 事件。备份包含全部密钥与凭据：备份目录与异机目标都要按敏感数据处理。
+归档以 umask 077 创建即 0600 权限（无"0644 落盘→尾部 chmod"窗口），附 sha256 清单。
+备份失败会向 `WEBHOOK_URL` 发 `backup.failure` 事件。备份包含全部密钥与凭据：
+备份目录与异机目标都要按敏感数据处理。
 
 ### 恢复步骤
 
@@ -39,25 +37,16 @@ tar -xzf workwork-wework-<ts>.tar.gz -C ~/workwork          # .wework/
 tar -xzf workwork-cert-<ts>.tar.gz -C ~/workwork            # cert/（若有）
 tar -xzf workwork-env-<ts>.tar.gz -C ~/workwork             # .env（若有）
 tar -xzf workwork-fail2ban-<ts>.tar.gz -C ~/workwork        # fail2ban 状态（若有）
-# 3. 还原 named volume（先 up 一次让它创建 volume，再灌数据）
-docker volume ls                            # 找到 <project>_media_center_data
-docker run --rm -v <project>_media_center_data:/data -v "$PWD":/backup alpine:3.24.1 \
-  sh -c 'rm -rf /data/..?* /data/.[!.]* /data/*; tar xzf /backup/workwork-media_center_data-<ts>.tar.gz -C /data'
-# 3b. 覆盖 catalog.db 为一致性快照（权威恢复源；覆盖前可先 PRAGMA integrity_check）
-tar -xzf workwork-media_center_data-db-<ts>.tar.gz -C /tmp/catalog-snap
-docker run --rm -v <project>_media_center_data:/data -v /tmp/catalog-snap:/snap alpine:3.24.1 \
-  sh -c 'apk add --no-cache sqlite >/dev/null && sqlite3 /snap/catalog.db "PRAGMA integrity_check;" \
-         && cp /snap/catalog.db /data/catalog.db'
-# 4. sudo bash setup-networks.sh（ipvlan 网络），然后
-make build admin xray nginx docker-proxy media_server vod_extractor netease_api music_server
+# 3. sudo bash setup-networks.sh（ipvlan 网络），然后
+make build admin xray nginx docker-proxy
 docker compose up -d
-# 5. 按健康端点核对版本指纹（README「版本排查」）
+# 4. 按健康端点核对版本指纹（README「版本排查」）
 ```
 
 ### 恢复演练
 
 **机械校验已自动化**：每次备份完成后 `backup.sh` 自动调用 `scripts/restore-verify.sh`
-（sha256 逐文件、.htpasswd/users.json/generated 配置/.env 关键文件、catalog.db 与
+（sha256 逐文件、.htpasswd/users.json/generated 配置/.env 关键文件、
 fail2ban 库 integrity_check、证书配对），失败即 `backup.failure` webhook——每晚
 的备份自证可用，无需人工盯。也可随时手动执行：`scripts/restore-verify.sh [目录] [STAMP]`。
 
@@ -66,7 +55,7 @@ fail2ban 库 integrity_check、证书配对），失败即 `backup.failure` webh
 
 1. 在隔离环境（或临时目录 + 独立 compose project 名）按上述步骤从**最新备份**完整恢复；
 2. 用 `.wework/nginx-auth/.htpasswd` 的账号登录 admin 面板；
-3. 核对音乐曲库可播放、媒体目录可列出、transfer 历史在；
+3. 核对 Clients 页配置可下载、transfer 历史在、封禁列表随 .wework 恢复；
 4. 记录演练日期与遇到的问题（本节下方追加）。
 
 | 日期 | 结果 | 问题 |

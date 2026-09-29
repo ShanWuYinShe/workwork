@@ -160,12 +160,12 @@ services:
       start_period: 10s
 
   # docker API 白名单代理:admin 不再直接持有 /var/run/docker.sock(全权
-  # = 宿主 root),中间经 haproxy 白名单——只放行 admin 实际调用的端点
-  # (containers 读写/exec/events/info/version/ping),镜像/网络/swarm/
-  # volumes 全部拒绝。admin 被攻破时的爆炸半径从"宿主 root"缩小到
-  # "容器启停 + exec"。端点清单来自 services/admin 的调用面盘点,新增
-  # docker API 调用时必须同步在这里放行(集成测试
-  # TestAllowed 锁住全部调用路径)。
+  # = 宿主 root),中间经自研 Go 白名单反代(services/docker_proxy)——只放行
+  # admin 实际调用的端点(containers 读写/exec/events/info/version/ping),
+  # 镜像/网络/swarm/volumes 全部拒绝。admin 被攻破时的爆炸半径从"宿主 root"
+  # 缩小到"容器启停 + exec"。端点清单来自 services/admin 的调用面盘点,新增
+  # docker API 调用时必须同步在这里放行(白名单单测 TestAllowed 与需
+  # TEST_DOCKER_HOST 的集成测试 TestDockerProxyWhitelist 双重锁定)。
   docker-proxy:
     image: workwork-docker-proxy:${IMAGE_TAG:-latest}
     build:

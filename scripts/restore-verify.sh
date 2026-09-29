@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 备份恢复验证:对一次备份做「能否支撑恢复」的机械校验——哈希、关键状态
-# 文件、两类 sqlite 库完整性、证书配对。backup.sh 每次备份后自动调用
+# 文件、fail2ban sqlite 库完整性、证书配对。backup.sh 每次备份后自动调用
 # (失败 → backup.failure webhook),也可独立运行:
 #   scripts/restore-verify.sh [备份目录] [时间戳STAMP]
 #
@@ -53,7 +53,7 @@ fi
 # 2) 解包到临时目录
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-for f in wework cert env fail2ban media_center_data media_center_data-db; do
+for f in wework cert env fail2ban; do
   src="$DIR/workwork-$f-$STAMP.tar.gz"
   [ -f "$src" ] || continue
   mkdir -p "$WORK/$f"
@@ -102,15 +102,6 @@ else
 fi
 
 echo "· sqlite 库完整性"
-if [ -f "$WORK/media_center_data-db/catalog.db" ]; then
-  check "catalog.db integrity_check" python3 -c '
-import sqlite3, sys
-c = sqlite3.connect(sys.argv[1])
-assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-' "$WORK/media_center_data-db/catalog.db"
-else
-  skip "catalog.db 快照"
-fi
 if [ -f "$WORK/fail2ban/fail2ban.sqlite3" ]; then
   check "fail2ban 库 integrity_check" python3 -c '
 import sqlite3, sys

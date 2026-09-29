@@ -101,9 +101,9 @@ func SaveJSONFile(path string, v any) error {
 	return nil
 }
 
-// EnsurePerm 修正文件权限。内容不变但权限过期时（如从 0600 升级到 0644），
-// 调用方自做的"内容未变化跳过写入"（writeMediaCenterCategoriesFileIfChanged
-// 等）会让写入乃至 chmod 时机被跳过。此函数独立补上 chmod，与写入路径解耦。
+// EnsurePerm 修正文件权限。调用方自做的"内容未变化跳过写入"优化会在内容
+// 一致时整体跳过写入路径,连带着跳过权限收敛(如旧版本落盘的 0644 需收敛到
+// 0640/0644 目标值)。此函数独立补上 chmod,与写入路径解耦。
 func EnsurePerm(path string, want os.FileMode) error {
 	info, err := os.Stat(path)
 	if err != nil {

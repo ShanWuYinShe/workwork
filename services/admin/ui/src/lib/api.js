@@ -302,12 +302,6 @@ export async function deleteTransferFile(code) {
 
 export const transferUploadUrl = BASE + '/transfer/upload';
 
-// ── Music library ──
-
-// 上传走组件内 XHR(进度/取消),这里只暴露端点 URL(同 transferUploadUrl 模式)。
-
-// ── NetEase account (QR login) ──
-
 /** 拉取按用户累计的代理流量(xray StatsService,每分钟采集)。 */
 export async function getTraffic() {
   return req('/traffic');

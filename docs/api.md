@@ -88,40 +88,8 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 |------|------|------|
 | `GET /traffic` | admin | 按用户累计代理流量：`{traffic: [{user, up, down}], collected_at}`（xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
 
-### Media Center
-
-| 端点 | 角色 | 说明 |
-|------|------|------|
-| `GET /media-center/config` | admin | 当前配置（含 `revision` 乐观锁版本号；**不含** credentials） |
-| `PUT /media-center/config` | admin | 保存。payload 回传 `revision`：与持久化不一致 → 409 `CONFIG_CONFLICT`（并发编辑保护）；缺省 0 跳过检查（旧客户端兼容）。成功响应含新 revision 与 warnings |
-| `GET /media-center/credentials` | admin | provider 凭证（明文，admin-only） |
-| `PUT /media-center/credentials` | admin | 保存凭证 |
-| `GET /media-center/catalog/overview` | admin | 分类审核总览 |
-| `GET /media-center/catalog/items` | admin | 成员列表。`?category=必填&status=&limit=&offset=`（分页参数透传前本地校验 1≤limit≤1000） |
-| `GET /media-center/catalog/export` | admin | 导出（import 兼容 JSON） |
-| `POST /media-center/catalog/import` | admin | 导入候选（≤4MB JSON；可带 status=approved 直接收录） |
-| `POST /media-center/catalog/review` | admin | 审核动作 |
-| `POST /media-center/catalog/delete` | admin | 硬删除成员 `{categoryId, provider, nativeId}` |
-| `GET /media-center/app-release` | admin | 当前发布 manifest |
-| `POST /media-center/app-release` | admin | 发布 APK（multipart：apk/variant/versionCode/versionName/releaseNotes；≤300MB，ZIP 魔数校验） |
-| `GET /media-center/app-release/history?variant=` | admin | 发布历史上限内记录 |
-| `POST /media-center/app-release/rollback` | admin | 回滚到指定 versionCode |
-| `DELETE /media-center/app-release/history?variant=&versionCode=` | admin | 删除历史版本（文件由孤儿回收清理） |
-| `GET /media-center/app-release/download?variant=&versionCode=` | admin | 下载指定版本 APK |
-
-### 音乐曲库 / 网易云
-
-| 端点 | 角色 | 说明 |
-|------|------|------|
-| `GET /music-library` | admin | 曲库列表（name/sizeBytes/modTime，按名排序）。可选 `?limit=&offset=` |
-| `POST /music-library/upload` | admin | multipart `files[]`（≤50 个/次，单文件 200MB，同名覆盖） |
-| `POST /music-library/upload-chunk` | admin | 分片上传单片（8MB/片，≤32 片；字段 uploadId/fileName/total/index/sha256） |
-| `GET /music-library/upload-chunk?uploadId=` | admin | 续传查询（已收分片列表） |
-| `DELETE /music-library?name=` | admin | 删除（扩展名白名单内） |
-| `POST /music/netease/login/start` | admin | 生成扫码二维码 `{key, qrimg}` |
-| `GET /music/netease/login/poll?key=` | admin | 轮询扫码状态（801 等待/802 已扫/803 成功写 cookie） |
-| `GET /music/netease/login/state` | admin | 登录态与昵称 |
-| `POST /music/netease/login/logout` | admin | 删除 cookie 回匿名 |
+（media/music 已拆分至独立站，其 API 契约见各自仓库 `media_center` / `music_player`；
+旧前缀由 Cloudflare 边缘 308 重定向承载，本面板不再提供。）
 
 ### 下载分发（Claude Code / Xray 二进制）
 
@@ -154,6 +122,5 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 
 - `src/lib/api.js` 是唯一封装层：信封拆包、30s 默认超时（可覆盖）、
   `AbortSignal.any` 合并外部 signal、`ApiError{message, code, details}`。
-- 错误 toast 原样透传 `error` 文案；需要分支时判断 `e.code`
-  （如 MediaCenter 保存对 `CONFIG_CONFLICT` 的专用提示）。
+- 错误 toast 原样透传 `error` 文案；需要分支时判断 `e.code`。
 - 列表分页参数当前前端未使用（默认全量）；接入时传 `limit`/`offset` 即可。

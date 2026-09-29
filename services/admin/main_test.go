@@ -9,7 +9,8 @@ import (
 )
 
 // TestBodyLimitExemptionsRegistered 锁定"大上传端点必须在 init 声明豁免"的
-// 契约:music-library 上传曾因漏加名单而线上全 400(见 music 包回归测试)。
+// 契约:大上传端点豁免清单与路由注册一一对应,漏加会让合法上传线上全 400
+// (历史事故:music-library 上传曾因漏加名单而全 400,该端点已随拆分移除)。
 // 新增大上传端点时: 路由注册 + 此处对应声明缺一不可。
 func TestBodyLimitExemptionsRegistered(t *testing.T) {
 	expected := []string{

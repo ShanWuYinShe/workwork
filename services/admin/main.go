@@ -221,7 +221,7 @@ func main() {
 	auth.StartRateLimiter()
 
 	// Graceful shutdown — 信号 ctx 已在守护 goroutine 启动前创建（见上方
-	// proxy 三守护），transfer/music 的 cleanup loop 与它们共享同一 ctx。
+	// proxy 三守护），transfer 的 cleanup loop 与它们共享同一 ctx。
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
 	defer auth.StopRateLimiter()
