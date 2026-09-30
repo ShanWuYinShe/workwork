@@ -14,12 +14,12 @@ logpath = /var/log/nginx/admin-access.log
 action = admin-api
 bantime = 3600
 findtime = 300
-# 在线撞库预算:10 次/5min × 多 IP 仍有撞库空间,panel basic auth 有 bcrypt
-# 兜底离线暴力。不能用更小的值:浏览器冷启动(重启后首次打开面板)时,
-# 文档请求 401 质询期间并发的子资源/接口请求会不带凭证各吃一次 401
-# (实测一次冷启动产生 6 条),maxretry=5 会把正常用户误封 1 小时
-# (已实际发生多次);登出功能的凭证覆盖请求也产生 1 条 401。
-maxretry = 10
+# 在线撞库预算:filter 只计"提交了错误凭证"的 401($remote_user 非空;浏览器
+# 冷启动质询的无凭证 401 不计入,见 filter 注释),maxretry=5 即真实错密码
+# 5 次。不能取更小:登出功能的凭证覆盖请求每次产生 1 条带错误凭证的 401,
+# 5min 窗口内反复登出/切换账号的排障场景会被误伤;panel basic auth 另有
+# bcrypt 兜底离线暴力。
+maxretry = 5
 # 递进封禁:重复违规者时长 ×1,2,4,8,16,32 递增(封禁时长经 admin-api action
 # 的 <bantime> 占位符自动流入 block API,admin 侧 10 年上限内)。记忆依赖
 # fail2ban 持久库(已纳入 backup.sh),重启不清零;此前撞库者每 3600s 释放后
