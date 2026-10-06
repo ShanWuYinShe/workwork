@@ -95,6 +95,14 @@ server {
         return 308 /admin/;
     }
 
+    # 无鉴权存活探针(web-service-conventions):浅探针,nginx 门面可达即 200。
+    # admin 深健康(运行时文件就绪)与版本指纹走免认证 GET /api/admin/health,
+    # 不在此处串联——探针语义单一,后端重启不该表现为整站探针失败。
+    location = /healthz {
+        default_type application/json;
+        return 200 '{"status":"ok"}';
+    }
+
     # media/music 已拆分至独立站 media.chaoset.com / music.chaoset.com
     # (web-service-conventions)。旧前缀的存量 App 连续性由 CF 边缘动态重定向
     # 承载(yinghuoren.com/api/media/* → media 新站 /api/*,music 同理,308;
