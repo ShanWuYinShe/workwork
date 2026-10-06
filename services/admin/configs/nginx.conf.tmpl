@@ -96,7 +96,8 @@ server {
     }
 
     # 无鉴权存活探针(web-service-conventions):浅探针,nginx 门面可达即 200。
-    # admin 深健康(运行时文件就绪)与版本指纹走免认证 GET /api/admin/health,
+    # admin 深健康(运行时文件就绪)与版本指纹走 GET /api/admin/health(应用层
+    # 免认证,但 nginx 层 /api/admin/ 有 basic auth,外部核对版本需带面板凭证),
     # 不在此处串联——探针语义单一,后端重启不该表现为整站探针失败。
     location = /healthz {
         default_type application/json;
