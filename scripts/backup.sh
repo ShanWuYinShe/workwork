@@ -38,14 +38,29 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f "$ROOT/.env" ]; then
   WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' "$ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
+# 目标为 ops-portal webhook 网关(POST /api/hooks/{slug})时须持登记证书:
+# 默认取 ~/.webhook-caller/{cert,key}.pem(与 hotspot 脚本同名变量,
+# ALERT_MTLS_CERT/KEY 可覆盖);两文件齐备才追加 --cert/--key(目标是
+# Telegram/企微等无需证书的机器人时不受影响)。
+ALERT_MTLS_CERT="${ALERT_MTLS_CERT:-$HOME/.webhook-caller/cert.pem}"
+ALERT_MTLS_KEY="${ALERT_MTLS_KEY:-$HOME/.webhook-caller/key.pem}"
 notify_backup_failure() {
   local rc=${1:-?}
   [ -n "${WEBHOOK_URL:-}" ] || return 0
-  curl -fsS --max-time 5 -H 'Content-Type: application/json' \
-    -d "$(printf '{"event":"backup.failure","summary":"backup.sh 失败(exit %s)","time":"%s"}' \
-      "$rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
-    "${WEBHOOK_URL}" >/dev/null 2>&1 ||
-    echo "⚠ webhook 失败通知发送失败" >&2 || true
+  local payload
+  payload="$(printf '{"event":"backup.failure","summary":"backup.sh 失败(exit %s)","time":"%s"}' \
+    "$rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  if [ -r "$ALERT_MTLS_CERT" ] && [ -r "$ALERT_MTLS_KEY" ]; then
+    curl -fsS --max-time 5 --cert "$ALERT_MTLS_CERT" --key "$ALERT_MTLS_KEY" \
+      -H 'Content-Type: application/json' -d "$payload" \
+      "${WEBHOOK_URL}" >/dev/null 2>&1 ||
+      echo "⚠ webhook 失败通知发送失败" >&2 || true
+  else
+    curl -fsS --max-time 5 -H 'Content-Type: application/json' \
+      -d "$payload" \
+      "${WEBHOOK_URL}" >/dev/null 2>&1 ||
+      echo "⚠ webhook 失败通知发送失败" >&2 || true
+  fi
 }
 # 任何非零退出(含 set -e 中断)都外发失败通知;EXIT trap 尾部回传原退出码。
 trap 'rc=$?; [ "$rc" -ne 0 ] && notify_backup_failure "$rc"; exit $rc' EXIT

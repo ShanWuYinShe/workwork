@@ -264,11 +264,17 @@ services:
       # 可选:关键事件通知(Security 封禁/解封、限流自动封禁、xhttp 自愈达上限),
       # admin 异步 POST JSON,失败只记日志;部署失败通知也读同名变量。
       - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - ALERT_MTLS_CERT=${ALERT_MTLS_CERT:-}
+      - ALERT_MTLS_KEY=${ALERT_MTLS_KEY:-}
     volumes:
       - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
       - ./.env:/app/.env:ro
       # 证书到期监控(只读;nginx 的可写挂载不受影响)
       - ./cert:/app/certs:ro
+      # mTLS 推送证书(WEBHOOK_URL 指向 ops-portal 网关时):宿主目录只读挂载,
+      # 容器内固定 /webhook-caller;默认 ~/.webhook-caller(与 hotspot 脚本一致)。
+      # 目录不存在时 docker 会建出空目录,Go 端无证书文件即照常无证推送。
+      - ${WEBHOOK_CALLER_DIR:-${HOME}/.webhook-caller}:/webhook-caller:ro
       - ./logs:/app/logs
       - ./.wework:/app/data
     healthcheck:

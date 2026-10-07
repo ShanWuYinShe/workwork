@@ -14,6 +14,10 @@ cd "$(git rev-parse --show-toplevel)"
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f .env ]; then
   WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
+# 目标为 ops-portal webhook 网关时须持登记证书(默认 ~/.webhook-caller/,
+# ALERT_MTLS_CERT/KEY 可覆盖;证书缺失且目标为普通机器人时照常无证推送)。
+ALERT_MTLS_CERT="${ALERT_MTLS_CERT:-$HOME/.webhook-caller/cert.pem}"
+ALERT_MTLS_KEY="${ALERT_MTLS_KEY:-$HOME/.webhook-caller/key.pem}"
 
 # ADMIN_PORT 同理:部署后版本指纹核对直连容器端口,docker compose 能读到 .env
 # 但 shell 不会;不提取则改端口后此处仍硬连旧值导致版本核对误报。
@@ -30,8 +34,14 @@ notify_deploy_failure() {
     local payload
     payload=$(printf '{"event":"deploy.failure","summary":"部署失败:%s","details":{"services":"%s","commit":"%s"},"time":"%s"}' \
       "$reason" "${services:-}" "${new:-$(git rev-parse --short HEAD 2>/dev/null || echo '?')}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-    curl -fsS --max-time 5 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
-      echo "⚠ webhook 通知发送失败（不影响部署流程）" >&2
+    if [ -r "$ALERT_MTLS_CERT" ] && [ -r "$ALERT_MTLS_KEY" ]; then
+      curl -fsS --max-time 5 --cert "$ALERT_MTLS_CERT" --key "$ALERT_MTLS_KEY" \
+        -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
+        echo "⚠ webhook 通知发送失败（不影响部署流程）" >&2
+    else
+      curl -fsS --max-time 5 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL" >/dev/null 2>&1 ||
+        echo "⚠ webhook 通知发送失败（不影响部署流程）" >&2
+    fi
   fi
 }
 

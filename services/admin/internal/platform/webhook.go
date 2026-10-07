@@ -3,9 +3,11 @@ package platform
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -43,6 +45,34 @@ func webhookShouldSend(event, summary string, now time.Time) bool {
 	return true
 }
 
+// webhookMTLSClient 为外发通知构造 client:ALERT_MTLS_CERT/KEY 指向的客户端
+// 证书齐备且可加载时出示(portal 网关边缘 mTLS 场景,与 hotspot 脚本同名变量,
+// 默认 compose 挂载的 /webhook-caller/{cert,key}.pem);缺失只记日志(加载失败
+// 才记),降级为无证推送——目标是 Telegram/企微等无需证书的机器人时不受影响,
+// 通知旁路绝不能因证书问题丢通知。
+func webhookMTLSClient() *http.Client {
+	certFile := GetEnv("ALERT_MTLS_CERT")
+	if certFile == "" {
+		certFile = "/webhook-caller/cert.pem"
+	}
+	keyFile := GetEnv("ALERT_MTLS_KEY")
+	if keyFile == "" {
+		keyFile = "/webhook-caller/key.pem"
+	}
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[webhook] load client cert: %v", err)
+		}
+		return http.DefaultClient
+	}
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{Certificates: []tls.Certificate{cert}},
+		},
+	}
+}
+
 // webhookPayload 是发往 WEBHOOK_URL 的事件信封。字段刻意保持扁平通用,
 // 兼容 Telegram bot / 企业微信 / 自建接收器等仅做转发展示的场景。
 type webhookPayload struct {
@@ -55,7 +85,9 @@ type webhookPayload struct {
 // NotifyWebhook 异步向 WEBHOOK_URL 推送关键事件(安全封禁、自愈达到上限、
 // 部署失败等)。未配置 URL 时为 no-op;发送失败只记日志,绝不影响主流程——
 // 通知是旁路,不能因为通知挂掉而阻塞封禁/重启。相同 (event, summary) 在
-// 抑制窗口内只发一次(防风暴刷屏),窗口过后再次发生仍会通知。
+// 抑制窗口内只发一次(防风暴刷屏),窗口过后再次发生仍会通知。目标为
+// ops-portal webhook 网关时,ALERT_MTLS_CERT/KEY 指向的客户端证书齐备即出示
+// (边缘 mTLS);缺失则照常无证推送。
 func NotifyWebhook(event, summary string, details map[string]string) {
 	url := GetEnv("WEBHOOK_URL")
 	if url == "" {
@@ -88,7 +120,7 @@ func NotifyWebhook(event, summary string, details map[string]string) {
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := webhookMTLSClient().Do(req)
 		if err != nil {
 			log.Printf("[webhook] deliver %s: %v", event, err)
 			return
