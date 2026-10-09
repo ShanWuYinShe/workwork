@@ -581,9 +581,14 @@ let lang = $state(
   typeof localStorage !== 'undefined' ? localStorage.getItem('lang') || 'zh' : 'zh',
 );
 
-// 同步 <html lang>：屏幕阅读器发音 / 字体选择 / 翻译工具都依赖它
+// 同步 <html lang>：屏幕阅读器发音 / 字体选择 / 翻译工具都依赖它。
+// $effect.root 让模块级 $state 变化也被追踪，唯一的 lang 同步点收拢在此处。
 if (typeof document !== 'undefined') {
-  document.documentElement.lang = lang;
+  $effect.root(() => {
+    $effect(() => {
+      document.documentElement.lang = lang;
+    });
+  });
 }
 
 /**
@@ -608,7 +613,6 @@ export function t(key, vars) {
 export function toggleLang() {
   lang = lang === 'zh' ? 'en' : 'zh';
   if (typeof localStorage !== 'undefined') localStorage.setItem('lang', lang);
-  if (typeof document !== 'undefined') document.documentElement.lang = lang;
 }
 
 export function getLang() {

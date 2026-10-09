@@ -212,38 +212,43 @@ async function streamDownload(path, body, onProgress) {
   let buf = '';
   let result = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let data;
+        try {
+          data = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (data.type === 'progress' && onProgress) onProgress(data);
+        if (data.type === 'error') throw new Error(data.error);
+        if (data.type === 'done') result = data;
+        if (data.type === 'start' && onProgress) onProgress({ bytes: 0, total: 0, percent: 0 });
+      }
+    }
+    // Handle remaining buffer
+    if (buf.trim()) {
       let data;
       try {
-        data = JSON.parse(line);
+        data = JSON.parse(buf);
       } catch {
-        continue;
+        /* ignore partial */
       }
-      if (data.type === 'progress' && onProgress) onProgress(data);
-      if (data.type === 'error') throw new Error(data.error);
-      if (data.type === 'done') result = data;
-      if (data.type === 'start' && onProgress) onProgress({ bytes: 0, total: 0, percent: 0 });
+      if (data) {
+        if (data.type === 'error') throw new Error(data.error);
+        if (data.type === 'done') result = data;
+      }
     }
-  }
-  // Handle remaining buffer
-  if (buf.trim()) {
-    let data;
-    try {
-      data = JSON.parse(buf);
-    } catch {
-      /* ignore partial */
-    }
-    if (data) {
-      if (data.type === 'error') throw new Error(data.error);
-      if (data.type === 'done') result = data;
-    }
+  } finally {
+    // 错误中途退出时显式释放连接;正常读完后的 cancel 是无害 no-op。
+    reader.cancel().catch(() => {});
   }
 
   // Non-streaming fallback (already_exists etc.)
