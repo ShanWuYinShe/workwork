@@ -4,7 +4,7 @@ Docker 代理基础设施：Xray VLESS XHTTP 代理 / Nginx 反代 / Go 管理�
 
 通用约束（Git 规范、Commit 格式、验证流程、工具链偏好、Docker 等）以全局 `~/AGENTS.md` 为准（各 AI 工具的全局指令文件均链接到该文件），本文件只做项目特有补充，不得放宽或违背全局约束。
 
-AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入项目根 `.workwork/`（已 `.gitignore`）。注意与运行时数据目录 `.wework/`（服务配置、曲库、日志挂载源，同样 gitignored）区分：两者名字相近但用途无关，不要混淆。
+AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入项目根 `.workwork/`（已 `.gitignore`）。注意与运行时数据目录 `.wework/`（服务配置、日志挂载源，同样 gitignored；曲库已迁至 music_player/music_server 的 `deploy/data/library/`）区分：两者名字相近但用途无关，不要混淆。
 
 ## 硬约束
 
