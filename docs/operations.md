@@ -113,4 +113,4 @@ git push --force --mirror   # force 仅用于这次历史清理
   见该目录 README）；
 - 轮换 CF API token 后同步更新服务器 `.env` 的 `CF_API_TOKEN` 并 `make up admin`；
 - fail2ban / internal token 随 `.wework/` 备份保留，不需要单独轮换；怀疑泄露时
-  删除 `.wework/.internal-token` / `.wework/.fail2ban-token` 并重启 admin（自动再生）。
+  删除 `.wework/.internal-token` / `.wework/fail2ban/token` 并重启 admin（自动再生）。

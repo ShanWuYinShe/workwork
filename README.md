@@ -164,7 +164,7 @@ workwork/
 
 ```bash
 # 服务端健康端点(自带版本号)
-curl -s https://yinghuoren.com/admin/api/health    # admin 版本(经 nginx)
+curl -s -u <面板用户>:<密码> https://yinghuoren.com/api/admin/health    # admin 版本(经 nginx,/api/admin/ 有 basic auth)
 docker compose exec nginx curl -s http://admin:8318/api/admin/health   # admin 版本
 
 # 镜像构建源(OCI revision 标签)

@@ -77,7 +77,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | 端点 | 角色 | 说明 |
 |------|------|------|
 | `GET /security/blocked` | admin | 封禁列表。可选 `?limit=&offset=`（1≤limit≤1000） |
-| `POST /security/block` | admin | 封禁。`{ip, reason?, duration_seconds?}`（0=永久，上限 10 年）。专用码 `INVALID_IP`/`INVALID_DURATION` |
+| `POST /security/block` | admin | 封禁。`{ip, reason?, duration?}`（秒,0=永久，上限 10 年）。专用码 `INVALID_IP`/`INVALID_DURATION` |
 | `POST /security/unblock` | admin | 解封。`{ip}`。未封禁时 `BLOCK_NOT_FOUND` |
 | `GET /security/rate-limit` | admin | 限流封禁中的 IP 列表 |
 | `POST /security/rate-limit/unblock` | admin | 限流解封。`{ip}` |
