@@ -5,8 +5,8 @@
 #   - services/admin/security_test.go:测试夹具假 token
 #   - docs/superpowers/plans/...:历史文档示例值
 # 注:cert/server_cert.key 泄露条目已于 2026-09-19 换钥 + git 历史清理后
-# 彻底消除,不再需要豁免;本文件指纹因 filter-repo 重写历史而全部更新。
+# 彻底消除,不再需要豁免;本文件指纹因 filter-repo 重写历史而全部更新(2026-10-10 第二次:清除 services/xray/config.json 后再刷)。
 # 除此之外的任何新发现都会让 CI 的 gitleaks job 失败。
-e7097e064b2c6ac1e78ac56911430064a70b4278:docs/superpowers/plans/2026-04-27-cliproxyapi-integration.md:generic-api-key:184
-e75086b25d1ee973a1a45fb3b1a8cbd73380a85d:services/admin/security_test.go:generic-api-key:72
-e75086b25d1ee973a1a45fb3b1a8cbd73380a85d:services/admin/security_test.go:generic-api-key:78
+4ceca285d70de8dc27dd4db79173963713d1c512:docs/superpowers/plans/2026-04-27-cliproxyapi-integration.md:generic-api-key:184
+8c006c8e6c3e01e77396cd3e8ead8b3ac4273e4a:services/admin/security_test.go:generic-api-key:72
+8c006c8e6c3e01e77396cd3e8ead8b3ac4273e4a:services/admin/security_test.go:generic-api-key:78
