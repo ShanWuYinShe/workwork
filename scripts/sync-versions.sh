@@ -83,7 +83,7 @@ rewrite() {
         GO_VERSION)  sed -i.bak "s|^\(.*go-version:[[:space:]]*\)['\"][^'\"]*['\"]|\1'$val'|" "$p" ;;
         BUN_VERSION) sed -i.bak "s|^\(.*bun-version:[[:space:]]*\)['\"][^'\"]*['\"]|\1'$val'|" "$p" ;;
       esac ;;
-    compose) sed -i.bak "s|\\\$\{$key:-[^}]*\}|\${$key:-$val}|g" "$p" ;;
+    compose) sed -i.bak "s|[$][{]$key:-[^}]*[}]|\${$key:-$val}|g" "$p" ;; # [{}] 写法兼容 BSD sed(\{ 在 BSD BRE 里是区间语法会报 invalid repetition)
   esac
   rm -f "$p.bak"
 }
