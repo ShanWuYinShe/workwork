@@ -107,6 +107,20 @@ git push --force --mirror   # force 仅用于这次历史清理
    服务器 `~/workwork` 的 2026-05 stash（旧结构残片 api.go/cliproxy.go）
    已随重置丢弃。`.gitleaksignore` 指纹已按新历史更新（cert 条目不再需要）。
 
+### 第三步：清除旧 xray-reality 配置（已于 2026-10-10 执行完毕）
+
+转公开前的收尾：仓库早期历史中的 `configs/xray-reality*.json`（含旧 Reality
+privateKey，经比对非现用钥）与 `templates/xray-reality-template.json` 仍可从
+历史提取。在全新 clone 上执行：
+
+```bash
+git filter-repo --invert-paths --path-glob 'configs/xray-reality*' --path-glob 'templates/xray-reality*'
+git push --force --mirror
+```
+
+执行后 `git log --all -- '*xray-reality*'` 为 0 条；`.gitleaksignore` 中对应
+5 条指纹已移除，其余条目（假 token / 示例值）保留。
+
 ### Cloudflare 凭据轮换（常规运维）
 
 - CF API token 与各域名源站证书统一归档在 `~/cf_token_and_cert/`（换证书注意事项

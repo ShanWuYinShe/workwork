@@ -1,17 +1,12 @@
 # gitleaks 历史发现指纹(只含指纹,不含秘密内容)。
 # 逐条甄别记录见 docs/operations.md「git 历史敏感信息」:
-#   - configs/xray-reality*.json:旧版 Reality 配置模板,文件早已删除
-#     (其 privateKey 经比对已不是服务器现用钥,无现行风险)
+#   - configs/xray-reality*.json:已于 2026-10-10 用 git filter-repo 从全部历史清除,
+#     相关豁免指纹一并移除
 #   - services/admin/security_test.go:测试夹具假 token
 #   - docs/superpowers/plans/...:历史文档示例值
 # 注:cert/server_cert.key 泄露条目已于 2026-09-19 换钥 + git 历史清理后
 # 彻底消除,不再需要豁免;本文件指纹因 filter-repo 重写历史而全部更新。
 # 除此之外的任何新发现都会让 CI 的 gitleaks job 失败。
-0c56fda2bc5b2c09769ab37237d1c8788c2ce222:configs/xray-reality-liusai.json:generic-api-key:47
-0c56fda2bc5b2c09769ab37237d1c8788c2ce222:configs/xray-reality-liyou.json:generic-api-key:46
-0c56fda2bc5b2c09769ab37237d1c8788c2ce222:configs/xray-reality-template.json:generic-api-key:47
-61779ebffa78346fbf85b8298ed4c51ae3f422d6:configs/xray-reality.json:generic-api-key:80
-a326ad84e1a210c20df7b1e596022f029029844a:configs/xray-reality.json:generic-api-key:80
 e7097e064b2c6ac1e78ac56911430064a70b4278:docs/superpowers/plans/2026-04-27-cliproxyapi-integration.md:generic-api-key:184
 e75086b25d1ee973a1a45fb3b1a8cbd73380a85d:services/admin/security_test.go:generic-api-key:72
 e75086b25d1ee973a1a45fb3b1a8cbd73380a85d:services/admin/security_test.go:generic-api-key:78
