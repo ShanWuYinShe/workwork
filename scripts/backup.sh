@@ -90,8 +90,22 @@ fi
 if [ -d "$ROOT/.wework" ]; then
   f="$BACKUP_DIR/workwork-wework-$STAMP.tar.gz"
   # ${arr[@]+...} 条件展开：bash 3.2(macOS) 下 set -u 对空数组直接报 unbound
-  tar -czf "$f" -C "$ROOT" ${exclude_args[@]+"${exclude_args[@]}"} .wework
-  parts+=("$f")
+  # tar rc=1 = "file changed as we read it"：.wework 是运行时目录（会话/生成物
+  # 持续写入），归档期间被写入属常态，按读取时点快照的归档仍完整可用；不区分
+  # 处理会让 EXIT trap 把每次例行备份都误报成 backup.failure
+  # （2026-10-10 服务器实测复现）。
+  tar_rc=0
+  tar -czf "$f" -C "$ROOT" ${exclude_args[@]+"${exclude_args[@]}"} .wework || tar_rc=$?
+  case "$tar_rc" in
+    0) parts+=("$f") ;;
+    1)
+      echo "  ⚠ .wework/ 归档期间有文件变动，已按读取时点快照保留"
+      parts+=("$f") ;;
+    *)
+      echo "  ✗ .wework/ 归档失败(rc=$tar_rc)" >&2
+      rm -f "$f"
+      missing="$missing .wework" ;;
+  esac
 else
   echo "  ⚠ .wework/ 不存在（$ROOT/.wework），未备份运行时数据"
   missing="$missing .wework"
