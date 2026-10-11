@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 跨仓基础镜像版本统一工具：workwork/versions.env 是唯一主本，
-# media_center / music_player（与本仓并列的检出目录）的 versions.env、
+# media_center / music_player / ops-portal / hotspot（与本仓并列的检出目录）的 versions.env、
 # 各 Dockerfile 的 ARG 默认值、CI 的 go-version/bun-version、compose 的
 # :- 兜底值，全部以主本为准。
 #
@@ -10,7 +10,7 @@
 #                               # 各自的 worktree 流程提交;本脚本不改 git)
 #   sync-versions.sh sync --dry # 预览将要改写的位置,不落盘
 #
-# 站点仓定位:与 workwork 仓库根并列的 media_center / music_player 目录
+# 站点仓定位:与 workwork 仓库根并列的 media_center / music_player / ops-portal / hotspot 目录
 # (本地 ~/work 与服务器 ~ 布局一致);可用环境变量 SITES 覆盖。
 # 某站点目录不存在时(CI 等场景)跳过并告警,不判失败。
 #
@@ -30,7 +30,7 @@ DRY=""
 # 站点仓:仓库根的并列目录(存在才纳入)
 SITES="${SITES:-}"
 if [ -z "$SITES" ]; then
-  for name in media_center music_player; do
+  for name in media_center music_player ops-portal hotspot; do
     d="$(dirname "$MASTER_ROOT")/$name"
     [ -d "$d/.git" ] && SITES="$SITES $d"
   done
@@ -42,7 +42,7 @@ master_val() { grep -E "^$1=" "$MASTER_FILE" | head -1 | cut -d= -f2-; }
 # repo_files <repo根>: 输出该仓参与版本管理的文件,格式 "<类型>\t<相对路径>"
 repo_files() {
   git -C "$1" ls-files -- 'versions.env' 'deploy/versions.env' \
-      '*Dockerfile*' '.github/workflows/*.yml' 'docker-compose.yml' 2>/dev/null |
+      '*Dockerfile*' '.github/workflows/*.yml' '*compose*.yml' 2>/dev/null |
   while IFS= read -r f; do
     case "$f" in
       */versions.env|versions.env) echo "env	$f" ;;
