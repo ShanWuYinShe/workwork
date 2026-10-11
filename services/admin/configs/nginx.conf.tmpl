@@ -31,6 +31,14 @@ map $http_internal_token $tok_header { default 0; "~.+" 1; }
 map $http_authorization $tok_bearer { default 0; "~^Bearer " 1; }
 map "$tok_header$tok_bearer" $has_internal_tok { "~1" 1; default 0; }
 
+# IP 封禁豁免:$blocked_final = (blocked-ips.conf 任一封禁命中) 且 (未携带
+# internal token)。合法 token 的请求不被历史封禁误伤,真伪校验交 admin。
+# blocked-ips.conf 先于本文件加载(conf.d include 顺序),其 map 变量在此可用。
+map "$workwork_blocked_cf$workwork_blocked_direct$has_internal_tok" $blocked_final {
+    "~^1[01]0$|^[01]10$" 1;
+    default 0;
+}
+
 # admin_api 限速键:携带 token 时为空键(nginx 对空键不计速率),否则按真实 IP。
 # transfer_dl/transfer_conn(公开下载的枚举防护)刻意不豁免。
 map "$has_internal_tok:$binary_remote_addr" $admin_api_key {
@@ -84,12 +92,8 @@ server {
     # $workwork_blocked_direct)。该文件是 nginx 启动的硬依赖(undefined variable
     # 即 emerg,并非空串降级),admin 在启动引导中同步生成它。放在 server 块
     # 使封禁覆盖全部 location(含 /proxy/query XHTTP 与媒体 API)。
-    # $blocked_final = (任一封禁命中) 且 (未携带 internal token):合法 token 的
-    # 请求不被历史封禁误伤,真伪校验交 admin(见顶部 map 组合说明)。
-    map "$workwork_blocked_cf$workwork_blocked_direct$has_internal_tok" $blocked_final {
-        "~^1[01]0$|^[01]10$" 1;
-        default 0;
-    }
+    # $blocked_final 在 http 级定义(map 不允许出现在 server 块,2026-10-11 实测
+    # emerg "map directive is not allowed here"):组合逻辑见模板顶部 map 区。
     if ($blocked_final) { return 403; }
 
     set $admin_upstream admin:__ADMIN_PORT__;
