@@ -167,6 +167,28 @@ server {
         send_timeout 600s;
     }
 
+    # 带宽/延迟测速 — 公开无认证（admin /speedtest/{size}），优选 CF 边缘 IP 的
+    # 矩阵测试与用户自测入口。与 /api/transfer/ 同理：location 内必须完整重申
+    # server 级头集合，否则 X-Real-IP 可被伪造对限流键投毒、内部 token 清空失效。
+    # 复用 admin_api 限流（10r/s burst 50）压滥用；proxy_buffering off 让响应
+    # 直通（缓冲 32MB 会占盘且让测速失真）。
+    location /speedtest/ {
+        proxy_pass http://$admin_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Prefix $proxy_forwarded_prefix;
+        proxy_set_header X-Forwarded-User "";
+        proxy_set_header X-Internal-Token "";
+        proxy_set_header X-Fail2Ban-Token "";
+        limit_req zone=admin_api burst=50 nodelay;
+        limit_req_status 429;
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+        send_timeout 600s;
+    }
+
     # Transfer upload — authenticated, large body (2GB)
     location = /api/admin/transfer/upload {
         auth_basic "Restricted";

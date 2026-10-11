@@ -127,6 +127,11 @@ func main() {
 		platform.WriteJSON(w, map[string]string{"status": "ok", "version": version})
 	})
 
+	// 带宽/延迟测速（无认证，公开）：优选 CF 边缘 IP 的矩阵测试与用户自测入口。
+	// 只读且无业务数据；IP 封禁、全局限流、CSRF 中间件均覆盖本路径，nginx 层
+	// 另有 admin_api 限流（见模板 location /speedtest/）。
+	mux.HandleFunc("GET /speedtest/{size}", infra.ApiSpeedtest())
+
 	// Claude Code downloads — admin manages, viewer can see + download stored
 	mux.HandleFunc("GET /api/admin/claude-code/releases", auth.RequireRole("admin")(downloads.ApiClaudeCodeReleases()))
 	mux.HandleFunc("POST /api/admin/claude-code/refresh", auth.RequireRole("admin")(downloads.ApiClaudeCodeRefresh()))
