@@ -18,7 +18,9 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 - **变更类请求**（POST/PUT/DELETE）校验 `Origin` 与 `Host` 一致（CSRF 防线），
   跨站写请求 403。
 - **限流**：20 请求/10s/IP（IPv6 按 /64 聚合），超限 429 `RATE_LIMITED` 并自动
-  封禁 30 分钟；公开分享下载 `GET /api/transfer/*` 豁免（由 nginx 单独限速）。
+  封禁 30 分钟；公开分享下载 `GET /api/transfer/*` 豁免（由 nginx 单独限速）；
+  持合法 `INTERNAL_TOKEN`（`X-Internal-Token` 或 `Authorization: Bearer`）的请求
+  豁免限流与 IP 封禁。
 - **请求体上限**：默认 1MB；大上传端点豁免并在 handler 内自限
   （见各端点标注）。
 - **审计**：变更类操作成功时服务端记 `[security]` 行（含 actor），不进入响应。
@@ -26,8 +28,8 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 ## 角色说明
 
 - **viewer+**：任何已认证用户；**admin**：users.json 中 `role=admin`。
-- `X-Internal-Token`（外部自动化）与 `X-Fail2Ban-Token`（仅 block/unblock）
-  按 AGENTS「Security」节规则豁免认证。
+- `X-Internal-Token` 或 `Authorization: Bearer <INTERNAL_TOKEN>`（外部自动化）
+  与 `X-Fail2Ban-Token`（仅 block/unblock）按 AGENTS「Security」节规则豁免认证。
 
 ## 端点总表
 

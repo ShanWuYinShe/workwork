@@ -20,9 +20,24 @@ resolver 127.0.0.11 valid=30s;
 # 公开下载的 code 穷举不产生 401,fail2ban 看不见。
 # 刻意不覆盖 /proxy/query(XHTTP packet-up 高频 POST 是代理数据面)。
 # (media/music API 已拆分至独立站,其 per-IP 限流随站走。)
-limit_req_zone $binary_remote_addr zone=admin_api:10m rate=10r/s;
 limit_req_zone $binary_remote_addr zone=transfer_dl:10m rate=1r/s;
 limit_conn_zone $binary_remote_addr zone=transfer_conn:10m;
+
+# ── 合法 internal token 的全链路豁免 ──
+# 携带 X-Internal-Token / Authorization: Bearer 的请求在 nginx 层只做"存在性"
+# 判断(跳过限速与 IP 封禁);token 真伪由 admin 恒时比较——伪造 token 到得了
+# admin,但校验失败后照常被应用层限流(20req/10s)与 30min 封禁,防线不弱化。
+map $http_internal_token $tok_header { default 0; "~.+" 1; }
+map $http_authorization $tok_bearer { default 0; "~^Bearer " 1; }
+map "$tok_header$tok_bearer" $has_internal_tok { "~1" 1; default 0; }
+
+# admin_api 限速键:携带 token 时为空键(nginx 对空键不计速率),否则按真实 IP。
+# transfer_dl/transfer_conn(公开下载的枚举防护)刻意不豁免。
+map "$has_internal_tok:$binary_remote_addr" $admin_api_key {
+    "~^1" "";
+    default $binary_remote_addr;
+}
+limit_req_zone $admin_api_key zone=admin_api:10m rate=10r/s;
 
 server {
     listen 127.0.0.1:8080;
@@ -69,8 +84,13 @@ server {
     # $workwork_blocked_direct)。该文件是 nginx 启动的硬依赖(undefined variable
     # 即 emerg,并非空串降级),admin 在启动引导中同步生成它。放在 server 块
     # 使封禁覆盖全部 location(含 /proxy/query XHTTP 与媒体 API)。
-    if ($workwork_blocked_cf) { return 403; }
-    if ($workwork_blocked_direct) { return 403; }
+    # $blocked_final = (任一封禁命中) 且 (未携带 internal token):合法 token 的
+    # 请求不被历史封禁误伤,真伪校验交 admin(见顶部 map 组合说明)。
+    map "$workwork_blocked_cf$workwork_blocked_direct$has_internal_tok" $blocked_final {
+        "~^1[01]0$|^[01]10$" 1;
+        default 0;
+    }
+    if ($blocked_final) { return 403; }
 
     set $admin_upstream admin:__ADMIN_PORT__;
     set $proxy_forwarded_prefix "";
@@ -82,7 +102,9 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-User $remote_user;
     proxy_set_header X-Forwarded-Prefix $proxy_forwarded_prefix;
-    proxy_set_header X-Internal-Token "";
+    # X-Internal-Token 透传：外部自动化可用 Authorization: Bearer / 该头携带
+    # 合法 token，admin 侧恒时比较后豁免限流与封禁（伪造者校验失败无优待）。
+    # X-Fail2Ban-Token 保持清空——该 scoped token 仅限服务器内部使用。
     proxy_set_header X-Fail2Ban-Token "";
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
@@ -143,12 +165,13 @@ server {
     # 显式清空身份头：$remote_user 在客户端自带 Authorization 时即被 nginx 解析
     # （无需 auth_basic），server 级的 X-Forwarded-User $remote_user 会把它带给
     # admin——当前公开路由只用 code 无实害，但未来任何 /api/transfer 路由挂上
-    # requireRole 即成越权。与 X-Internal-Token 的清空先例对齐。
+    # requireRole 即成越权。与 X-Fail2Ban-Token 的清空先例对齐。
     # 注意：location 内只要定义了任一 proxy_set_header，server 级的全部
     # proxy_set_header 都不再继承。因此这里必须完整重申 server 级头集合
-    # （Host/X-Real-IP/X-Forwarded-For/Proto/Prefix + 两个内部 token 清空），
+    # （Host/X-Real-IP/X-Forwarded-For/Proto/Prefix + X-Fail2Ban-Token 清空；
+    # X-Internal-Token 已改为 server 级透传，无需重申），
     # 否则此公开路由上 X-Real-IP 不被覆写——客户端可伪造限流键对任意 IP
-    # 投毒 30 分钟全站封禁，X-Internal-Token 清空防线也同时失效。
+    # 投毒 30 分钟全站封禁。
     location /api/transfer/ {
         proxy_pass http://$admin_upstream;
         proxy_set_header Host $host;
@@ -172,9 +195,10 @@ server {
 
     # 带宽/延迟测速 — 公开无认证（admin /speedtest/{size}），优选 CF 边缘 IP 的
     # 矩阵测试与用户自测入口。与 /api/transfer/ 同理：location 内必须完整重申
-    # server 级头集合，否则 X-Real-IP 可被伪造对限流键投毒、内部 token 清空失效。
-    # 复用 admin_api 限流（10r/s burst 50）压滥用；proxy_buffering off 让响应
-    # 直通（缓冲 32MB 会占盘且让测速失真）。
+    # server 级头集合，否则 X-Real-IP 可被伪造对限流键投毒。携带合法
+    # X-Internal-Token / Authorization: Bearer 的请求由 admin 豁免应用层限流；
+    # nginx 层 limit_req 对所有请求生效（10r/s burst 50，合法测速足够）。
+    # proxy_buffering off 让响应直通（缓冲 32MB 会占盘且让测速失真）。
     location /speedtest/ {
         proxy_pass http://$admin_upstream;
         proxy_set_header Host $host;
@@ -183,7 +207,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Prefix $proxy_forwarded_prefix;
         proxy_set_header X-Forwarded-User "";
-        proxy_set_header X-Internal-Token "";
         proxy_set_header X-Fail2Ban-Token "";
         limit_req zone=admin_api burst=50 nodelay;
         limit_req_status 429;

@@ -61,6 +61,31 @@ func TestInternalTokenWhitelistRestrictsPaths(t *testing.T) {
 	}
 }
 
+// Authorization: Bearer 与 X-Internal-Token 等同：持合法 token 豁免限流时
+// 外部自动化（经 CF/nginx 透传）用标准 Bearer 形式携带。
+func TestInternalTokenBearerHeaderEquivalent(t *testing.T) {
+	useInternalToken(t)
+	t.Setenv("INTERNAL_TOKEN_ALLOWED_PREFIXES", "")
+
+	req := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer internal-secret")
+	if !isInternalRequest(req) {
+		t.Fatal("expected Authorization: Bearer to be accepted like X-Internal-Token")
+	}
+
+	bad := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
+	bad.Header.Set("Authorization", "Bearer wrong-secret")
+	if isInternalRequest(bad) {
+		t.Fatal("expected wrong bearer token to be rejected")
+	}
+
+	nonBearer := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
+	nonBearer.Header.Set("Authorization", "Basic aW50ZXJuYWw6c2VjcmV0")
+	if isInternalRequest(nonBearer) {
+		t.Fatal("expected non-Bearer Authorization to be rejected")
+	}
+}
+
 func TestInternalTokenPrefixMatchBoundary(t *testing.T) {
 	prefixes := []string{"/api/admin/security"}
 	cases := []struct {

@@ -461,8 +461,20 @@ func internalTokenPrefixMatch(path string, prefixes []string) bool {
 
 func isInternalRequest(r *http.Request) bool {
 	tok := getInternalToken()
-	if tok == "" ||
-		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Token")), []byte(tok)) != 1 {
+	if tok == "" {
+		return false
+	}
+	// 两种携带方式：X-Internal-Token 头（服务器内部容器间调用），以及
+	// Authorization: Bearer <token>（外部自动化经 CF/nginx 透传）。两者恒时
+	// 比较同一个 token。持合法 token 的请求豁免应用层限流与 IP 封禁——授权
+	// 请求不应被防护误伤；伪造者比较失败，不受任何优待，防线不弱化。
+	presented := r.Header.Get("X-Internal-Token")
+	if presented == "" {
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			presented = strings.TrimPrefix(h, "Bearer ")
+		}
+	}
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(tok)) != 1 {
 		return false
 	}
 	prefixes := internalTokenAllowedPrefixes()
