@@ -124,6 +124,19 @@ if printf '%s\n' "$changed" | grep -q '^services/xray/'; then
   add_svc xray
 fi
 
+# admin 的配置模板渲染到 .wework/generated/ 后由 xray/nginx 只读挂载消费,
+# 而这两个容器只在启动时读一次:只重建 admin 就是"渲染了但没人重新加载",
+# 新配置静默不生效(典型:改 xray.json.tmpl 的 XHTTP 参数后代理仍跑旧参数)。
+# 不能与 admin 同批 up——那是 write-then-read 竞态,xray 可能在 admin 渲染
+# 完成前先启动。因此只登记,待下方 admin healthy(渲染完成)后单独 restart。
+config_reload=""
+if printf '%s\n' "$changed" | grep -q '^services/admin/configs/xray\.json\.tmpl$'; then
+  config_reload="$config_reload xray"
+fi
+if printf '%s\n' "$changed" | grep -q '^services/admin/configs/nginx\.conf\.tmpl$'; then
+  config_reload="$config_reload nginx"
+fi
+
 if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; then
   echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"
 fi
@@ -149,7 +162,7 @@ echo "=== 受影响服务:$services ==="
 # 用临时文件而不用关联数组：保持 bash 3 兼容（macOS 本地复跑）。
 prev_file="$(mktemp)"
 trap 'rm -f "$prev_file"' EXIT
-for svc in $services; do
+for svc in $services $config_reload; do
   cid="$(docker compose ps -q "$svc" 2>/dev/null || true)"
   if [ -n "$cid" ]; then
     echo "$svc $(docker inspect "$cid" --format '{{.Config.Image}}' 2>/dev/null || true)" >>"$prev_file"
@@ -181,6 +194,28 @@ for svc in $services; do
   done
   if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
 done
+
+# ---------- 重启运行时配置消费者 ----------
+# 上面的健康校验已保证 admin 渲染完 .wework/generated/;此时再 restart
+# xray/nginx 才能读到新配置(不与 admin 同批 up 的原因见映射段注释)。
+if [ -n "${config_reload// /}" ]; then
+  echo
+  echo "=== 重启运行时配置消费者:$config_reload ==="
+  # shellcheck disable=SC2086
+  if ! docker compose restart $config_reload; then
+    notify_deploy_failure "docker compose restart$config_reload 失败"
+    exit 1
+  fi
+  for svc in $config_reload; do
+    ok=""
+    for _ in $(seq 1 30); do
+      state="$(docker inspect "$(docker compose ps -q "$svc")" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
+      if [ "$state" = "healthy" ]; then ok=1; break; fi
+      sleep 5
+    done
+    if [ -z "$ok" ]; then echo "!! $svc 重启后 150s 内未 healthy"; fail="$fail $svc"; fi
+  done
+fi
 
 # 版本指纹：健康端点自报的构建期烙入版本必须等于本次期望版本。不一致说明
 # 容器仍在跑旧镜像（build 失败/up 未生效），同样是校验失败。当前仅 admin

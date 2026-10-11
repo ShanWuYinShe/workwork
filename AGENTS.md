@@ -31,7 +31,7 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - 不要让 xray 加入 `internal_docker`（原因见 docs）
 - XHTTP 模式必须是 `packet-up`，不要改成 `stream-up`
 - 不要为 IPv4 入站加其他转发方式（宿主 iptables DNAT 等）
-- 改 `services/admin/configs/` 下模板 = rebuild admin（模板与二进制原子对应）
+- 改 `services/admin/configs/` 下模板 = rebuild admin（模板与二进制原子对应）；模板渲染出的运行时配置只在 xray/nginx 启动时读取，`deploy-changed.sh` 会连带 `restart` 对应服务——改该脚本时勿丢这条映射，否则新配置渲染了却静默不生效
 
 ## 关键约定
 
