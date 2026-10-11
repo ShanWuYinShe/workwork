@@ -48,3 +48,46 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 - 2026-10-11 18:10 复测（高峰前夕）：CF 路由整体优化，出现 0.07s connect 精英梯队（104.26.1.1/5.1/6.1、162.159.128.1/135.1/136.1 全部 3/3、TLS 0.14-0.16s），真实代理下载 1.4-6 MB/s（前夜高峰仅 100-200KB/s）。现有两条 A 记录均在精英梯队且分属 104.26/16 与 162.159/16 两个前缀（路由分集），无需更换。候补：104.26.5.1、162.159.136.1。
 - CF 边缘 anycast 质量会漂移：优选 IP 变差时重新探测（curl --resolve yinghuoren.com:443:IP https://yinghuoren.com/nginx-health 测 connect/tls/total，超时 4s）并更新 DNS 记录；TTL 300。
 - CF API token（~/work/dogod/cf_token_and_cert/cf_account_token）IP 白名单实际同时允许本机 Mac 调用（2026-10-10 实测创建 DNS 记录成功）；workwork 服务器上没有该 token。
+
+## XHTTP 数据面：分片上限与 413 静默停滞（2026-10-11 实测定位并修复）
+
+**契约：`nginx client_max_body_size` >= 服务端 `scMaxEachPostBytes` >= 客户端上传分片。**
+
+| 位置 | 参数 | 当前值 | 未配置时的回退 |
+|------|------|--------|----------------|
+| 服务端 `xray.json.tmpl` | `scMaxEachPostBytes` | 4MiB (4194304) | **1MiB（1000000）** |
+| 服务端 `xray.json.tmpl` | `scMaxBufferedPosts`（乱序重组队列容量） | 8 | 30 |
+| nginx `/proxy/query` | `client_max_body_size` | 16m | — |
+| 客户端（面板生成配置与官方默认） | `scMaxEachPostBytes` | 不配置（=1MiB） | 1MiB |
+
+字段名与回退值以 Xray 26.6.27 源码为准：`transport/internet/splithttp/config.go` 的
+`GetNormalizedScMaxEachPostBytes` / `GetNormalizedScMaxBufferedPosts`；JSON 侧是
+`infra/conf/transport_internet.go` 的 `SplitHTTPConfig`（`Int32Range`，可写数字）。
+
+**故障机制**：上行 POST body 超过服务端上限时，服务端回 **413 且不读请求体**
+（`splithttp/hub.go`），客户端 `PostPacket` 见非 200 → `uploadPipeReader.Interrupt()`，
+上行静默停摆；应用侧看到的是**响应体停滞**（请求体写满后 0 字节响应直到超时）。
+服务端那句 `Too large upload. scMaxEachPostBytes is set to ...` 是 **Info 级**，生产
+`loglevel=warning` 下完全不可见；xhttp 自愈原本只统计 400，故服务端零线索
+（413 计数告警已于 2026-10-11 加入 `internal/proxy/xhttp_health.go`，**只通知不重启**——
+413 是配置不匹配，重启不改变配置、只会让全体代理周期性抖动）。
+
+**线上排查**（413 是唯一可观测信号，来自 nginx access log）：
+
+```bash
+# /proxy/query 响应码分布：413 持续出现 = 客户端分片 > 服务端上限
+docker logs --since 30m workwork-nginx 2>&1 | grep 'POST /proxy/query' | awk '{print $9}' | sort | uniq -c
+```
+
+**本地复现**（容器跑服务端 + 宿主机跑客户端；明文 TCP xhttp 即可，无需证书）：
+
+- 服务端 1MiB 上限 + 客户端 3MiB 分片 → 10MB 上传卡死 15s，目标 0 字节，服务端 2 次 413；
+- 服务端 4MiB 上限 + 客户端 3MiB 分片 → 10MB 上传 0.28s，200，目标收全 10485760 B。
+
+**陷阱**：目标服务在宿主机时，Xray 26.6.27 的 freedom 出站**默认黑洞私网地址**
+（`proxy/freedom/freedom.go` 的 `defaultBlockPrivateRule`：0.0.0.0/8、10/8、127/8、
+172.16/12、192.168/16、fc00::/7 等）。测试配置需临时加
+`"settings": {"finalRules": [{"action": "allow"}]}` 才能打到宿主机，否则日志出现
+`proxy/freedom: blocked target: ... blackholing connection`，会把"目标不可达"误判成传输故障。
+复现材料见 `.workwork/xhttp-post-limit-verify/`（服务端/客户端配置与各组日志，中间产物，勿依赖长期保留）。
+
