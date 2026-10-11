@@ -54,11 +54,11 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
   2. **不要用 xray 隧道 + 自有端点**：服务端 freedom 出站再访问 `yinghuoren.com` 会绕第二圈 CF，实测 30s 只下 286KB。优选测量一律用上面的 curl --resolve 直连。
   3. 本机 shell 带 `http_proxy/https_proxy=127.0.0.1:10809`，测速/探测必须 `--noproxy '*'`，否则测到的是"服务器→CF"视角。
   4. 经 CF 访问 `/nginx-health` 返 404 属正常（443 上无该 location，落 `location /`），404 恰证明回源成功；真失败是连接层 `000`。
-  5. CF API token 有 IP 白名单（错误码 9109）：本机家宽出口已不在白名单，需经服务器出口代理调用（`http_proxy=http://127.0.0.1:10809`）；家宽 IP 变动后需重新加白。
+  5. CF API token 的 IP 白名单**只放服务器出口 IP（用户有意设计，2026-10-11 确认）**：本机直连调用一律被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持有 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。
   6. 该时段抖动大（同一 IP 分钟级在 2.1↔5.7 MB/s 波动），必须同时间窗多采样，且**"吞吐最差"优先于"吞吐中位"**判断。
   4. 该时段速度波动极大（同一 IP 20 分钟内 2.1↔5.7 MB/s），必须**同时间窗对比** + 双协议多次采样，按"中位 + 最差"双标准判断，单次结果不可信。
 - CF 边缘 anycast 质量会漂移：优选 IP 变差时重新探测（curl --resolve yinghuoren.com:443:IP https://yinghuoren.com/nginx-health 测 connect/tls/total，超时 4s）并更新 DNS 记录；TTL 300。
-- CF API token（~/work/dogod/cf_token_and_cert/cf_account_token）IP 白名单实际同时允许本机 Mac 调用（2026-10-10 实测创建 DNS 记录成功）；workwork 服务器上没有该 token。
+- CF API token（~/work/dogod/cf_token_and_cert/cf_account_token）：**IP 白名单只放服务器出口 IP**（用户有意设计）。因此调用方式固定为"本机读 token + 经本机 xray http 入站（127.0.0.1:10809）代理请求"——请求从服务器出口发出才被放行；本机直连会被 9109 拒绝。不要擅自把家宽 IP 加进白名单，也不要把 token 复制到服务器（凭据红线）。
 
 ## XHTTP 数据面：分片上限与 413 静默停滞（2026-10-11 实测定位并修复）
 
