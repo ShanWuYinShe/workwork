@@ -213,7 +213,13 @@ if [ -n "${config_reload// /}" ]; then
       if [ "$state" = "healthy" ]; then ok=1; break; fi
       sleep 5
     done
-    if [ -z "$ok" ]; then echo "!! $svc 重启后 150s 内未 healthy"; fail="$fail $svc"; fi
+    if [ -z "$ok" ]; then
+      echo "!! $svc 重启后 150s 内未 healthy"
+      fail="$fail $svc"
+    else
+      # 显式确认，否则"重启了但没生效"在日志里与成功无法区分。
+      echo "  $svc 已加载新配置并 healthy"
+    fi
   done
 fi
 
@@ -253,6 +259,15 @@ if [ -n "$fail" ]; then
   echo "=== 自动回滚（到部署前镜像） ==="
   rolled_back=1
   for svc in $fail; do
+    # 配置消费者只做了 restart(镜像未变),没有可回滚的镜像;若按镜像回滚处理,
+    # 会误报"旧镜像已被覆盖,无法自动回滚",把人引向错误的人工操作。
+    case " $config_reload " in
+      *" $svc "*)
+        echo "  $svc: 配置消费者仅重启未换镜像，无镜像可回滚（人工: docker compose restart $svc）"
+        rolled_back=""
+        continue
+        ;;
+    esac
     prev_image="$(awk -v s="$svc" '$1==s{print $2}' "$prev_file")"
     if [ -z "$prev_image" ]; then
       echo "  $svc: 部署前未运行，无回滚目标（人工处理: docker compose up -d --no-deps $svc 或 down）"
