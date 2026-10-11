@@ -34,6 +34,11 @@ const (
 	// maxRestartsPerHour 是 1 小时内的重启次数上限：达到上限后只告警不
 	// 重启，防止自愈逻辑本身成为 DoS 向量。
 	maxRestartsPerHour = 2
+	// minTooLargePosts 是触发 413 告警的最低次数：413 表示服务端
+	// scMaxEachPostBytes 小于客户端上传分片，属配置不匹配而非 transport
+	// 损坏——重启 xray 不改变配置，只会让全体代理周期性抖动，因此只外发
+	// 通知（NotifyWebhook 自带同事件去重窗口，不会刷屏）。
+	minTooLargePosts = 3
 )
 
 func XhttpHealthChecker(ctx context.Context, cli *client.Client) {
@@ -67,10 +72,23 @@ func runXhttpHealthCycle(ctx context.Context, cli *client.Client, restartHistory
 	if len(*restartHistoryPtr) > 0 && time.Since((*restartHistoryPtr)[len(*restartHistoryPtr)-1]) < cooldownPeriod {
 		return
 	}
-	total, bad := countXHTTPPosts(ctx, cli)
+	stats := countXHTTPPosts(ctx, cli)
+	// 413 = 客户端分片超过服务端上限：服务端不读 body 直接拒绝，客户端上行
+	// 静默停摆，表现为"响应体停滞"。xray 侧该日志是 Info 级（生产
+	// loglevel=warning 完全不可见），只能靠 nginx access log 的状态码发现，
+	// 故在此计数告警。
+	if stats.tooLarge413 >= minTooLargePosts {
+		log.Printf("[xhttp-health] %d/%d POSTs returned 413, client fragment exceeds server scMaxEachPostBytes", stats.tooLarge413, stats.total)
+		platform.NotifyWebhook("xhttp.too.large.upload",
+			"xhttp 服务端拒绝超大分片上传(413),客户端 scMaxEachPostBytes 可能大于服务端上限",
+			map[string]string{
+				"rejected": strconv.Itoa(stats.tooLarge413),
+				"total":    strconv.Itoa(stats.total),
+			})
+	}
 	// 双条件：失败数达标 且 失败占比达标（bad*100 >= total*80，
 	// total 为 0 时不成立，天然避免除零）。
-	if bad >= minBadPosts && bad*100 >= total*minBadRatioPct {
+	if stats.bad400 >= minBadPosts && stats.bad400*100 >= stats.total*minBadRatioPct {
 		// 滑动 1 小时窗口计数，裁剪过期记录。
 		cutoff := time.Now().Add(-time.Hour)
 		recent := 0
@@ -83,18 +101,18 @@ func runXhttpHealthCycle(ctx context.Context, cli *client.Client, restartHistory
 		}
 		*restartHistoryPtr = kept
 		if recent >= maxRestartsPerHour {
-			log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", bad, total, maxRestartsPerHour)
+			log.Printf("[xhttp-health] %d/%d POSTs returned 400, but restart limit %d/h reached; skipping", stats.bad400, stats.total, maxRestartsPerHour)
 			// 自愈打满仍不健康 = 需要人工介入,外发通知;这里只在本
 			// 轮探测命中时触发一次,不会每小时连发(打满后每轮 skip
 			// 都会进来,但 webhook 失败也不影响探测循环)。
 			platform.NotifyWebhook("xhttp.selfheal.capped", "xhttp 自愈达到每小时重启上限,代理可能仍不健康", map[string]string{
-				"bad_post": strconv.Itoa(bad),
-				"total":    strconv.Itoa(total),
+				"bad_post": strconv.Itoa(stats.bad400),
+				"total":    strconv.Itoa(stats.total),
 				"limit":    strconv.Itoa(maxRestartsPerHour),
 			})
 			return
 		}
-		log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", bad, total)
+		log.Printf("[xhttp-health] xhttp transport broken: %d/%d POSTs returned 400, restarting xray", stats.bad400, stats.total)
 		// 显式 deadline:后台 goroutine 继承的是 Background ctx,
 		// docker.sock 挂起时无此超时会永久卡住整个自检循环
 		// (与 apiServiceAction 的 2min 对齐)。
@@ -110,7 +128,35 @@ func runXhttpHealthCycle(ctx context.Context, cli *client.Client, restartHistory
 	}
 }
 
-func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
+// xhttpPostStats 是探测窗口内 /proxy/query 的 POST 分类计数。
+type xhttpPostStats struct {
+	total       int
+	bad400      int
+	tooLarge413 int
+}
+
+// classifyXHTTPPostLine 归类单行 nginx access log。抽成纯函数以便单测
+// （探测本体依赖 docker 日志流，单测无法构造）。
+func classifyXHTTPPostLine(line string, stats *xhttpPostStats) {
+	if !strings.Contains(line, "POST /proxy/query/") {
+		return
+	}
+	m := xhttpPostRE.FindStringSubmatch(line)
+	if m == nil {
+		return
+	}
+	stats.total++
+	switch m[1] {
+	case "400":
+		stats.bad400++
+	case "413":
+		stats.tooLarge413++
+	}
+}
+
+func countXHTTPPosts(ctx context.Context, cli *client.Client) xhttpPostStats {
+	var stats xhttpPostStats
+
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -120,7 +166,7 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 		}),
 	})
 	if err != nil || len(containers) == 0 {
-		return 0, 0
+		return stats
 	}
 
 	logs, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
@@ -130,7 +176,7 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 		// 高流量可能远超固定 Tail 行数，固定行数会截断窗口早期、漏检故障。
 	})
 	if err != nil {
-		return 0, 0
+		return stats
 	}
 	defer logs.Close()
 
@@ -140,22 +186,13 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) (total, bad int) {
 	// access log（不只 /proxy/query），高流量下 2 分钟窗口可达数十 MB，
 	// 不整窗缓冲进内存再扫描。
 	w := &lineWriter{process: func(line string) {
-		if !strings.Contains(line, "POST /proxy/query/") {
-			return
-		}
-		m := xhttpPostRE.FindStringSubmatch(line)
-		if m == nil {
-			return
-		}
-		total++
-		if m[1] == "400" {
-			bad++
-		}
+		classifyXHTTPPostLine(line, &stats)
 	}}
 	if _, err := stdcopy.StdCopy(w, io.Discard, logs); err != nil {
-		return 0, 0
+		var zero xhttpPostStats
+		return zero
 	}
-	return total, bad
+	return stats
 }
 
 // lineWriter 把写入的字节流按行拆分后回调,用于流式消费日志——内存占用

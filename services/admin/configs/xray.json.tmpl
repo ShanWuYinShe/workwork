@@ -39,7 +39,9 @@
         "security": "none",
         "xhttpSettings": {
           "path": "/proxy/query",
-          "mode": "packet-up"
+          "mode": "packet-up",
+          "scMaxEachPostBytes": 4194304,
+          "scMaxBufferedPosts": 8
         },
         "sockopt": {
           "trustedXForwardedFor": ["X-Real-IP"]

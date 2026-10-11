@@ -113,8 +113,11 @@ server {
         __XHTTP_PROXY_AUTH__
         access_log /var/log/nginx/admin-access.log auth_log;
         access_log /dev/stdout auth_log;
-        # packet-up 单 POST 携带单个 packet(远小于 MB 级);设 16m 上限封住
-        # 无限上传面,与 upload-chunk 档对齐。0(无上限)只省一次 413。
+        # 契约:此处必须 >= xray 服务端 scMaxEachPostBytes(xray.json.tmpl,
+        # 当前 4MiB),否则合法分片先被 nginx 413、代理表现为"响应体停滞"。
+        # Xray 客户端默认分片就是 1MiB,且会把多次 Write 合并成单个 POST
+        # (dialer.go batching),packet-up 的 POST body 并非"远小于 MB 级"。
+        # 16m 同时封住无限上传面。0(无上限)只省一次 413。
         client_max_body_size 16m;
         client_body_timeout 3600s;
         proxy_pass http://unix:/run/xray/xrxh.socket;

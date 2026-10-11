@@ -202,6 +202,21 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if !ok || !containsAny(trustedXFF, "X-Real-IP") {
 		t.Fatalf("expected xhttp-in trustedXForwardedFor to include X-Real-IP, got %#v", xhttpSockopt["trustedXForwardedFor"])
 	}
+	// 分片契约:服务端 scMaxEachPostBytes 必须显式配置且严格大于 Xray 客户端
+	// 默认值(GetNormalizedScMaxEachPostBytes 回落 1000000)。仅"相等"是贴边
+	// 自洽——任何客户端把分片调大就会被服务端 413 且不读 body,客户端上行
+	// 静默停摆(表现为响应体停滞),而该日志在生产 loglevel=warning 下不可见。
+	xhttpSettings := nestedMap(t, nestedMap(t, xhttpIn, "streamSettings"), "xhttpSettings")
+	if xhttpSettings["mode"] != "packet-up" {
+		t.Fatalf("xhttp-in mode must stay packet-up, got %#v", xhttpSettings["mode"])
+	}
+	scMax, ok := xhttpSettings["scMaxEachPostBytes"].(float64)
+	if !ok || scMax <= 1000000 {
+		t.Fatalf("xhttp-in scMaxEachPostBytes must exceed client default 1000000, got %#v", xhttpSettings["scMaxEachPostBytes"])
+	}
+	if posts, ok := xhttpSettings["scMaxBufferedPosts"].(float64); !ok || posts <= 0 {
+		t.Fatalf("xhttp-in scMaxBufferedPosts must be positive, got %#v", xhttpSettings["scMaxBufferedPosts"])
+	}
 }
 
 func outboundByTag(t *testing.T, outbounds []any, tag string) map[string]any {
