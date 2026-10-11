@@ -46,6 +46,12 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 - 方案：opt.yinghuoren.com = DNS only 的 A 记录，直接指向实测最优的 CF anycast 边缘 IP。客户端 Xray 配置只改 address 为 opt.yinghuoren.com，serverName/Host/SNI 仍必须是 yinghuoren.com（SNI 用 opt 域名会证书不匹配）。
 - 建于 2026-10-10 晚高峰的实测数据（武汉电信，每 IP 3 次）：104.26.1.1 tcp 0.127s / TLS 0.26s 零波动（首选）；162.159.128.1 次之偶波动（备份）。默认解析的 104.21.22.193 / 172.67.206.223 有 2.5-8s 坏样本；v6 各段全面劣于这两个 v4，故暂未配 AAAA——以后要 v6 须先同样手法实测再加。
 - 2026-10-11 18:10 复测（高峰前夕）：CF 路由整体优化，出现 0.07s connect 精英梯队（104.26.1.1/5.1/6.1、162.159.128.1/135.1/136.1 全部 3/3、TLS 0.14-0.16s），真实代理下载 1.4-6 MB/s（前夜高峰仅 100-200KB/s）。现有两条 A 记录均在精英梯队且分属 104.26/16 与 162.159/16 两个前缀（路由分集），无需更换。候补：104.26.5.1、162.159.136.1。
+- **2026-10-11 21:30 换 IP（晚高峰前段实测）**：62 个候选（CF 官方 v4 段采样 + 历史精英）先用 curl 直连按 connect/TLS 粗筛，再用真实 XHTTP 客户端按 h3 与 h2 各 3-5 次 × 4MB 下载测吞吐。结论：`162.159.128.1` 已退化（h2 中位 2.11、最差 0.69 MB/s），**替换为 `162.159.138.1`**（h3 中位 3.03 / h2 3.11，最差 2.49-2.76，三轮测试均稳）；104.26/16 段没有稳定优于现役的替代，保留 `104.26.1.1`。现役 A 记录：**104.26.1.1 + 162.159.138.1**（TTL 300、DNS only、分属两个 /16 保持路由分集）。候补：162.159.133.1、104.26.10.1、104.26.15.1、162.159.128.1。
+  测量陷阱（本次全部踩过，下次直接避开）：
+  1. 本机 shell 带 `http_proxy/https_proxy=127.0.0.1:10809`，curl 默认走代理 → 测到的是"服务器→CF"时延而非客户端视角，**必须 `--noproxy '*'`**（用 xray 客户端实例测试则不受影响）。
+  2. `https://yinghuoren.com/nginx-health` 经 CF 返回 **404 是正常的**：该 location 只在 `listen 127.0.0.1:8080` 的 server 块里，443 落入 `location / { return 404; }`；404 恰好证明 CF 回源成功。真正的失败是连接层 `000`，别把 404 当失败。
+  3. CF API token 有 IP 白名单（错误码 9109）：本机当前公网 IP 已不在白名单（v4/v6 都被拒），**需经服务器出口代理调用**（`http_proxy=http://127.0.0.1:10809`）；注意 CF 侧记录的`当前可用出口`随家宽 IP 变动会失效。
+  4. 该时段速度波动极大（同一 IP 20 分钟内 2.1↔5.7 MB/s），必须**同时间窗对比** + 双协议多次采样，按"中位 + 最差"双标准判断，单次结果不可信。
 - CF 边缘 anycast 质量会漂移：优选 IP 变差时重新探测（curl --resolve yinghuoren.com:443:IP https://yinghuoren.com/nginx-health 测 connect/tls/total，超时 4s）并更新 DNS 记录；TTL 300。
 - CF API token（~/work/dogod/cf_token_and_cert/cf_account_token）IP 白名单实际同时允许本机 Mac 调用（2026-10-10 实测创建 DNS 记录成功）；workwork 服务器上没有该 token。
 
