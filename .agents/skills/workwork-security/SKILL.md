@@ -11,6 +11,7 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 2. CSRF 中间件（Go，变更类请求）：浏览器发起的写请求 Origin 必须与 Host 一致（`auth.CSRFMiddleware`，位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 配额）
 3. Go rate limiter: 20 req/10s → 429 → 自动封禁 30min；IPv6 按 /64 网段聚合计数（换后缀不重置预算），封禁仍按具体 IP；`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束，多连接下载器勿用 Go 层限流惩罚）
 4. Go IP blocker: 持久黑名单 → 403
+5. nginx 层（2026-10-11 起，与 admin 层协同）：`limit_req admin_api`（10r/s burst 50）与 `blocked-ips.conf` return 403 对**携带 internal token 的请求豁免**（nginx 只做存在性判断，token 真伪由 admin 恒时比较——伪造者过不了校验、照常被应用层限流封禁，防线不弱化）。实现：模板 http 级 map 组合（$has_internal_tok → 空限速键 / $blocked_final），`transfer_dl/transfer_conn` 刻意不豁免
 5. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP。计数语义（2026-09-30 起）：filter 只计**带错误凭证**的 401（failregex 按 `$remote_user` 非空区分，`^<HOST> - (?!- )\S+ \[`）——浏览器冷启动质询的无凭证 401 是正常登录流程不计入，maxretry=5 即真实错密码 5 次；登出凭证覆盖请求每次仍计 1 条，故不能取 3。此前全量计数 + maxretry=10 曾两次误封合法用户（5min 内双冷启动 ≈12>10）。验证手法：构造 auth_log 样本行，在 nginx 镜像内 `fail2ban-regex` 断言命中/不命中集合
 6. Cloudflare DDoS/WAF 在边缘
 7. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
@@ -29,8 +30,8 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 
 - `requireRole("admin")`: users.json 中 role=admin
 - `requireRole("viewer")`: 任何已认证用户
-- `X-Internal-Token` bypass: 仅保留给可信内部自动化的全权限共享 token；nginx/fail2ban 不挂载此 token
-- `X-Fail2Ban-Token` scoped bypass: 只允许 fail2ban 调用 `POST /api/admin/security/block|unblock`
+- `X-Internal-Token` / `Authorization: Bearer <INTERNAL_TOKEN>` bypass: 全权限共享 token（nginx 透传，外部自动化经公网可用）；持合法 token 四层全豁免（nginx 限速+封禁、admin 限流+封禁）——授权请求不被防护误伤
+- `X-Fail2Ban-Token` scoped bypass: 只允许 fail2ban 调用 `POST /api/admin/security/block|unblock`；nginx 始终清空，仅限内部
 
 ### 页面/API 访问矩阵
 
@@ -57,6 +58,14 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
   5. CF API token 的 IP 白名单**只放服务器出口 IP（用户有意设计，2026-10-11 确认）**：本机直连调用一律被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持有 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。
   6. 该时段抖动大（同一 IP 分钟级在 2.1↔5.7 MB/s 波动），必须同时间窗多采样，且**"吞吐最差"优先于"吞吐中位"**判断。
   4. 该时段速度波动极大（同一 IP 20 分钟内 2.1↔5.7 MB/s），必须**同时间窗对比** + 双协议多次采样，按"中位 + 最差"双标准判断，单次结果不可信。
+- **2026-10-11 22:20-23:10 全量重选（836 候选，当前网络定案）**：
+  **扫描规模必须分两阶段，否则会把本机 IP 打进自家防护**（本次实测：24 并发 × 836 IP × 2 次打 /speedtest → 触发 ipBlocker 403 + admin 内存限流 30min ban，全部样本报废）：
+  1. 阶段一粗筛用 `/cdn-cgi/trace`（CF 边缘直答**不回源**，随便扫）：`curl --noproxy '*' --resolve yinghuoren.com:443:<IP> -w '%{time_connect} %{time_appconnect} %{time_starttransfer} %{http_code}' https://yinghuoren.com/cdn-cgi/trace`，836 候选 24 并发 3 分钟跑完；
+  2. 阶段二终测才用自有 /speedtest：对 top 24 **串行 + 每请求 sleep 0.5s**（任何 10s 窗口 ≤6 请求，远低于 20req/10s），每 IP 3×TTFB(size=0) + 3×吞吐(8MiB)。
+  - 携带合法 `Authorization: Bearer <INTERNAL_TOKEN>` 可豁免全部防护层（本次同步上线，见上"多层防御"第 5 条），扫描不再怕触发限流；伪造 token 无效。
+  - **403/429 分层排障**（本机 IP 被自家防护拦截时）：403 = ipBlocker 持久封禁（nginx 层 blocked-ips.conf + admin 层），解封：持 INTERNAL_TOKEN 调 `POST /api/admin/security/unblock` `{"ip":"..."}`；429 有两种——nginx limit_req（无状态，停手即恢复）与 admin authRateLimiter 内存 ban（30min、不续期、到期自动重置），后者用 `GET|POST /api/admin/security/rate-limit[/unblock]` 查询/解封。调用路径：ssh 服务器后 `docker compose exec -T nginx sh -c 'wget --header "X-Internal-Token: $(cat .wework/.internal-token)" ...' http://admin:8318/...`（ADMIN_PORT 见服务器 .env，当前 8318）。
+  - 结论（武汉联通，23:00 时段，带宽中位/最佳 MB/s、TTFB 中位）：**首选 162.159.152.1（5.42/5.65，489ms）**，147.1（5.16/5.33）、155.1（4.86/5.07）、158.1（4.73/5.01）、145.1（4.63/4.80）同梯队；现役 104.26.6.1 已退化（3.62，638ms）仍可用；避免：104.26.1.1（吞吐 1/3 失败）、162.159.146.1 与 104.26.9.1（TTFB >1s）、162.159.154.1（抖动大）。
+  - nginx 模板语法预验证（上次 map 误放 server 块致 nginx emerg、部署自校验拦下）：抽取模板 http 级片段 + 模拟 blocked-ips.conf 的 map，用 `docker run --rm -v <conf>:/conf:ro nginx:1.30.4-alpine nginx -t -c /conf/nginx.conf` 先验再发（版本与 versions.env 钉死值一致）。**map 指令只允许 http 上下文**。
 - CF 边缘 anycast 质量会漂移：优选 IP 变差时重新探测（curl --resolve yinghuoren.com:443:IP https://yinghuoren.com/nginx-health 测 connect/tls/total，超时 4s）并更新 DNS 记录；TTL 300。
 - CF API token（~/work/dogod/cf_token_and_cert/cf_account_token）：**IP 白名单只放服务器出口 IP**（用户有意设计）。因此调用方式固定为"本机读 token + 经本机 xray http 入站（127.0.0.1:10809）代理请求"——请求从服务器出口发出才被放行；本机直连会被 9109 拒绝。不要擅自把家宽 IP 加进白名单，也不要把 token 复制到服务器（凭据红线）。
 
