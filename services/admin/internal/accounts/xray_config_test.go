@@ -37,6 +37,18 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 		t.Fatalf("expected xhttp outbound security tls, got %#v", streamSettings["security"])
 	}
 
+	// 未配置 XHTTP_ADDRESS 时,出站地址必须跟随 XHTTP_DOMAIN,SNI 同域。
+	vnext, ok := nestedMap(t, xhttp, "settings")["vnext"].([]any)
+	if !ok || len(vnext) != 1 {
+		t.Fatalf("expected single vnext entry, got %#v", nestedMap(t, xhttp, "settings")["vnext"])
+	}
+	if got := nestedMapFromAny(t, vnext[0])["address"]; got != "example.com" {
+		t.Fatalf("expected default address to follow XHTTP_DOMAIN, got %#v", got)
+	}
+	if got := nestedMap(t, streamSettings, "tlsSettings")["serverName"]; got != "example.com" {
+		t.Fatalf("expected serverName to follow XHTTP_DOMAIN, got %#v", got)
+	}
+
 	// 客户端内置 DNS：domainStrategy=UseIP 依赖它解析代理服务器域名。
 	dns := nestedMap(t, doc, "dns")
 	if dns["queryStrategy"] != "UseIP" {
@@ -54,6 +66,16 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 	for _, s := range servers {
 		if s == "https+local://1.1.1.1/dns-query" {
 			t.Fatalf("1.1.1.1 DoH is unreachable in CN, got %#v", servers)
+		}
+	}
+	// 加密支路必须互为备份:只有一条 DoH 时该上游故障即静默退回明文解析。
+	if !containsAny(servers, "https+local://1.12.12.12/dns-query") {
+		t.Fatalf("expected DNSPod DoH as backup resolver, got %#v", servers)
+	}
+	// 明文支路覆盖国内递归 + 境外兜底。
+	for _, want := range []string{"223.5.5.5", "119.29.29.29", "8.8.8.8"} {
+		if !containsAny(servers, want) {
+			t.Fatalf("expected plain resolver %s, got %#v", want, servers)
 		}
 	}
 	if dns["enableParallelQuery"] != true {
@@ -216,6 +238,70 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	}
 	if posts, ok := xhttpSettings["scMaxBufferedPosts"].(float64); !ok || posts <= 0 {
 		t.Fatalf("xhttp-in scMaxBufferedPosts must be positive, got %#v", xhttpSettings["scMaxBufferedPosts"])
+	}
+}
+
+func TestGenerateClientConfigPreferredAddress(t *testing.T) {
+	// XHTTP_ADDRESS 指向 Cloudflare 优选入口:出站地址换成优选域名,SNI/证书名
+	// 必须仍是 XHTTP_DOMAIN——优选入口是 DNS-only 记录,没有边缘证书,当 SNI
+	// 用会握手失败。
+	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+		XHTTPDomain:  "example.com",
+		XHTTPAddress: "opt.example.com",
+	})
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(cfgJSON), &doc); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	outbounds, ok := doc["outbounds"].([]any)
+	if !ok {
+		t.Fatalf("unexpected outbounds: %#v", doc["outbounds"])
+	}
+	xhttp := outboundByTag(t, outbounds, "xhttp")
+	streamSettings := nestedMap(t, xhttp, "streamSettings")
+	if got := nestedMap(t, streamSettings, "tlsSettings")["serverName"]; got != "example.com" {
+		t.Fatalf("preferred address must not leak into SNI, got %#v", got)
+	}
+	vnext, ok := nestedMap(t, xhttp, "settings")["vnext"].([]any)
+	if !ok || len(vnext) != 1 {
+		t.Fatalf("expected single vnext entry, got %#v", nestedMap(t, xhttp, "settings")["vnext"])
+	}
+	if got := nestedMapFromAny(t, vnext[0])["address"]; got != "opt.example.com" {
+		t.Fatalf("expected preferred address, got %#v", got)
+	}
+
+	// 纯空白地址视为未配置(避免 .env 里的尾随空格把出站地址清空)。
+	blank := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+		XHTTPDomain:  "example.com",
+		XHTTPAddress: "  ",
+	})
+	var blankDoc map[string]any
+	if err := json.Unmarshal([]byte(blank), &blankDoc); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	blankOutbounds := blankDoc["outbounds"].([]any)
+	blankVnext := nestedMap(t, outboundByTag(t, blankOutbounds, "xhttp"), "settings")["vnext"].([]any)
+	if got := nestedMapFromAny(t, blankVnext[0])["address"]; got != "example.com" {
+		t.Fatalf("expected blank address to fall back to domain, got %#v", got)
+	}
+}
+
+func TestValidateProxyConfigEnvAddress(t *testing.T) {
+	t.Setenv("XHTTP_DOMAIN", "example.com")
+	// 带 scheme/路径/空白的地址会被原样写进 vnext.address,只允许裸主机名或 IP。
+	for _, bad := range []string{"https://opt.example.com", "opt.example.com/path", "opt example.com"} {
+		t.Setenv("XHTTP_ADDRESS", bad)
+		if err := ValidateProxyConfigEnv(); err == nil {
+			t.Fatalf("expected XHTTP_ADDRESS=%q to be rejected", bad)
+		}
+	}
+	t.Setenv("XHTTP_ADDRESS", "opt.example.com")
+	if err := ValidateProxyConfigEnv(); err != nil {
+		t.Fatalf("expected preferred address to pass, got %v", err)
+	}
+	t.Setenv("XHTTP_ADDRESS", "")
+	if err := ValidateProxyConfigEnv(); err != nil {
+		t.Fatalf("expected empty XHTTP_ADDRESS to pass, got %v", err)
 	}
 }
 

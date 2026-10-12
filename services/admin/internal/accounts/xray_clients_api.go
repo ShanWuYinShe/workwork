@@ -200,6 +200,7 @@ func ApiXrayClientConfig() http.HandlerFunc {
 		proxyAuth := auth.ProxyAuthForUserRead(client["owner"])
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
 			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+			XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
 			XHTTPProxyAuth: proxyAuth,
 		})
 		platform.WriteJSON(w, map[string]any{

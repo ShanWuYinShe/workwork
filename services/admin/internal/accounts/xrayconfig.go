@@ -104,5 +104,13 @@ func ValidateProxyConfigEnv() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
 	}
+	// XHTTP_ADDRESS(可选)是客户端出站连接地址(优选入口)。只接受裸主机名或
+	// IP:带 scheme/路径/空白的值会被原样写进生成配置的 vnext.address,把
+	// 客户端打挂,且现象是"连不上"而非配置报错。
+	if addr := strings.TrimSpace(platform.GetEnv("XHTTP_ADDRESS")); addr != "" {
+		if strings.ContainsAny(addr, "/ 	") {
+			return fmt.Errorf("XHTTP_ADDRESS must be a bare host or IP (no scheme/path/whitespace), got %q", addr)
+		}
+	}
 	return nil
 }

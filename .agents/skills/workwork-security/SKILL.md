@@ -44,7 +44,7 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 ## Cloudflare 优选入口 opt.yinghuoren.com（2026-10-10 实测建）
 
 - 背景：客户端 → CF 边缘（免费版对武汉电信调度差，RTT 240-280ms，晚高峰 TLS 0.5-6s 且常超时）→ mTLS 回源。晚高峰排障结论：服务器与源站全程健康，瓶颈全在「客户端→CF 边缘」段。
-- 方案：opt.yinghuoren.com = DNS only 的 A 记录，直接指向实测最优的 CF anycast 边缘 IP。客户端 Xray 配置只改 address 为 opt.yinghuoren.com，serverName/Host/SNI 仍必须是 yinghuoren.com（SNI 用 opt 域名会证书不匹配）。
+- 方案：opt.yinghuoren.com = DNS only 的 A 记录，直接指向实测最优的 CF anycast 边缘 IP。客户端 Xray 配置只改 address 为 opt.yinghuoren.com，serverName/Host/SNI 仍必须是 yinghuoren.com（SNI 用 opt 域名会证书不匹配）。**面板生成的客户端配置已内建这个拆分**（2026-10-12）：服务端 `.env` 设 `XHTTP_ADDRESS=opt.yinghuoren.com`（`XHTTP_DOMAIN` 保持 yinghuoren.com 作 SNI），改后重启 admin 容器生效；手工改本机 `config.jsonc` 保留为临时验证手段。
 - 建于 2026-10-10 晚高峰的实测数据（武汉电信，每 IP 3 次）：104.26.1.1 tcp 0.127s / TLS 0.26s 零波动（首选）；162.159.128.1 次之偶波动（备份）。默认解析的 104.21.22.193 / 172.67.206.223 有 2.5-8s 坏样本；v6 各段全面劣于这两个 v4，故暂未配 AAAA——以后要 v6 须先同样手法实测再加。
 - 2026-10-11 18:10 复测（高峰前夕）：CF 路由整体优化，出现 0.07s connect 精英梯队（104.26.1.1/5.1/6.1、162.159.128.1/135.1/136.1 全部 3/3、TLS 0.14-0.16s），真实代理下载 1.4-6 MB/s（前夜高峰仅 100-200KB/s）。现有两条 A 记录均在精英梯队且分属 104.26/16 与 162.159/16 两个前缀（路由分集），无需更换。候补：104.26.5.1、162.159.136.1。
 - **2026-10-11 21:50 换 IP（自有测速端点定案）**：候选池为 CF 官方 v4 段采样 + 历史精英（62 个）。

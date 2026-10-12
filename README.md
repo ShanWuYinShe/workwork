@@ -283,6 +283,7 @@ make build xray && make up xray                             # services/xray/**
 | `INTERNAL_TOKEN_ALLOWED_PREFIXES` | 可选：internal token 的路径前缀白名单（逗号分隔）。配置后该 token 只能豁免这些前缀，其余路径退回正常认证，被拒请求以 `[security]` 留痕；留空保持全权 | `/api/admin/security,/api/admin/dashboard` |
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
-| `XHTTP_DOMAIN` | XHTTP 目标域名 | `yinghuoren.com` |
+| `XHTTP_DOMAIN` | XHTTP 目标域名（兼 TLS SNI/证书名、nginx server_name） | `yinghuoren.com` |
+| `XHTTP_ADDRESS` | 可选：客户端出站连接地址（优选入口域名/IP）。SNI 恒为 `XHTTP_DOMAIN`，留空 = 直连 `XHTTP_DOMAIN` | `opt.yinghuoren.com` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
 | `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志。目标为 ops-portal 网关时配 `ALERT_MTLS_CERT/KEY` 持证推送（默认 `/webhook-caller/{cert,key}.pem`） | `https://notify.example.com/hook` |

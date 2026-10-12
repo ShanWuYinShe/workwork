@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // readXrayClientMapsNoLock 读取 clients 并转成 map 形式(handler 展示用)。
@@ -41,7 +42,11 @@ func readXrayClientMapsNoLock() ([]map[string]string, error) {
 }
 
 type ClientConfig struct {
-	XHTTPDomain    string
+	XHTTPDomain string
+	// XHTTPAddress 是客户端出站连接地址(优选入口域名或 IP),留空则跟随
+	// XHTTPDomain。TLS SNI/证书名恒取 XHTTPDomain——优选入口是 Cloudflare
+	// DNS-only 记录,其域名没有边缘证书,当 SNI 用会握手失败。
+	XHTTPAddress   string
 	XHTTPProxyAuth string // "user:pass" for nginx basic auth
 }
 
@@ -99,10 +104,20 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 	return orderedJSON([]jsonField{
 		{"log", map[string]any{"loglevel": "warning"}},
 		// 客户端内置 DNS：sockopt domainStrategy=UseIP 依赖它解析代理服务
-		// 器域名。并行查询取最快：UDP 223.5.5.5 国内直连最快，DoH 用阿里
-		// 加密解析防污染（1.1.1.1 等境外 DoH 国内直连超时，只会刷错误日志）。
+		// 器域名(含 XHTTP_ADDRESS 指向的优选入口)。并行查询取最快,加密支路
+		// 防污染,两条国内可达的 DoH 互为备份——境外 DoH(如 1.1.1.1)国内直连
+		// 超时,每轮解析都刷 [Error] 日志且永远不中奖。1.12.12.12 是 DNSPod
+		// 的 DoH 入口(证书含该 IP SAN,可直接作 DOHL 目标),223.5.5.5 是阿里
+		// DoH。明文 UDP 支路以国内递归为主(223.5.5.5/119.29.29.29),保留
+		// 8.8.8.8 作境外兜底。
 		{"dns", map[string]any{
-			"servers":             []string{"https+local://223.5.5.5/dns-query", "8.8.8.8", "223.5.5.5"},
+			"servers": []string{
+				"https+local://223.5.5.5/dns-query",
+				"https+local://1.12.12.12/dns-query",
+				"223.5.5.5",
+				"119.29.29.29",
+				"8.8.8.8",
+			},
 			"queryStrategy":       "UseIP",
 			"enableParallelQuery": true,
 			"useSystemHosts":      true,
@@ -124,7 +139,7 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				"tag": "xhttp", "protocol": "vless",
 				"settings": map[string]any{
 					"vnext": []any{map[string]any{
-						"address": cfg.XHTTPDomain, "port": 443,
+						"address": clientAddress(cfg), "port": 443,
 						"users": []any{map[string]any{
 							"id": uuid, "email": uuid, "encryption": "none",
 						}},
@@ -149,6 +164,16 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 			},
 		}},
 	})
+}
+
+// clientAddress 返回客户端出站连接地址:XHTTP_ADDRESS(优选入口)优先,留空
+// 回落到 XHTTP_DOMAIN。两者语义不同——XHTTP_DOMAIN 同时是 TLS SNI/证书名、
+// nginx server_name 与 CF DNS 同步锚点,不能被优选域名覆盖。
+func clientAddress(cfg ClientConfig) string {
+	if addr := strings.TrimSpace(cfg.XHTTPAddress); addr != "" {
+		return addr
+	}
+	return cfg.XHTTPDomain
 }
 
 func xhttpSettings(cfg ClientConfig) map[string]any {
