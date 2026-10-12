@@ -112,5 +112,12 @@ func ValidateProxyConfigEnv() error {
 			return fmt.Errorf("XHTTP_ADDRESS must be a bare host or IP (no scheme/path/whitespace), got %q", addr)
 		}
 	}
+	// XHTTP_ALPN 只接受 h2/h3:其他值生成的客户端配置无法与边缘协商,
+	// 且要到客户端侧才暴露问题。
+	switch strings.ToLower(strings.TrimSpace(platform.GetEnv("XHTTP_ALPN"))) {
+	case "", "h2", "h3":
+	default:
+		return fmt.Errorf("XHTTP_ALPN must be h2 or h3, got %q", platform.GetEnv("XHTTP_ALPN"))
+	}
 	return nil
 }

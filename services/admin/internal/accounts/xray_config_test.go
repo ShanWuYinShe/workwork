@@ -48,6 +48,14 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 	if got := nestedMap(t, streamSettings, "tlsSettings")["serverName"]; got != "example.com" {
 		t.Fatalf("expected serverName to follow XHTTP_DOMAIN, got %#v", got)
 	}
+	// 默认 ALPN 是 h2(TCP),保留经线上验证的 TCP 调优 sockopt。
+	if got := nestedMap(t, streamSettings, "tlsSettings")["alpn"]; !containsAny(got.([]any), "h2") {
+		t.Fatalf("expected default alpn h2, got %#v", got)
+	}
+	sockoptDefault := nestedMap(t, streamSettings, "sockopt")
+	if sockoptDefault["tcpFastOpen"] != true || sockoptDefault["tcpCongestion"] != "bbr" {
+		t.Fatalf("expected default h2 sockopt to keep TCP tuning, got %#v", sockoptDefault)
+	}
 
 	// 客户端内置 DNS：domainStrategy=UseIP 依赖它解析代理服务器域名。
 	dns := nestedMap(t, doc, "dns")
@@ -304,6 +312,37 @@ func TestGenerateClientConfigPreferredAddress(t *testing.T) {
 	}
 }
 
+func TestGenerateClientConfigALPNH3(t *testing.T) {
+	// XHTTP_ALPN=h3:ALPN 换成 h3(QUIC),TCP 专属 sockopt 必须整体剔除——
+	// 它们对 QUIC 出站不生效,留着只会让配置携带死参数。
+	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+		XHTTPDomain: "example.com",
+		XHTTPALPN:   "h3",
+	})
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(cfgJSON), &doc); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	xhttp := outboundByTag(t, doc["outbounds"].([]any), "xhttp")
+	streamSettings := nestedMap(t, xhttp, "streamSettings")
+	alpn := nestedMap(t, streamSettings, "tlsSettings")["alpn"].([]any)
+	if len(alpn) != 1 || alpn[0] != "h3" {
+		t.Fatalf("expected alpn [h3], got %#v", alpn)
+	}
+	sockopt := nestedMap(t, streamSettings, "sockopt")
+	if sockopt["domainStrategy"] != "UseIP" {
+		t.Fatalf("expected UseIP on h3 sockopt, got %#v", sockopt)
+	}
+	if _, ok := sockopt["happyEyeballs"]; !ok {
+		t.Fatalf("expected happyEyeballs on h3 sockopt, got %#v", sockopt)
+	}
+	for _, banned := range []string{"tcpFastOpen", "tcpCongestion", "tcpKeepAliveIdle", "tcpKeepAliveInterval", "tcpUserTimeout"} {
+		if _, exists := sockopt[banned]; exists {
+			t.Fatalf("h3 (QUIC) outbound must not carry TCP-only sockopt %s, got %#v", banned, sockopt)
+		}
+	}
+}
+
 func TestValidateProxyConfigEnvAddress(t *testing.T) {
 	t.Setenv("XHTTP_DOMAIN", "example.com")
 	// 带 scheme/路径/空白的地址会被原样写进 vnext.address,只允许裸主机名或 IP。
@@ -320,6 +359,19 @@ func TestValidateProxyConfigEnvAddress(t *testing.T) {
 	t.Setenv("XHTTP_ADDRESS", "")
 	if err := ValidateProxyConfigEnv(); err != nil {
 		t.Fatalf("expected empty XHTTP_ADDRESS to pass, got %v", err)
+	}
+	// ALPN 白名单:空/h2/h3 通过,其他值生成不可协商的配置,启动期拒绝。
+	t.Setenv("XHTTP_ALPN", "h3")
+	if err := ValidateProxyConfigEnv(); err != nil {
+		t.Fatalf("expected XHTTP_ALPN=h3 to pass, got %v", err)
+	}
+	t.Setenv("XHTTP_ALPN", "quic")
+	if err := ValidateProxyConfigEnv(); err == nil {
+		t.Fatal("expected XHTTP_ALPN=quic to be rejected")
+	}
+	t.Setenv("XHTTP_ALPN", "")
+	if err := ValidateProxyConfigEnv(); err != nil {
+		t.Fatalf("expected empty XHTTP_ALPN to pass, got %v", err)
 	}
 }
 

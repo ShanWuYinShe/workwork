@@ -47,6 +47,16 @@ map "$has_internal_tok:$binary_remote_addr" $admin_api_key {
 }
 limit_req_zone $admin_api_key zone=admin_api:10m rate=10r/s;
 
+# ── XHTTP 数据面 upstream ──
+# packet-up 模式下客户端把上行拆成高频小 POST。upstream keepalive 让 nginx 复用
+# 到 xray unix socket 的连接,省掉每个分片一次 connect/close——unix socket 连接
+# 本身极廉价,收益主要在 xray 侧少一轮 accept/关连的调度与内存分配。keepalive
+# 32 足够覆盖单实例 CF 回源并发;池化连接由 nginx 管理,坏连接自动重建。
+upstream xray_xhttp {
+    server unix:/run/xray/xrxh.socket;
+    keepalive 32;
+}
+
 server {
     listen 127.0.0.1:8080;
     server_name localhost;
@@ -109,7 +119,11 @@ server {
     # X-Internal-Token 透传：外部自动化可用 Authorization: Bearer / 该头携带
     # 合法 token，admin 侧恒时比较后豁免限流与封禁（伪造者校验失败无优待）。
     # X-Fail2Ban-Token 保持清空——该 scoped token 仅限服务器内部使用。
-    proxy_set_header X-Fail2Ban-Token "";
+    # 清空 Connection 头(HTTP/1.1 语义=保活):xray_xhttp upstream 的 keepalive
+    # 依赖它;对 admin 等无 keepalive 池的 upstream 无影响(nginx 无池时每个
+    # 请求后照旧关连接)。注意 location 内自定义 proxy_set_header 会整组取消
+    # 继承,/api/transfer/ 与 /speedtest/ 已各自完整重申全部头。
+    proxy_set_header Connection "";
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
 
@@ -146,7 +160,7 @@ server {
         # 16m 同时封住无限上传面。0(无上限)只省一次 413。
         client_max_body_size 16m;
         client_body_timeout 3600s;
-        proxy_pass http://unix:/run/xray/xrxh.socket;
+        proxy_pass http://xray_xhttp;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_request_buffering off;

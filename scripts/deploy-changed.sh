@@ -195,6 +195,36 @@ for svc in $services; do
   if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
 done
 
+# ---------- 配置消费者重启前的语法校验 ----------
+# admin healthy 即渲染产物已落盘(bind mount 实时可见),此时在容器内跑
+# nginx -t / xray -test:坏配置在重启前被拦下。带着坏配置 restart 意味着
+# 代理整体下线;校验失败则维持旧配置继续服务(运行中进程用的是内存里的旧
+# 配置),部署报失败并外发通知,修复模板重新跑即可。
+validate_failed=""
+if printf '%s' "$config_reload" | grep -qw nginx; then
+  echo
+  echo "=== 配置校验:nginx -t ==="
+  if docker compose exec -T nginx nginx -t; then
+    echo "  nginx 配置校验通过"
+  else
+    validate_failed="$validate_failed nginx"
+  fi
+fi
+if printf '%s' "$config_reload" | grep -qw xray; then
+  echo
+  echo "=== 配置校验:xray run -test ==="
+  if docker compose exec -T xray xray run -test -c /etc/xray/config.json >/dev/null 2>&1; then
+    echo "  xray 配置校验通过"
+  else
+    validate_failed="$validate_failed xray"
+  fi
+fi
+if [ -n "${validate_failed// /}" ]; then
+  notify_deploy_failure "配置校验失败($validate_failed),未重启对应服务,线上仍跑旧配置"
+  echo "错误:$validate_failed 新配置校验未通过,已跳过重启,线上仍跑旧配置。修复模板后重新跑 deploy-changed。" >&2
+  exit 1
+fi
+
 # ---------- 重启运行时配置消费者 ----------
 # 上面的健康校验已保证 admin 渲染完 .wework/generated/;此时再 restart
 # xray/nginx 才能读到新配置(不与 admin 同批 up 的原因见映射段注释)。

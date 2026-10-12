@@ -285,5 +285,6 @@ make build xray && make up xray                             # services/xray/**
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |
 | `XHTTP_DOMAIN` | XHTTP 目标域名（兼 TLS SNI/证书名、nginx server_name） | `yinghuoren.com` |
 | `XHTTP_ADDRESS` | 可选：客户端出站连接地址（优选入口域名/IP）。SNI 恒为 `XHTTP_DOMAIN`，留空 = 直连 `XHTTP_DOMAIN` | `opt.yinghuoren.com` |
+| `XHTTP_ALPN` | 可选：客户端 ALPN。`h2`（默认，TCP 稳妥）/`h3`（QUIC/UDP，UDP 质量好的网络更快，生成配置会剔除 TCP 专属 sockopt） | `h2` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
 | `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志。目标为 ops-portal 网关时配 `ALERT_MTLS_CERT/KEY` 持证推送（默认 `/webhook-caller/{cert,key}.pem`） | `https://notify.example.com/hook` |

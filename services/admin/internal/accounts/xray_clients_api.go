@@ -201,6 +201,7 @@ func ApiXrayClientConfig() http.HandlerFunc {
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
 			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 			XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
+			XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
 			XHTTPProxyAuth: proxyAuth,
 		})
 		platform.WriteJSON(w, map[string]any{

@@ -46,7 +46,12 @@ type ClientConfig struct {
 	// XHTTPAddress 是客户端出站连接地址(优选入口域名或 IP),留空则跟随
 	// XHTTPDomain。TLS SNI/证书名恒取 XHTTPDomain——优选入口是 Cloudflare
 	// DNS-only 记录,其域名没有边缘证书,当 SNI 用会握手失败。
-	XHTTPAddress   string
+	XHTTPAddress string
+	// XHTTPALPN 是客户端与 Cloudflare 边缘协商的应用层协议:"h2"(默认,
+	// TCP,各网络环境稳妥)或 "h3"(QUIC/UDP,UDP 443 质量好的网络更快)。
+	// h3 走 QUIC,TCP 专属 sockopt(TFO/keepalive/userTimeout/bbr)对其
+	// 不生效,生成时直接剔除。
+	XHTTPALPN      string
 	XHTTPProxyAuth string // "user:pass" for nginx basic auth
 }
 
@@ -147,9 +152,9 @@ func GenerateClientConfig(clients []map[string]string, cfg ClientConfig) string 
 				},
 				"streamSettings": map[string]any{
 					"network": "xhttp", "security": "tls",
-					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome", "alpn": []string{"h2"}},
+					"tlsSettings":   map[string]any{"serverName": cfg.XHTTPDomain, "fingerprint": "chrome", "alpn": clientALPN(cfg)},
 					"xhttpSettings": xhttpSettings(cfg),
-					"sockopt":       xhttpOutboundSockopt(),
+					"sockopt":       clientSockopt(cfg),
 				},
 			},
 			map[string]any{"tag": "direct", "protocol": "freedom"},
@@ -174,6 +179,32 @@ func clientAddress(cfg ClientConfig) string {
 		return addr
 	}
 	return cfg.XHTTPDomain
+}
+
+// clientALPN 返回生成的 ALPN 列表:XHTTP_ALPN 取 "h2"(默认)或 "h3"。
+func clientALPN(cfg ClientConfig) []string {
+	if strings.TrimSpace(cfg.XHTTPALPN) == "h3" {
+		return []string{"h3"}
+	}
+	return []string{"h2"}
+}
+
+// clientSockopt 按 ALPN 生成出站 sockopt:两条路径都靠 UseIP + happyEyeballs
+// 解析并拨号代理域名;h3 走 QUIC,TCP 专属选项(TFO/keepalive/userTimeout/bbr)
+// 对它不生效,保留只会让配置携带死参数——h2 则保留经线上验证的 TCP 调优。
+func clientSockopt(cfg ClientConfig) map[string]any {
+	if clientALPN(cfg)[0] == "h3" {
+		return map[string]any{
+			"domainStrategy": "UseIP",
+			"happyEyeballs": map[string]any{
+				"tryDelayMs":       1,
+				"prioritizeIPv6":   false,
+				"interleave":       1,
+				"maxConcurrentTry": 4,
+			},
+		}
+	}
+	return xhttpOutboundSockopt()
 }
 
 func xhttpSettings(cfg ClientConfig) map[string]any {

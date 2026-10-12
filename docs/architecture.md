@@ -64,5 +64,5 @@ vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data 
 - 子网: `/64` from `IPV6_SUBNET` env var
 - 静态范围: `{prefix}:1::/80` — Docker 分配（nginx、xray 主 IP）
 - 轮换范围: `{prefix}:f::/80` — 第 5 个 hextet = `000f`，DNS 指向此处
-- 客户端配置: xhttp 出站地址取 `XHTTP_ADDRESS`（未配置则用 `XHTTP_DOMAIN`）——生产指向 Cloudflare 优选入口 `opt.yinghuoren.com`（DNS-only A 记录，指向实测最优的 CF anycast 边缘 IP）；TLS SNI/证书名恒为 `XHTTP_DOMAIN`（`yinghuoren.com`），优选入口域名没有边缘证书、不能当 SNI 用（Reality 时代的 `xray.yinghuoren.com` 直连域名已随 Reality 移除，Cloudflare 上的残留 AAAA 记录需手动删除）
+- 客户端配置: xhttp 出站地址取 `XHTTP_ADDRESS`（未配置则用 `XHTTP_DOMAIN`）——生产指向 Cloudflare 优选入口 `opt.yinghuoren.com`（DNS-only A 记录，指向实测最优的 CF anycast 边缘 IP）；TLS SNI/证书名恒为 `XHTTP_DOMAIN`（`yinghuoren.com`），ALPN 由 `XHTTP_ALPN` 决定（默认 `h2` 走 TCP，`h3` 走 QUIC/UDP 且生成器剔除 TCP 专属 sockopt）。优选入口域名没有边缘证书、不能当 SNI 用（Reality 时代的 `xray.yinghuoren.com` 直连域名已随 Reality 移除，Cloudflare 上的残留 AAAA 记录需手动删除）
 - 不需要宿主机 sysctl 配置：ipvlan L3 模式下容器直接持有公网 IPv6，数据包在内核驱动层直接投递到容器命名空间。无需启用 `net.ipv6.conf.all.forwarding`、`proxy_ndp` 等宿主机网络设置。禁止修改宿主机 sysctl/iptables/网络配置。
