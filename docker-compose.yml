@@ -102,10 +102,14 @@ services:
     deploy:
       resources:
         limits:
-          # XHTTP 并发下 64M 偏紧，OOM 会静默重启代理；
-          # 放宽到 128M 留出 TLS 握手与连接缓冲余量。
-          memory: 128M
-          cpus: "1.0"
+          # packet-up 上行被拆成高频小 POST，每个分片都要过一次 nginx→unix
+          # socket→Xray 的 HTTP 解析与 VLESS 解封装，是 CPU 密集而非内存密集。
+          # cpus 1.0 会把吞吐钉死在单核：实测单核下客户端已跑满本机 ~4MB/s 线路，
+          # 再调 Xray 参数不再有效。放宽到 2.0 给并发分片留出一个核的余量。
+          # 内存：并发提升后连接缓冲与 uploadQueue 乱序重组堆随之增长，128M 在
+          # 高并发下 OOM 会静默重启代理，放宽到 256M。
+          memory: 256M
+          cpus: "2.0"
     security_opt:
       - "no-new-privileges:true"
     # 无入站端口：XHTTP 经 nginx Unix socket 接入（xray 不声明 ports）
