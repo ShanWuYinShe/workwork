@@ -176,6 +176,24 @@ func TestXrayTemplateRendersValidJSON(t *testing.T) {
 	if dns["queryStrategy"] != "UseIP" {
 		t.Fatalf("unexpected dns query strategy: %#v", dns["queryStrategy"])
 	}
+	// 服务端解析器要覆盖两个独立 DoH 厂商 + 明文兜底 + 系统解析器:单厂商
+	// (如 Cloudflare)故障时仍有 Google 支路,不会让 freedom 出站的域名解析
+	// 整体失败——服务端在境外,1.1.1.1 可用,与客户端(国内,禁用境外 DoH)不同。
+	serverDNS, ok := dns["servers"].([]any)
+	if !ok || len(serverDNS) < 4 {
+		t.Fatalf("expected server dns servers, got %#v", dns["servers"])
+	}
+	if serverDNS[0] != "https+local://1.1.1.1/dns-query" {
+		t.Fatalf("expected Cloudflare DoH as first resolver, got %#v", serverDNS[0])
+	}
+	if !containsAny(serverDNS, "https+local://8.8.8.8/dns-query") {
+		t.Fatalf("expected an independent DoH provider, got %#v", serverDNS)
+	}
+	for _, want := range []string{"1.1.1.1", "8.8.8.8", "localhost"} {
+		if !containsAny(serverDNS, want) {
+			t.Fatalf("expected plain resolver %s, got %#v", want, serverDNS)
+		}
+	}
 	outbounds, ok := doc["outbounds"].([]any)
 	if !ok || len(outbounds) == 0 {
 		t.Fatalf("unexpected outbounds: %#v", doc["outbounds"])
