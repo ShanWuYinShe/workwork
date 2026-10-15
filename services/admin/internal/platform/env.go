@@ -2,6 +2,7 @@ package platform
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -20,6 +21,10 @@ func loadEnv() {
 		if err == nil {
 			defer f.Close()
 			sc := bufio.NewScanner(f)
+			// 默认单行上限 64KB:超限后 Scanner 停止推进且不报错,后续 .env
+			// 行被静默丢弃——表现为"部分配置项神秘缺失"。放大上限并把错误
+			// 记入日志,silent 截断不再可能。
+			sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 			for sc.Scan() {
 				line := strings.TrimSpace(sc.Text())
 				if line == "" || strings.HasPrefix(line, "#") {
@@ -30,6 +35,9 @@ func loadEnv() {
 					continue
 				}
 				envMap[k] = unquoteEnvValue(v)
+			}
+			if err := sc.Err(); err != nil {
+				log.Printf("WARNING: read /app/.env: %v (.env treated as partial)", err)
 			}
 		}
 		// OS environment overrides .env values

@@ -111,7 +111,9 @@ func EnsurePerm(path string, want os.FileMode) error {
 	}
 	if info.Mode().Perm() != want.Perm() {
 		log.Printf("Fixing permissions: %s %o -> %o", path, info.Mode().Perm(), want.Perm())
-		// os.Chmod 受 umask 影响，先用 syscall 确保精确权限
+		// 此前注释称 os.Chmod 受 umask 影响,不准确:umask 只作为
+		// open(O_CREAT) 的创建掩码,chmod(2) 不受其影响,两者等价。这里
+		// 保留 syscall.Chmod,语义即"按目标权限位精确设置"。
 		return syscall.Chmod(path, uint32(want.Perm()))
 	}
 	return nil
