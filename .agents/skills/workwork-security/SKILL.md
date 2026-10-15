@@ -15,6 +15,7 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 5. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP。计数语义（2026-09-30 起）：filter 只计**带错误凭证**的 401（failregex 按 `$remote_user` 非空区分，`^<HOST> - (?!- )\S+ \[`）——浏览器冷启动质询的无凭证 401 是正常登录流程不计入，maxretry=5 即真实错密码 5 次；登出凭证覆盖请求每次仍计 1 条，故不能取 3。此前全量计数 + maxretry=10 曾两次误封合法用户（5min 内双冷启动 ≈12>10）。验证手法：构造 auth_log 样本行，在 nginx 镜像内 `fail2ban-regex` 断言命中/不命中集合
 6. Cloudflare DDoS/WAF 在边缘
 7. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
+8. 工具下载完整性（2026-10-16 修）：admin 的 claude/xray 安装包下载比对 GitHub release asset 的 `digest`（`sha256:<hex>`，releases API 每个 asset 都带，2026-10-16 实测 60/60）。校验点在 `downloadArchive` 内、`rename`+manifest 落盘**之前**——下载目录会被 `/api/admin/*/downloads` 分发给所有代理客户端，未校验的字节落库即出库；失败只留下可丢弃的临时文件（`defer os.Remove`），接口记 `[security] checksum verify failed`（含期望/实际值）。xray 侧此前零校验（claude 侧另有 SHASUMS256.txt 比对，保留为第二层）；上游缺摘要或非 sha256 算法时**跳过**校验而不拒绝下载（上游字段变化不应打断下载能力）。回归护栏：`internal/downloads/digest_test.go` 的 handler 用例——把 `assetSHA256(assetDigest)` 断成空串即失败
 
 "Never use `RemoteAddr`" 的原因就在这里——所有流量经 Docker bridge 内网地址（网段由 Docker 默认地址池动态分配），基于 RemoteAddr 的判断会全部失败。必须用 `X-Forwarded-User`（nginx 设置）或 `X-Internal-Token`（内部服务）。
 
