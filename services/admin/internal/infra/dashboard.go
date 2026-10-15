@@ -32,11 +32,11 @@ func ApiDashboard(cli *client.Client) http.HandlerFunc {
 			}
 			proxyAuth := ""
 			if len(myClients) > 0 {
-				proxyAuth, err = auth.ProxyAuthForUser(username)
-				if err != nil {
-					platform.WriteInternalError(w, err)
-					return
-				}
+				// 只读 GET 不得有写副作用:ProxyAuthForUser 会在首次调用时为该用户
+				// 生成 proxy 密码并重写 htpasswd(users_api.go / xray_clients_api.go
+				// 两个读端点同此约定改用 Read 变体)。密码尚未生成时返回空串——
+				// 客户端首次添加 Xray 客户端时再懒创建,与那两个读端点一致。
+				proxyAuth = auth.ProxyAuthForUserRead(username)
 			}
 			genJSON := accounts.GenerateClientConfig(myClients, accounts.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),

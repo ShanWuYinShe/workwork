@@ -4,7 +4,11 @@
   let toasts = $derived(getToasts());
 
   function handleAnimationEnd(e, id) {
-    if (e.animationName === 'toastOut') dismiss(id);
+    // Svelte 会把组件样式块里的 @keyframes 重命名为带作用域前缀的名字
+    // (事件里实际形如 svelte-xxxx-toastOut),全等比较永远不成立,离场动画
+    // 结束时就永远不会 dismiss。注意:注释里不要写标签字面量(如样式标签),
+    // 解析器会当成元素开始,导致脚本块被判为未闭合。
+    if (e.animationName.endsWith('toastOut')) dismiss(id);
   }
 
   const typeIcons = {
@@ -25,13 +29,12 @@
     {#each toasts as t (t.id)}
       <button
         class="toast toast-{t.type}"
+        class:toast-timed={t.duration > 0}
         type="button"
         role={t.type === 'error' ? 'alert' : 'status'}
         onclick={() => dismiss(t.id)}
         onanimationend={(e) => handleAnimationEnd(e, t.id)}
-        style="animation: toastIn 0.25s ease{t.duration > 0
-          ? `, toastOut 0.3s ease ${Math.max(0, t.duration - 300)}ms forwards`
-          : ''};"
+        style="--toast-out-delay: {Math.max(0, t.duration - 300)}ms;"
       >
         <svg
           class="toast-icon"
@@ -77,6 +80,16 @@
     cursor: pointer;
     line-height: 1.4;
     backdrop-filter: blur(8px);
+    animation: toastIn 0.25s ease;
+  }
+  /* 自动消失的 toast 追加离场动画,启动延迟随各条时长变化,用自定义属性传参。
+     动画必须声明在组件样式块内:Svelte 会把 keyframes 重命名为带作用域前缀的
+     名字(svelte-xxxx-toastOut),内联 style 里的字面量名称对不上,动画不会播放、
+     animationend 也随之失效(此前只靠 toast.svelte.js 的定时器勉强自愈)。 */
+  .toast-timed {
+    animation:
+      toastIn 0.25s ease,
+      toastOut 0.3s ease var(--toast-out-delay, 0ms) forwards;
   }
   .toast-icon {
     width: 1.1rem;
@@ -142,7 +155,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    /* 覆盖内联 style 的入场/离场动画。注意 animation:none 会同时抑制
+    /* 覆盖组件入场/离场动画。注意 animation:none 会同时抑制
        animationend，离场淡出不会触发——自动消失依赖 toast.svelte.js 的
        setTimeout 兜底，这里只是让动效对 reduced-motion 用户立即完成。 */
     .toast {

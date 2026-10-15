@@ -251,11 +251,19 @@ async function streamDownload(path, body, onProgress) {
     reader.cancel().catch(() => {});
   }
 
-  // Non-streaming fallback (already_exists etc.)
+  // 服务端只发 NDJSON 事件,终态必然是 {type:'done',...};缺终态说明响应被中途
+  // 截断或协议漂移,报错好过静默返回残缺结果。
   if (!result) {
     throw new Error('Download completed but no result received');
   }
-  return { status: 'ok', filename: result.filename, size: result.size, checksum: result.checksum };
+  // status 必须透传:already_exists 时服务端只给 filename(无 size/checksum),
+  // 硬编码 'ok' 会让调用方的"已存在"分支(Downloads.svelte)永远不可达。
+  return {
+    status: result.status || 'ok',
+    filename: result.filename,
+    size: result.size,
+    checksum: result.checksum,
+  };
 }
 
 export async function downloadClaudeVersion(version, plat, onProgress) {

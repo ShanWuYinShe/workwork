@@ -297,6 +297,15 @@ func ApiRateLimitUnblock() http.HandlerFunc {
 			e.blockedAt = time.Time{}
 			e.timestamps = nil
 		}
+		// /64 聚合计数与按 IP 的封禁分开存放:网段预算耗尽时网段内新 IP 首个
+		// 请求即被封禁,只清 entries[ip] 时同一 /64 会立刻再次触发网段封禁,
+		// 运维侧表现为"解封无效"(旧实现只能靠 10s window 静默自愈)。
+		if key, ok := ipv6PrefixKey(body.IP); ok {
+			if ce, ok := authRateLimiter.v6Prefix[key]; ok {
+				ce.blockedAt = time.Time{}
+				ce.timestamps = nil
+			}
+		}
 		authRateLimiter.mu.Unlock()
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()

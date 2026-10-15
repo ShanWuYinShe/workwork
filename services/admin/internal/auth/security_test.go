@@ -97,3 +97,40 @@ func useDefaultProxyTrust(t *testing.T) {
 	trustedProxyHostCache.expires = time.Time{}
 	trustedProxyHostCache.Unlock()
 }
+
+// TestIPBlockStoreLoadQuarantinesCorruptFile 验证损坏的 blocked-ips.json 不再
+// 被静默忽略:原文件隔离为 .corrupt(保留现场)+ webhook 告警,内存按空表启动;
+// 否则紧随其后的任意 save() 会用空表原子覆盖损坏文件,既 fail-open 又毁现场。
+func TestIPBlockStoreLoadQuarantinesCorruptFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "blocked-ips.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	store := &ipBlockStore{path: path}
+	store.load()
+	if len(store.Entries) != 0 {
+		t.Fatalf("corrupt file must not populate entries, got %d", len(store.Entries))
+	}
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("corrupt file should be quarantined, not deleted: %v", err)
+	}
+}
+
+// TestIPBlockStoreLoadNormalizesUnparsableExpiry 验证 expires_at 不可解析的条目在
+// 加载时归一化为显式永久封禁:封禁语义保持 fail-closed(仍拦截),但不再因解析
+// 失败而在 cleanupExpired 里永久占位且毫无告警。
+func TestIPBlockStoreLoadNormalizesUnparsableExpiry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "blocked-ips.json")
+	fixture := `{"entries":[{"ip":"198.51.100.9","reason":"test","expires_at":"not-a-timestamp"}]}`
+	if err := os.WriteFile(path, []byte(fixture), 0600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	store := &ipBlockStore{path: path}
+	store.load()
+	if !store.isBlocked("198.51.100.9") {
+		t.Fatal("unparsable expiry must stay blocked (fail-closed)")
+	}
+	if got := store.Entries[0].ExpiresAt; got != "" {
+		t.Fatalf("unparsable expires_at should be normalized to permanent, got %q", got)
+	}
+}

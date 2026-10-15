@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -114,5 +115,44 @@ func TestRateLimitExemptsTransferGETAndHEAD(t *testing.T) {
 	handler(httptest.NewRecorder(), req)
 	if reached {
 		t.Error("POST /api/transfer/upload should be rate limited")
+	}
+}
+
+// TestRateLimitUnblockClearsIPv6PrefixBudget 验证解封同时清掉 /64 聚合计数:
+// 只清 entries[ip] 时网段预算仍是满的,同一 /64 的下一个请求会立刻再次被封禁,
+// 运维侧表现为"解封无效"。
+func TestRateLimitUnblockClearsIPv6PrefixBudget(t *testing.T) {
+	oldBlocker := ipBlocker
+	ipBlocker = &ipBlockStore{path: t.TempDir() + "/blocked-ips.json"}
+	t.Cleanup(func() { ipBlocker = oldBlocker })
+
+	rl := &rateLimiter{
+		entries: make(map[string]*rateLimitEntry),
+		maxReqs: 2,
+		window:  10 * time.Second,
+		banTime: time.Minute,
+	}
+	origRL := authRateLimiter
+	authRateLimiter = rl
+	t.Cleanup(func() { authRateLimiter = origRL })
+
+	const prefix = "2001:db8:1:2::"
+	victim := prefix + "3"
+	if !rl.allow(prefix+"1") || !rl.allow(prefix+"2") {
+		t.Fatal("first two suffixes in the /64 should be allowed")
+	}
+	if rl.allow(victim) {
+		t.Fatal("third suffix should be banned by the aggregated /64 budget")
+	}
+
+	body := strings.NewReader(`{"ip":"` + victim + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/security/rate-limit/unblock", body)
+	rec := httptest.NewRecorder()
+	ApiRateLimitUnblock()(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unblock should succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !rl.allow(prefix + "4") {
+		t.Fatal("after unblock the /64 budget must be reset, otherwise unblock looks ineffective")
 	}
 }

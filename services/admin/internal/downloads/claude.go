@@ -213,13 +213,6 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			return
 		}
 
-		for _, sd := range s.listStored() {
-			if sd.Version == body.Version && sd.Plat == body.Plat {
-				platform.WriteJSON(w, map[string]any{"status": "already_exists", "filename": sd.Filename})
-				return
-			}
-		}
-
 		// Stream progress as NDJSON
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -248,6 +241,18 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			}
 			flusher.Flush()
 			return true
+		}
+
+		// 已存在分支也走 NDJSON 事件协议:客户端逐行解析且只认 {type:...}。此前
+		// 回的是纯 JSON 对象({"status":"already_exists"}),客户端拿不到 type 就抛
+		// "Download completed but no result received"——存储列表过期(其他会话/
+		// 浏览器已下载)时用户看到的是误导性失败,而不是"已下载过",前端
+		// already_exists 分支因此永远不可达。
+		for _, sd := range s.listStored() {
+			if sd.Version == body.Version && sd.Plat == body.Plat {
+				sendEvent(map[string]any{"type": "done", "status": "already_exists", "filename": sd.Filename})
+				return
+			}
 		}
 
 		if !sendEvent(map[string]any{"type": "start", "filename": filename}) {

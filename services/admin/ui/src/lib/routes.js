@@ -13,7 +13,7 @@ export const routes = [
   { path: '/', component: Dashboard },
   { path: '/services', component: Services, adminOnly: true },
   { path: '/clients', component: Clients },
-  { path: '/users', component: Users },
+  { path: '/users', component: Users, adminOnly: true },
   { path: '/security', component: Security, adminOnly: true },
   { path: '/settings', component: Settings, adminOnly: true },
   { path: '/downloads', component: Downloads },

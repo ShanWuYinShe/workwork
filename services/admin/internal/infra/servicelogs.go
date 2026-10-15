@@ -63,7 +63,12 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 		// 一条超长日志行(巨型 stack)会让内存先翻倍再收缩。
 		var buf limitWriter
 		buf.max = 128 * 1024
-		stdcopy.StdCopy(&buf, &buf, logs)
+		// 丢弃返回值会把"读取中途失败/解码出错"与"日志就这么短"混为一谈:
+		// 客户端拿到 200 + 部分日志却无从判断是否被截断。错误进日志,响应仍
+		// 返回已读到的部分(排障用)。
+		if _, err := stdcopy.StdCopy(&buf, &buf, logs); err != nil {
+			log.Printf("read logs %s: %v", name, err)
+		}
 		s := string(buf.buf)
 		platform.WriteJSON(w, map[string]any{"logs": s})
 	}

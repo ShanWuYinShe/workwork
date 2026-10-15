@@ -151,8 +151,13 @@
     const a = document.createElement('a');
     a.href = url;
     a.download = 'xray-config.json';
+    // 合成 click 前必须把 <a> 挂进文档:Firefox 对游离节点的点击不触发下载。
+    // blob URL 也不能同步 revoke——部分浏览器在下载真正开始前就取不到数据,
+    // 表现为"点了没反应"。点击后移除节点,并延迟释放 URL。
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   let hasOwnClient = $derived(!isAdmin && clients.length >= 1);

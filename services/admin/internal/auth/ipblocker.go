@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -42,15 +41,23 @@ var ipBlocker = &ipBlockStore{path: "/app/data/blocked-ips.json"}
 func (s *ipBlockStore) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("WARNING: failed to read blocked-ips.json: %v", err)
+	// 解析失败交给 platform.LoadJSONFile:它把损坏文件隔离为 <path>.corrupt
+	// 并触发 webhook 告警。此前只打一条 WARNING 就返回——entries 为空(历史
+	// 封禁静默失效,fail-open),且紧随其后的任意 save() 会用空表原子覆盖
+	// 原文件,现场一并丢失。文件不存在时仍按空表启动。
+	platform.LoadJSONFile(s.path, s)
+	// expires_at 不可解析的条目:blockEntryExpired 视为"未过期"(保持
+	// fail-closed),cleanupExpired 又因解析失败永不清理,结果是永久占位
+	// 且无任何告警。加载时归一化成显式永久封禁(空 ExpiresAt):与强制执行
+	// 语义一致,管理页可见,也能人工解封。
+	for i := range s.Entries {
+		if s.Entries[i].ExpiresAt == "" {
+			continue
 		}
-		return
-	}
-	if err := json.Unmarshal(data, s); err != nil {
-		log.Printf("WARNING: failed to parse blocked-ips.json: %v", err)
+		if _, err := time.Parse(time.RFC3339, s.Entries[i].ExpiresAt); err != nil {
+			log.Printf("WARNING: blocked-ips.json entry %q has unparsable expires_at %q, treating as permanent block", s.Entries[i].IP, s.Entries[i].ExpiresAt)
+			s.Entries[i].ExpiresAt = ""
+		}
 	}
 }
 
@@ -119,16 +126,24 @@ func (s *ipBlockStore) add(ip, reason string, duration time.Duration) {
 	s.Entries = append(s.Entries, e)
 }
 
-func (s *ipBlockStore) remove(ip string) {
+// remove 删除指定 IP 的封禁条目,并返回是否真的删掉了。
+// 返回值让调用方在一次持锁内完成"存在性判定 + 删除":先 find 再 remove 是
+// 两段临界区,期间并发清理(cleanupExpired)会让 remove 静默变成 no-op,而
+// 接口仍报 ok,与 errCodeBlockNotFound 的 404 语义相矛盾。
+func (s *ipBlockStore) remove(ip string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var kept []ipBlockEntry
+	removed := false
 	for _, e := range s.Entries {
-		if e.IP != ip {
-			kept = append(kept, e)
+		if e.IP == ip {
+			removed = true
+			continue
 		}
+		kept = append(kept, e)
 	}
 	s.Entries = kept
+	return removed
 }
 
 // find 返回指定 IP 封禁条目的副本（锁内读，nil 表示未封禁）。
@@ -316,11 +331,10 @@ func ApiUnblockIP() http.HandlerFunc {
 		// 幂等提示分支：目标不在列表 → 404 + 错误码（明确语义而非静默 ok）。
 		// 注意：fail2ban 的 unban 在 bantime 到期后触发，此时条目可能已被
 		// cleanupExpired 清理，404 属预期，action 侧应容忍（见 admin-api.conf）。
-		if prev := ipBlocker.find(body.IP); prev == nil {
+		if !ipBlocker.remove(body.IP) {
 			platform.WriteErrorCode(w, "该 IP 未被封禁", http.StatusNotFound, errCodeBlockNotFound)
 			return
 		}
-		ipBlocker.remove(body.IP)
 		ipBlocker.save()
 		_, actor := GetUserFromContext(r)
 		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
