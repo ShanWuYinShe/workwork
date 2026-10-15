@@ -7,6 +7,7 @@ package nginxcfg
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -36,7 +37,7 @@ func EnsureNginxConfig() error {
 	}, map[string]string{
 		"__ADMIN_PORT__": "8318",
 	})
-	if err := os.MkdirAll("/app/data/generated/nginx", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(proxy.NginxConfigPath), 0755); err != nil {
 		return err
 	}
 	if existing, err := os.ReadFile(proxy.NginxConfigPath); err == nil && string(existing) == out {

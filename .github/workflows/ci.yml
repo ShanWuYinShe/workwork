@@ -53,6 +53,11 @@ jobs:
       - name: compose config 校验（无 .env，仅验结构与插值合法性）
         run: docker compose config -q
 
+      # make check 的组成部分（versions.env 主本 ↔ Dockerfile/compose/CI），
+      # 此前 CI 未跑:版本漂移只在本地门禁或部署时暴露,补齐后 PR 即拦截。
+      - name: 基础镜像版本一致性（versions.env 主本）
+        run: bash scripts/sync-versions.sh check
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'

@@ -25,10 +25,9 @@ func withUsersMetaPath(t *testing.T, initialJSON string) {
 	t.Cleanup(func() { usersMetaPath = old })
 }
 
-// TestLastAdminGuard 验证 last-admin 守卫在持锁回调内完成(TOCTOU 修复的回归):
-// 降级/删除最后一个管理员一律 400,存在其他管理员时正常放行。
 // TestRateLimiterBansExceedingIP 验证限流超限触发持久封禁(锁外落盘的回归):
 // 窗口内超过上限后 allow 返回 false,且 IP 进入持久封禁表。
+// (last-admin 守卫的用例是 accounts.TestLastAdminGuard,不在本包。)
 func TestRateLimiterBansExceedingIP(t *testing.T) {
 	oldBlocker := ipBlocker
 	ipBlocker = &ipBlockStore{path: filepath.Join(t.TempDir(), "blocked-ips.json")}
@@ -41,8 +40,11 @@ func TestRateLimiterBansExceedingIP(t *testing.T) {
 		banTime: time.Minute,
 	}
 	const ip = "198.51.100.42"
-	if !rl.allow(ip) || !rl.allow(ip) {
-		t.Fatal("requests within limit should be allowed")
+	// maxReqs=2:先精确用满窗口配额(两次都必须在限额内放行)。
+	for i := 1; i <= rl.maxReqs; i++ {
+		if !rl.allow(ip) {
+			t.Fatalf("request %d within limit should be allowed", i)
+		}
 	}
 	if rl.allow(ip) {
 		t.Fatal("request over limit should be rejected")
@@ -72,10 +74,9 @@ func TestRedactRequestPath(t *testing.T) {
 	}
 }
 
-// TestAddAdminCannotResetProtectedAdmin 锁定 H-2 守卫：AUTH_USER 已存在时，
-// 经 /users/admin/add 的重置密码路径（role 保持 admin 绕过降级守卫）必须 403，
-// 与 ApiChangePassword 对同一攻击的阻断对齐。修复前该路径可直达 HtpasswdAddUser
-// 覆盖超管密码行。
+// TestAddAdminGuardAllowsFreshAuthUser：users.json 尚无 AUTH_USER（初始部署）
+// 时守卫放行——只验证存在性判断，不实际触达 htpasswd 写入。
+// (拒绝侧 AUTH_USER 已存在时必须 403 的用例是 accounts.TestAddAdminCannotResetProtectedAdmin。)
 func TestAddAdminGuardAllowsFreshAuthUser(t *testing.T) {
 	withUsersMetaPath(t, `{
   "users": {

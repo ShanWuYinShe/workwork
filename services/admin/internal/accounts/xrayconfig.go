@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -54,7 +55,7 @@ func GenXrayConfig() error {
 
 	// Always write — content comparison happens inside WriteFile (atomic overwrite).
 	// The file is shared with xray container via bind mount.
-	if err := os.MkdirAll("/app/data/generated/xray", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(proxy.XrayConfigPath), 0755); err != nil {
 		return err
 	}
 	existing, _ := os.ReadFile(proxy.XrayConfigPath)

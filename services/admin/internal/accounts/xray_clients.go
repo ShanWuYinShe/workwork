@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -47,7 +48,9 @@ func readXrayClientsNoLock() ([]xrayClientEntry, error) {
 }
 
 func writeXrayClientsNoLock(clients []xrayClientEntry) error {
-	if err := os.MkdirAll("/app/data", 0755); err != nil {
+	// 目录取自 xrayClientsPath 而非字面量 /app/data:与读路径同源。此前硬编码
+	// 字面量,路径变量被改/被测试重定向后写入会落在旧目录(或直接失败)。
+	if err := os.MkdirAll(filepath.Dir(xrayClientsPath), 0755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(clients, "", "  ")
@@ -55,12 +58,6 @@ func writeXrayClientsNoLock(clients []xrayClientEntry) error {
 		return err
 	}
 	return platform.AtomicWriteFile(xrayClientsPath, data, 0600)
-}
-
-func writeXrayClients(clients []xrayClientEntry) error {
-	xrayClientsMu.Lock()
-	defer xrayClientsMu.Unlock()
-	return writeXrayClientsNoLock(clients)
 }
 
 // clientExistsNoLock reports whether a client with the given UUID already exists.

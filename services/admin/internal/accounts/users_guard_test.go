@@ -92,7 +92,7 @@ func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
   }
 }`)
-	// 放行分支（无 AUTH_USER 时）由 TestAddAdminGuardAllowsFreshAuthUser 覆盖。
+	// 放行分支（无 AUTH_USER 时）由 auth.TestAddAdminGuardAllowsFreshAuthUser 覆盖。
 	oldAuth := platform.GetEnv("AUTH_USER")
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "root")
@@ -114,8 +114,5 @@ func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
 		}
 	})
 	// 放行分支（AUTH_USER 尚未 provisioned 时不拦截）由
-	// TestAddAdminGuardAllowsFreshAuthUser 用不含 AUTH_USER 的 fixture 覆盖。
+	// auth.TestAddAdminGuardAllowsFreshAuthUser 用不含 AUTH_USER 的 fixture 覆盖。
 }
-
-// TestAddAdminGuardAllowsFreshAuthUser：users.json 尚无 AUTH_USER（初始部署）
-// 时守卫放行——只验证存在性判断，不实际触达 htpasswd 写入。
