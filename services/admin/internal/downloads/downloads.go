@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -75,6 +76,40 @@ func trustedAssetHost(rawURL string) bool {
 	}
 	host := strings.ToLower(u.Hostname())
 	return host == "github.com" || strings.HasSuffix(host, ".githubusercontent.com")
+}
+
+// errChecksumMismatch 表示下载产物与上游 release 声明的 sha256 不一致:要么传输
+// 被调包/截断,要么资产在发布列表被缓存之后被替换。调用方用 errors.Is 把它与
+// 普通下载失败区分开,按安全事件留痕。
+var errChecksumMismatch = errors.New("checksum mismatch")
+
+// assetSHA256 从 GitHub release 资产的 digest 字段提取 sha256 十六进制值。
+// 只接受 "sha256:" 前缀 + 64 位小写十六进制:字段缺失(旧响应/自建镜像)或换了
+// 算法时返回空串,调用方跳过校验而不是拒绝下载——上游字段变化不应直接打断
+// 下载能力,而摘要存在时一律校验。
+func assetSHA256(digest string) string {
+	hexSum := strings.TrimPrefix(digest, "sha256:")
+	if hexSum == digest || len(hexSum) != sha256.Size*2 {
+		return ""
+	}
+	for _, c := range hexSum {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return ""
+		}
+	}
+	return hexSum
+}
+
+// verifyDownloadedSHA256 比对实际下载产物的 sha256 与上游声明值。expected 为空
+// 表示上游未提供摘要(跳过校验);不一致返回 errChecksumMismatch。
+func verifyDownloadedSHA256(expected, actual string) error {
+	if expected == "" {
+		return nil
+	}
+	if !strings.EqualFold(expected, actual) {
+		return fmt.Errorf("%w: expected %s got %s", errChecksumMismatch, expected, actual)
+	}
+	return nil
 }
 
 // verifySHASUMS256 拉取 release 的 SHASUMS256.txt 与下载产物比对该资产的
@@ -140,6 +175,9 @@ type ghAsset struct {
 	Name               string `json:"name"`
 	Size               int64  `json:"size"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	// Digest 形如 "sha256:<hex>",由 GitHub 为每个 release 资产计算(2026-10
+	// 实测 API 稳定返回),用于下载后比对实际内容;缺失时跳过校验。
+	Digest string `json:"digest"`
 }
 
 // ghRelease 是 GitHub releases API 的通用响应条目。
@@ -341,7 +379,7 @@ func (s *downloadService) fetchVersions() ([]releaseInfo, error) {
 
 // downloadArchive 流式下载资产到 s.dir：Content-Length 预检 + 流式累计双重
 // 大小限制，SHA-256 校验和随流计算，原子 rename 落盘，manifest 去重追加。
-func (s *downloadService) downloadArchive(parentCtx context.Context, filename, version, plat, assetURL string, onProgress func(bytes, total int64)) (int64, string, error) {
+func (s *downloadService) downloadArchive(parentCtx context.Context, filename, version, plat, assetURL, expectedSHA256 string, onProgress func(bytes, total int64)) (int64, string, error) {
 	// CheckRedirect 只覆盖重定向跳,首个 URL 必须单独校验。
 	if !trustedAssetHost(assetURL) {
 		return 0, "", fmt.Errorf("asset URL host %q not in allowlist, refusing to download", assetURL)
@@ -424,6 +462,13 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 	}
 
 	checksum := hex.EncodeToString(hash.Sum(nil))
+
+	// 摘要校验必须在 rename 与 manifest 落盘之前:不通过时只删掉临时文件,不会
+	// 留下一条指向坏产物的下载记录。下载目录会被 /api/admin/*/downloads 分发给
+	// 所有代理客户端,未通过校验的字节一旦落库就等于出库。
+	if err := verifyDownloadedSHA256(expectedSHA256, checksum); err != nil {
+		return 0, "", fmt.Errorf("%s: %w", filename, err)
+	}
 
 	finalPath := filepath.Join(s.dir, filename)
 	if err := os.Rename(tmpPath, finalPath); err != nil {

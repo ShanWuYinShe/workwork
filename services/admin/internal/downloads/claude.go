@@ -8,6 +8,7 @@ import (
 	"admin/internal/auth"
 	"admin/internal/platform"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -200,10 +201,14 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		assetURL := ""
 		assetName := ""
 		filename := ""
+		// 资产摘要:GitHub API 为每个 release 资产返回 "sha256:<hex>",下载完
+		// 比对实际内容(此前只有 claude 面靠 SHASUMS256.txt 校验,xray 侧零校验)。
+		assetDigest := ""
 		for _, a := range release.Assets {
 			if s.parseAssetPlat(a.Name) == body.Plat {
 				assetURL = a.BrowserDownloadURL
 				assetName = a.Name
+				assetDigest = a.Digest
 				filename = s.buildFilename(body.Version, body.Plat, a.Name)
 				break
 			}
@@ -261,7 +266,7 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 
 		var lastPct int64 = -1
 		clientGone := false
-		size, checksum, err := s.downloadArchive(r.Context(), filename, body.Version, body.Plat, assetURL, func(bytes, total int64) {
+		size, checksum, err := s.downloadArchive(r.Context(), filename, body.Version, body.Plat, assetURL, assetSHA256(assetDigest), func(bytes, total int64) {
 			if clientGone || total <= 0 {
 				return
 			}
@@ -274,6 +279,14 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 			}
 		})
 		if err != nil {
+			// 摘要不符属安全事件(CDN 调包/传输截断),与普通网络失败分开:留
+			// [security] 痕迹,并提示刷新发布列表(资产在缓存后被替换时摘要会过期)。
+			if errors.Is(err, errChecksumMismatch) {
+				log.Printf("[security] checksum verify failed tool=%s version=%s file=%s: %v",
+					filepath.Base(s.dir), body.Version, filename, err)
+				sendEvent(map[string]any{"type": "error", "error": "安装包校验失败（与发布清单不一致），请刷新发布列表后重试"})
+				return
+			}
 			log.Printf("download failed (%s): %v", s.manifestPath, err)
 			sendEvent(map[string]any{"type": "error", "error": "Download failed"})
 			return
