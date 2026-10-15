@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -25,10 +26,21 @@ import (
 //	TEST_DOCKER_HOST=tcp://127.0.0.1:23750 go test -run TestDockerProxyWhitelist ./internal/platform/
 //
 // 未设置 TEST_DOCKER_HOST 时跳过(CI 无 docker daemon 可供 proxy 代理)。
+// TEST_COMPOSE_PROJECT 需与代理的 ALLOWED_COMPOSE_PROJECTS 一致(默认 test):
+// 无容器句柄的读端点(/containers/json、/events)要求调用方自带该项目 label
+// 过滤,admin 的每个调用点都由 ComposeProjectFilters 注入,本测试同样如此。
 func TestDockerProxyWhitelist(t *testing.T) {
 	proxyHost := os.Getenv("TEST_DOCKER_HOST")
 	if proxyHost == "" {
 		t.Skip("TEST_DOCKER_HOST not set; run against a docker-socket-proxy locally")
+	}
+	project := os.Getenv("TEST_COMPOSE_PROJECT")
+	if project == "" {
+		project = "test"
+	}
+	projectLabel := "com.docker.compose.project=" + project
+	projectFilters := func() filters.Args {
+		return filters.NewArgs(filters.KeyValuePair{Key: "label", Value: projectLabel})
 	}
 
 	// 经 proxy 的 client(admin 的连接方式)。
@@ -54,7 +66,7 @@ func TestDockerProxyWhitelist(t *testing.T) {
 		Tty:   true,
 		// 归属校验(proxy 端 ALLOWED_COMPOSE_PROJECTS)只放行名单内项目,
 		// 测试容器必须落在 label 圈定的项目里才能走通执行类端点。
-		Labels: map[string]string{"com.docker.compose.project": "test"},
+		Labels: map[string]string{"com.docker.compose.project": project},
 	}, nil, nil, nil, "wk-proxy-whitelist-test")
 	if err != nil {
 		t.Fatalf("create test container via local daemon: %v", err)
@@ -74,12 +86,11 @@ func TestDockerProxyWhitelist(t *testing.T) {
 	})
 
 	// ——— admin 调用面逐项验证 ———
-	// list(Filter with labels — ComposeProjectFilters 的形态)
+	// list(Filter with labels — ComposeProjectFilters 的形态;代理现在强制
+	// 该过滤必须存在且落在允许项目内)
 	listed, err := proxyCli.ContainerList(ctx, container.ListOptions{
-		All: true,
-		Filters: filters.NewArgs(filters.KeyValuePair{
-			Key: "label", Value: "com.docker.compose.project=workwork",
-		}),
+		All:     true,
+		Filters: projectFilters(),
 	})
 	if err != nil {
 		t.Fatalf("ContainerList via proxy: %v", err)
@@ -98,7 +109,7 @@ func TestDockerProxyWhitelist(t *testing.T) {
 	}
 	// events 流(读一帧或超时即算通,IPWatcher 只需要订阅不报错)。
 	ctxE, cancelE := context.WithTimeout(ctx, 3*time.Second)
-	_, errCh := proxyCli.Events(ctxE, events.ListOptions{})
+	_, errCh := proxyCli.Events(ctxE, events.ListOptions{Filters: projectFilters()})
 	select {
 	case err := <-errCh:
 		t.Fatalf("Events via proxy: %v", err)
@@ -187,5 +198,47 @@ func TestDockerProxyWhitelist(t *testing.T) {
 		if resp2.StatusCode != http.StatusForbidden {
 			t.Errorf("GET %s via proxy = %d, want 403 (whitelist must deny)", path, resp2.StatusCode)
 		}
+	}
+
+	// ——— 无容器句柄读端点的作用域要求 ———
+	// 这两条端点不看具体容器,响应含宿主上其他 compose 项目的容器元数据:
+	// 必须自带允许项目的 label 过滤,否则 403(过滤由 daemon 侧收敛)。
+	rawStatus := func(t *testing.T, pathAndQuery string) int {
+		t.Helper()
+		reqCtx, reqCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer reqCancel()
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet,
+			strings.Replace(proxyHost, "tcp://", "http://", 1)+pathAndQuery, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s via proxy: %v", pathAndQuery, err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := rawStatus(t, "/containers/json"); code != http.StatusForbidden {
+		t.Errorf("unscoped GET /containers/json = %d, want 403", code)
+	}
+	if code := rawStatus(t, "/events"); code != http.StatusForbidden {
+		t.Errorf("unscoped GET /events = %d, want 403", code)
+	}
+	foreign := url.QueryEscape(`{"label":{"com.docker.compose.project=not-` + project + `":true}}`)
+	if code := rawStatus(t, "/containers/json?filters="+foreign); code != http.StatusForbidden {
+		t.Errorf("foreign-project GET /containers/json = %d, want 403", code)
+	}
+	// 两种 filters 形态都要放行:docker SDK 发 map 形态,手工/旧版发数组形态。
+	sdkForm := url.QueryEscape(`{"label":{"` + projectLabel + `":true}}`)
+	if code := rawStatus(t, "/containers/json?all=1&filters="+sdkForm); code != http.StatusOK {
+		t.Errorf("SDK-form scoped GET /containers/json = %d, want 200", code)
+	}
+	legacyForm := url.QueryEscape(`{"label":["` + projectLabel + `"]}`)
+	if code := rawStatus(t, "/containers/json?filters="+legacyForm); code != http.StatusOK {
+		t.Errorf("legacy-form scoped GET /containers/json = %d, want 200", code)
+	}
+	if code := rawStatus(t, "/events?filters="+legacyForm); code != http.StatusOK {
+		t.Errorf("scoped GET /events = %d, want 200", code)
 	}
 }
