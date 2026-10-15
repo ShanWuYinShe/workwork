@@ -9,7 +9,7 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 
 1. Cloudflare Authenticated Origin Pulls (mTLS): 只接受 CF Origin Pull 证书。证书: `cert/cloudflare-origin-pull.pem`
 2. CSRF 中间件（Go，变更类请求）：浏览器发起的写请求 Origin 必须与 Host 一致（`auth.CSRFMiddleware`，位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 配额）
-3. Go rate limiter: 20 req/10s → 429 → 自动封禁 30min；IPv6 按 /64 网段聚合计数（换后缀不重置预算），封禁仍按具体 IP；`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束，多连接下载器勿用 Go 层限流惩罚）
+3. Go rate limiter: 20 req/10s → 429 → 自动封禁 30min；IPv6 按 /64 网段聚合计数（换后缀不重置预算），封禁仍按具体 IP（**解封 API 必须两个维度都清**：整点计数 + /64 前缀预算，只清前者会导致同前缀仍被拦截，2026-10-16 修）；`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束，多连接下载器勿用 Go 层限流惩罚）
 4. Go IP blocker: 持久黑名单 → 403
 5. nginx 层（2026-10-11 起，与 admin 层协同）：`limit_req admin_api`（10r/s burst 50）与 `blocked-ips.conf` return 403 对**携带 internal token 的请求豁免**（nginx 只做存在性判断，token 真伪由 admin 恒时比较——伪造者过不了校验、照常被应用层限流封禁，防线不弱化）。实现：模板 http 级 map 组合（$has_internal_tok → 空限速键 / $blocked_final），`transfer_dl/transfer_conn` 刻意不豁免
 5. fail2ban in nginx: 通过 scoped `X-Fail2Ban-Token` 调用 admin block/unblock API 封禁真实 IP。计数语义（2026-09-30 起）：filter 只计**带错误凭证**的 401（failregex 按 `$remote_user` 非空区分，`^<HOST> - (?!- )\S+ \[`）——浏览器冷启动质询的无凭证 401 是正常登录流程不计入，maxretry=5 即真实错密码 5 次；登出凭证覆盖请求每次仍计 1 条，故不能取 3。此前全量计数 + maxretry=10 曾两次误封合法用户（5min 内双冷启动 ≈12>10）。验证手法：构造 auth_log 样本行，在 nginx 镜像内 `fail2ban-regex` 断言命中/不命中集合
@@ -36,6 +36,19 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 ### 页面/API 访问矩阵
 
 完整矩阵见 [`docs/architecture.md`](../../../docs/architecture.md#rbac-访问矩阵)。新增端点按最小角色选 `viewer`/`admin` 包裹。
+
+### 前端 adminOnly 的两种语义（2026-10-16 实测，别把"URL 能进"当漏洞）
+
+`routes.js` 里 `routes[].adminOnly` 是 SPA 路由守卫（App.svelte 显示 forbidden 页），
+`navSections[].items[].adminOnly` 只控制侧边栏是否显示，**两者独立**。`/users` 就是
+"侧边栏对 viewer 隐藏、路由对 viewer 开放"的既有设计：页面管理内容全包在 `{#if isAdmin}`，
+viewer 进去只看到"修改密码"卡片（`POST /users/password` 为 viewer+，见 docs/api.md），
+若给 `routes` 那条也加 `adminOnly`，viewer 连按 URL 都进不去，等于删掉唯一的自助改密入口
+（2026-10-16 实际踩过，已回退）。
+
+判定顺序：① 读目标页面有没有 `!isAdmin` 分支或调用 viewer+ 接口；② 看侧边栏是否已隐藏该条目——
+只隐藏导航属 UX 取舍，不是权限缺口；③ 组件内按钮即便对 viewer 显示，真正拦截在服务端
+`requireRole`，前端隐藏只是体验优化，改它前先确认没删掉合法功能。
 
 ## IPv6 寻址
 
