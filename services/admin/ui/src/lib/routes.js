@@ -13,7 +13,10 @@ export const routes = [
   { path: '/', component: Dashboard },
   { path: '/services', component: Services, adminOnly: true },
   { path: '/clients', component: Clients },
-  { path: '/users', component: Users, adminOnly: true },
+  // /users 不加 adminOnly:侧边栏(adminOnly)对 viewer 隐藏入口,但页面本身支持
+  // viewer 改自己密码(POST /users/password 为 viewer+,旧密码字段仅在非 admin 时
+  // 出现),加 adminOnly 会让 viewer 连按 URL 都进不去,丢掉唯一的自助改密入口。
+  { path: '/users', component: Users },
   { path: '/security', component: Security, adminOnly: true },
   { path: '/settings', component: Settings, adminOnly: true },
   { path: '/downloads', component: Downloads },
