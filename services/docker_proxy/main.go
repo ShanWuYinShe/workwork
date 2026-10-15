@@ -17,9 +17,12 @@
 // GET /containers/{id}/json 核对 com.docker.compose.project label,只放行
 // ALLOWED_COMPOSE_PROJECTS(默认 workwork)名下的容器。没有这一层,白名单
 // 的 {id} 是全局通配——admin 被攻破即可对宿主上其他 compose 项目的容器
-// (如 media/music 栈)exec/启停。残余暴露面:列表与 events 仍跨项目可见
-// (仅容器名/镜像等元数据,无执行面),action 强制注入 label 过滤会破坏
-// admin 既有查询语义,接受此残余并在日志可审计。
+// (如 media/music 栈)exec/启停。没有容器句柄的读端点(/containers/json、
+// /events)无法按容器校验归属,改为要求调用方自带允许项目的 label 过滤,由
+// daemon 侧完成收敛(admin 全部调用点经 platform.ComposeProjectFilters 注入
+// 该过滤,见 platform/dockerproxy_integration_test.go),缺失或不可解析即 403:
+// 这两条端点的响应含宿主上其他 compose 项目的容器名/镜像等元数据,而本代理
+// 无认证。放行与拒绝都留痕,唯一边界仍是 docker_proxy 网络可达性。
 //
 // exec attach 是 HTTP Upgrade(hijack)长连接,httputil.ReverseProxy 原生
 // 透传;events/logs 流式响应经 FlushInterval=-1 立即冲刷。上游是 unix
@@ -179,6 +182,80 @@ func containerInAllowedProject(id string, inspect inspectFunc) bool {
 	return true
 }
 
+// scopedReadPaths 是"不看具体容器、可跨项目返回数据"的读端点。它们没有容器
+// 句柄可供归属校验,唯一能约束作用域的手段是要求调用方自带 compose 项目
+// label 过滤(daemon 侧按 AND 语义收敛,见 docker api/types/filters)。
+var scopedReadPaths = []*regexp.Regexp{
+	regexp.MustCompile(versioned + `/containers/json$`),
+	regexp.MustCompile(versioned + `/events$`),
+}
+
+const composeProjectLabel = "com.docker.compose.project="
+
+// readScopeOK 报告 handle-less 读端点是否带上了允许项目的 label 过滤。
+// fail-closed:filters 缺失、JSON 不可解析、label 不含允许项目一律拒绝。
+// 刻意不改写请求(给上游注入 label 会让"代理检查的串"与"上游执行的串"再次
+// 分离,且多项目配置下一条 label 过滤无法表达 OR)——缺过滤就是调用方错,
+// 让它响亮地 403,而不是静默放行跨项目数据。
+func readScopeOK(method, rawPath, rawQuery string) bool {
+	if method != http.MethodGet {
+		return true
+	}
+	scoped := false
+	for _, re := range scopedReadPaths {
+		if re.MatchString(rawPath) {
+			scoped = true
+			break
+		}
+	}
+	if !scoped {
+		return true
+	}
+	q, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return false
+	}
+	raw := q.Get("filters")
+	if raw == "" {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return false
+	}
+	for _, v := range filterValues(fields["label"]) {
+		if project, ok := strings.CutPrefix(v, composeProjectLabel); ok && allowedProjects[project] {
+			return true
+		}
+	}
+	return false
+}
+
+// filterValues 解出 filters 中某个 key 的取值集合。docker 客户端发 map 形态
+// ({"label":{"k=v":true}}),旧版客户端与手工调用发数组形态({"label":["k=v"]}),
+// daemon 两者都接受(api/types/filters.FromJSON 的 legacy 回退分支),这里同样
+// 都要认——只认一种会让另一种合法调用被误拒。
+func filterValues(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return list
+	}
+	var set map[string]bool
+	if err := json.Unmarshal(raw, &set); err == nil {
+		out := make([]string, 0, len(set))
+		for k, on := range set {
+			if on {
+				out = append(out, k)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 var upstreamTransport = &http.Transport{
 	DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
@@ -252,6 +329,11 @@ func main() {
 		if !scopeCheck(r.URL.Path, daemonInspect) {
 			log.Printf("denied %s %q (target container out of allowed compose projects %v)", r.Method, r.URL.Path, projects)
 			http.Error(w, "container not in allowed project", http.StatusForbidden)
+			return
+		}
+		if !readScopeOK(r.Method, r.URL.Path, r.URL.RawQuery) {
+			log.Printf("denied %s %q (unscoped list/events: missing allowed compose project label filter)", r.Method, r.URL.Path)
+			http.Error(w, "list/events must be scoped to an allowed compose project", http.StatusForbidden)
 			return
 		}
 		// 允许的请求同样留痕:代理无认证,唯一边界是 docker_proxy 网络可达性;
