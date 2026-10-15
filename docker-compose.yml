@@ -185,6 +185,12 @@ services:
     # method+path 级,越权一律 403;新增 admin docker API 调用时同步。
     restart: unless-stopped
     init: true
+    environment:
+      # 与 admin 的 COMPOSE_PROJECT_NAME 同源:容器归属校验放行的项目名必须
+      # 等于实际 compose 项目名。此前只吃硬编码默认值 workwork,改了
+      # COMPOSE_PROJECT_NAME 就与 admin 注入的 label 过滤不一致——本栈自己的
+      # 容器会被归属校验全部拒绝(面板操作静默失效)。
+      - ALLOWED_COMPOSE_PROJECTS=${COMPOSE_PROJECT_NAME:-workwork}
     deploy:
       resources:
         limits:
