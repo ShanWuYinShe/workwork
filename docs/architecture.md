@@ -6,7 +6,7 @@
 
 ### services/admin/ — Go 管理面板（端口 8318，内部）
 
-HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过自建白名单代理（`docker-proxy` 服务，compose 独立网络 `docker_proxy`，仅 admin 可达）操作其他容器：method+path 级放行 containers 读写/exec/events/info/version/ping，create/delete/images/networks/volumes/swarm 一律 403（容器 create + bind-mount 是宿主逃逸面，必须拒绝）。
+HTTP 服务，涵盖 Dashboard / 用户管理 / 网络配置 / Xray 客户端 CRUD / 安全封禁 / Cloudflare DNS / 部署配置生成。单容器多阶段构建（bun → golang → alpine），通过自建白名单代理（`docker-proxy` 服务，compose 独立网络 `docker_proxy`，仅 admin 可达）操作其他容器：method+path 级放行 containers 读写/exec/events/info/version/ping，create/delete/images/networks/volumes/swarm 一律 403（容器 create + bind-mount 是宿主逃逸面，必须拒绝）。引用具体容器的路径额外校验 compose 项目归属；没有容器句柄的列表/事件端点要求调用方自带项目 label 过滤，缺失即 403（info/version/ping 不含容器元数据，直接放行）。
 
 ### services/admin/ui/ — Svelte 5 SPA
 
