@@ -17,6 +17,8 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 7. htpasswd bcrypt (`$2y$`): 所有密码用 bcrypt 哈希
 8. 工具下载完整性（2026-10-16 修）：admin 的 claude/xray 安装包下载比对 GitHub release asset 的 `digest`（`sha256:<hex>`，releases API 每个 asset 都带，2026-10-16 实测 60/60）。校验点在 `downloadArchive` 内、`rename`+manifest 落盘**之前**——下载目录会被 `/api/admin/*/downloads` 分发给所有代理客户端，未校验的字节落库即出库；失败只留下可丢弃的临时文件（`defer os.Remove`），接口记 `[security] checksum verify failed`（含期望/实际值）。xray 侧此前零校验（claude 侧另有 SHASUMS256.txt 比对，保留为第二层）；上游缺摘要或非 sha256 算法时**跳过**校验而不拒绝下载（上游字段变化不应打断下载能力）。回归护栏：`internal/downloads/digest_test.go` 的 handler 用例——把 `assetSHA256(assetDigest)` 断成空串即失败
 
+9. docker API 白名单代理（`services/docker_proxy`，2026-10-16 复核）：`(method, path)` 正则逐条锚定首尾，匹配前先剥 query、且**禁止二次 URL 解码**（`%252F` 变体会让"检查的串"与"上游执行的串"不一致——白名单绕过的经典形态）；引用具体容器的路径（`/containers/{id}/…`、`/exec/{id}/…`）额外过 compose 项目归属校验（`com.docker.compose.project` ∈ `ALLOWED_COMPOSE_PROJECTS`，exec 先 inspect 取 `ContainerID`），inspect 失败/容器不存在/label 缺失一律**拒绝**（fail-closed）。**无容器句柄的端点（`/containers/json`、`/events`、`/info`、`/version`、`/_ping`）不做项目过滤、直接放行**——这是有意设计（代理侧只控"能对哪个容器做什么"）：admin 自身所有 `ContainerList` 调用都带 `platform.ComposeProjectFilters(...)`，正常路径仍是项目内视图（审计时逐调用点核对过），残余风险仅为"admin 被攻破后可读取本 daemon 上其他项目的容器元数据/事件流"。加新 docker 调用或改代理时不要误以为列表已被代理侧收窄
+
 "Never use `RemoteAddr`" 的原因就在这里——所有流量经 Docker bridge 内网地址（网段由 Docker 默认地址池动态分配），基于 RemoteAddr 的判断会全部失败。必须用 `X-Forwarded-User`（nginx 设置）或 `X-Internal-Token`（内部服务）。
 
 ## RBAC — 不要破坏这个
