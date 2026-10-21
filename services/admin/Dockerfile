@@ -1,5 +1,5 @@
 ARG BUN_VERSION=1.3.14
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.26.10
 ARG ALPINE_VERSION=3.24.1
 # 镜像源可覆盖(默认 aliyun;换环境 build-arg 覆盖,compose 已传)。
 ARG APK_MIRROR=mirrors.aliyun.com

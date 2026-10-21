@@ -2,7 +2,8 @@
 # 跨仓基础镜像版本统一工具：workwork/versions.env 是唯一主本，
 # media_center / music_player / ops-portal / hotspot（与本仓并列的检出目录）的 versions.env、
 # 各 Dockerfile 的 ARG 默认值、CI 的 go-version/bun-version、compose 的
-# :- 兜底值，全部以主本为准。
+# :- 兜底值、.env.example/.env.prod.example 的版本对照值（活动行或 "# KEY=值"
+# 注释行），全部以主本为准。
 #
 # 用法:
 #   sync-versions.sh check      # 全矩阵一致性校验,漂移即退出 1(make check 已挂)
@@ -40,12 +41,18 @@ master_keys() { grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$MASTER_FILE" | cut -d
 master_val() { grep -E "^$1=" "$MASTER_FILE" | head -1 | cut -d= -f2-; }
 
 # repo_files <repo根>: 输出该仓参与版本管理的文件,格式 "<类型>\t<相对路径>"
+# 类型说明：
+#   env   = versions.env / deploy/versions.env（实际生效值）
+#   envex = .env.example / .env.prod.example（示例/对照值；活动行与 "# KEY=值" 注释行都算点位，
+#           防止模板与主本漂移——历史上出现过 .env.example 里 GO_VERSION 活动值导致 cp 后覆盖默认值）
 repo_files() {
   git -C "$1" ls-files -- 'versions.env' 'deploy/versions.env' \
-      '*Dockerfile*' '.github/workflows/*.yml' '*compose*.yml' 2>/dev/null |
+      '*Dockerfile*' '.github/workflows/*.yml' '*compose*.yml' \
+      '*.env.example' '*.env.prod.example' 2>/dev/null |
   while IFS= read -r f; do
     case "$f" in
       */versions.env|versions.env) echo "env	$f" ;;
+      *.env.example|*.env.prod.example) echo "envex	$f" ;;
       *Dockerfile*)                echo "dockerfile	$f" ;;
       */workflows/*)               echo "ci	$f" ;;
       *compose*.yml)               echo "compose	$f" ;;
@@ -60,6 +67,7 @@ spot_value() {
   [ -f "$p" ] || return 0
   case "$typ" in
     env)        { grep -E "^$key=" "$p" || true; } | head -1 | cut -d= -f2- ;;
+    envex)      { grep -E "^(# )?$key=" "$p" || true; } | head -1 | sed -E "s/^(# )?$key=//" ;;
     dockerfile) { grep -E "^ARG $key=" "$p" || true; } | head -1 | sed "s/^ARG $key=//" ;;
     ci)
       case "$key" in
@@ -77,6 +85,7 @@ rewrite() {
   [ -f "$p" ] || return 0
   case "$typ" in
     env)        sed -i.bak "s|^$key=.*|$key=$val|" "$p" ;;
+    envex)      sed -i.bak -E "s|^(# )?$key=.*|\1$key=$val|" "$p" ;; # 保留原注释态（# 前缀）
     dockerfile) sed -i.bak "s|^ARG $key=.*|ARG $key=$val|" "$p" ;;
     ci)
       case "$key" in
