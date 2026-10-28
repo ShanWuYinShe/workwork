@@ -24,7 +24,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
   https://yinghuoren.com/speedtest/{0|8388608}
 ```
 
-**cfst 标准流程**（XIU2/CloudflareSpeedTest v2.3.5，darwin arm64 二进制在 `.workwork/cf-opt/cfst/`，经本机 xray 代理从 GitHub release 下载）：2.5 分钟完成全段粗筛 + top10 下载测速。
+**cfst 标准流程**（XIU2/CloudflareSpeedTest v2.3.5，darwin arm64 二进制历史上放在 `.workwork/cf-opt/cfst/`——该目录属中间产物、可能已被清理，需要时经本机 xray 代理从 GitHub release 重新下载）：2.5 分钟完成全段粗筛 + top10 下载测速。
 
 ```bash
 ./cfst -url "https://yinghuoren.com/speedtest/33554432" -dn 10 -t 4 -p 15 -o result.csv
@@ -63,10 +63,11 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 - **403** = ipBlocker 持久封禁（nginx 层 `blocked-ips.conf` + admin 层）：持 INTERNAL_TOKEN 调 `POST /api/admin/security/unblock` `{"ip":"..."}`。
 - **429** 有两种：nginx `limit_req`（无状态，停手即恢复）与 admin `authRateLimiter` 内存 ban（30min、不续期、到期自动重置）。后者用 `GET|POST /api/admin/security/rate-limit[/unblock]` 查询/解封。
 - **两个解封 API 都要调**（`security/unblock` 与 `security/rate-limit/unblock`）。
-- 调用路径：ssh 服务器后
+- 调用路径：ssh 服务器后，token 由宿主 shell 读文件后传入容器（nginx 容器没有挂载 `.wework/.internal-token`，在容器内 `cat` 会失败）：
   ```bash
-  docker compose exec -T nginx sh -c \
-    'wget --header "X-Internal-Token: $(cat .wework/.internal-token)" ...' http://admin:8318/...
+  TOKEN="$(cat .wework/.internal-token)"
+  docker compose exec -T nginx curl -sS -H "X-Internal-Token: $TOKEN" \
+    http://admin:8318/api/admin/security/rate-limit
   ```
   （`ADMIN_PORT` 见服务器 `.env`，当前 8318。）
 - 坑：被封后 **TTFB 探针仍「正常」返回**（403 页也有 TTFB），只看 TTFB 会误判链路正常——「聚合下载全零 + TTFB 正常」= 先查是否被自家封禁（源站 `blocked-ips.conf` grep 自己 IP，或 403 正文含 nginx 字样）。

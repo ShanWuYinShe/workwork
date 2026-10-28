@@ -9,7 +9,7 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 
 按流量经过顺序排列。改动某一层前，先读 `references/defense-layers.md` 对应小节。
 
-1. **CF Authenticated Origin Pulls (mTLS)**：只接受 CF Origin Pull 证书，证书 `cert/cloudflare-origin-pull.pem`。
+1. **CF Authenticated Origin Pulls (mTLS)**：`ssl_verify_client on` 只接受 CF Origin Pull 证书；校验用的 CA 在镜像内 `/etc/nginx/cloudflare-origin-pull.pem`（构建时从 CF 官方 `authenticated_origin_pull_ca.pem` 下载，见 `services/nginx/Dockerfile`），不是仓库 `cert/` 下的文件。
 2. **CSRF 中间件**（Go，变更类请求）：浏览器发起的写请求 `Origin` 必须与 `Host` 一致（`auth.CSRFMiddleware`）。它必须位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 的配额。
 3. **Go rate limiter**：20 req/10s → 429 → 自动封禁 30min；IPv6 按 **/64 网段**聚合计数（换后缀不重置预算），封禁仍按具体 IP。**解封 API 必须两个维度都清**（整点计数 + /64 前缀预算），只清前者同前缀仍被拦截。`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束）。
 4. **Go IP blocker**：持久黑名单 → 403。
@@ -26,11 +26,11 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 三层链：nginx basic auth → Go middleware chain → 前端路由守卫。
 
 ```
-csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole → handler
+auth.CSRFMiddleware → auth.RateLimitMiddleware → auth.IPBlockMiddleware → auth.RequireRole → handler
 ```
 
 - `requireRole("admin")`：users.json 中 role=admin；`requireRole("viewer")`：任何已认证用户。
-- `X-Internal-Token` / `Authorization: Bearer <INTERNAL_TOKEN>`：全权限共享 token（nginx 透传，外部自动化经公网可用），持合法 token 四层全豁免（nginx 限速+封禁、admin 限流+封禁）；伪造 token 在 admin 校验失败后照常受罚。
+- `X-Internal-Token` / `Authorization: Bearer <INTERNAL_TOKEN>`：全权限共享 token（nginx 透传，外部自动化经公网可用），持合法 token 四层全豁免（nginx 限速+封禁、admin 限流+封禁）；配 `INTERNAL_TOKEN_ALLOWED_PREFIXES` 后只豁免白名单路径前缀，其余路径退回正常认证；伪造 token 在 admin 校验失败后照常受罚。
 - `X-Fail2Ban-Token`：scoped bypass，只允许 fail2ban 调 `POST /api/admin/security/block|unblock`；nginx 始终清空，仅限内部。
 - 页面/API 访问矩阵见 [`docs/architecture.md`](../../../docs/architecture.md#rbac-访问矩阵)；新增端点按最小角色选 `viewer`/`admin`。
 
@@ -57,7 +57,7 @@ csrfMiddleware → rateLimitMiddleware → ipBlockMiddleware → requireRole →
 
 ```bash
 # /proxy/query 响应码分布：413 持续出现 = 客户端分片 > 服务端上限
-docker logs --since 30m workwork-nginx 2>&1 | grep 'POST /proxy/query' | awk '{print $9}' | sort | uniq -c
+docker compose logs --since 30m nginx 2>&1 | grep 'POST /proxy/query' | awk '{print $9}' | sort | uniq -c
 ```
 
 **本地复现**：容器跑服务端 + 宿主机跑客户端，明文 TCP xhttp 即可（无需证书）——1MiB 上限 + 3MiB 分片时 10MB 上传卡死 15s、目标 0 字节、服务端 2 次 413；4MiB 上限 + 3MiB 分片时 0.28s、200、目标收全。完整步骤、字段源码出处与 freedom 私网黑洞陷阱见 references/xhttp-dataplane.md。

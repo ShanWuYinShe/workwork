@@ -20,4 +20,4 @@
 
 **陷阱**：目标服务在宿主机时，Xray 26.6.27 的 freedom 出站**默认黑洞私网地址**（`proxy/freedom/freedom.go` 的 `defaultBlockPrivateRule`：0.0.0.0/8、10/8、127/8、172.16/12、192.168/16、fc00::/7 等）。测试配置需临时加 `"settings": {"finalRules": [{"action": "allow"}]}` 才能打到宿主机，否则日志出现 `proxy/freedom: blocked target: ... blackholing connection`，会把「目标不可达」误判成传输故障。
 
-复现材料见 `.workwork/xhttp-post-limit-verify/`（服务端/客户端配置与各组日志，中间产物，勿依赖长期保留）。
+复现材料历史上放在 `.workwork/xhttp-post-limit-verify/`（服务端/客户端配置与各组日志）——中间产物已清理，需要时按本节步骤重建。

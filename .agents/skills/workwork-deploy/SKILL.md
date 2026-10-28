@@ -30,8 +30,8 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 
 ### 权限注意（首次部署或权限异常时）
 
-- `.wework/` 和 `logs/` 必须归 uid=1001 (workuser) 所有（admin 以 user:1001:1001 运行）
-- 但 `logs/nginx/` 必须归 root（nginx master 以 root 写日志，cap_drop:ALL 无 DAC_OVERRIDE）
+- `.wework/` 和 `logs/` 必须归 uid=1001 所有（镜像内用户 `appuser`，compose 以 `user: "1001:1001"` 运行 admin）
+- 但 `logs/nginx/` 必须归 root（nginx master 以 root 写日志；entrypoint 每次启动都会 `chown -R root:root /var/log/nginx`）
 - 修复：`sudo chown -R 1001:1001 .wework/ logs/ && sudo chown -R root:root logs/nginx/`
 
 ## 相关约定（不在此复述）
