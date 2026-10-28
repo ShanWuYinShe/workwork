@@ -5,7 +5,7 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 
 # workwork 构建与部署
 
-> **历史提醒**：media/music 已于拆分时移出本仓库（现为独立站仓库 `media_center` / `music_player`，与本项目零互通）。本文档曾描述「子模块（submodule）指针纪律」，但本仓库**已无任何子模块**（`.gitmodules` 不存在、`git submodule status` 为空、`scripts/` 与 `Makefile` 中无 submodule 逻辑、`services/` 下只有 admin/docker_proxy/nginx/xray）。子模块相关内容已删，不要再按子模块理解本仓库结构。
+> **仓库边界**：media/music 已拆分为独立站仓库 `media_center` / `music_player`，与本项目零互通。本仓库**无任何子模块**（`.gitmodules` 不存在、`git submodule status` 为空、`scripts/` 与 `Makefile` 中无 submodule 逻辑、`services/` 下只有 admin/docker_proxy/nginx/xray）——不要按子模块理解仓库结构。
 
 ## 构建 & 部署
 
