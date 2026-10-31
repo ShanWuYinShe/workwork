@@ -9,7 +9,10 @@ import (
 	"admin/internal/proxy"
 )
 
-const testTemplate = "server {\n    listen __ADMIN_PORT__;\n    __XHTTP_PROXY_AUTH__\n}\n"
+const testTemplate = "server {\n    listen __ADMIN_PORT__;\n    map $http_internal_token $tok { default 0; \"~^__INTERNAL_TOKEN_REGEX__$\" 1; }\n    __XHTTP_PROXY_AUTH__\n}\n"
+
+// testToken 覆盖字母/数字/._-，与实际可用的 token 字符集一致。
+const testToken = "test-token_1234.abc"
 
 // withNginxPaths 把渲染的模板/输出路径指向 t.TempDir() 并写入模板,返回输出路径。
 // 生产路径是包级变量(见 proxy/paths.go),仅测试会改写,结束即还原。
@@ -41,15 +44,20 @@ func readFile(t *testing.T, path string) string {
 func TestEnsureNginxConfigRendersPlaceholders(t *testing.T) {
 	outPath := withNginxPaths(t, testTemplate)
 	t.Setenv("ADMIN_PORT", "9443")
-	if err := EnsureNginxConfig(); err != nil {
+	if err := EnsureNginxConfig(testToken); err != nil {
 		t.Fatalf("EnsureNginxConfig: %v", err)
 	}
 	got := readFile(t, outPath)
 	if !strings.Contains(got, "listen 9443;") {
 		t.Errorf("ADMIN_PORT 未替换:\n%s", got)
 	}
-	if strings.Contains(got, "__ADMIN_PORT__") || strings.Contains(got, "__XHTTP_PROXY_AUTH__") {
+	if strings.Contains(got, "__ADMIN_PORT__") || strings.Contains(got, "__XHTTP_PROXY_AUTH__") ||
+		strings.Contains(got, "__INTERNAL_TOKEN") {
 		t.Errorf("占位符残留:\n%s", got)
+	}
+	// token 必须以真实值渲染进 map：nginx 只匹配值，不再"有头就豁免"。
+	if !strings.Contains(got, `"~^test-token_1234\.abc$"`) {
+		t.Errorf("internal token 未按真实值（regex 转义）渲染:\n%s", got)
 	}
 	if !strings.Contains(got, `auth_basic "XHTTP Proxy";`) ||
 		!strings.Contains(got, "/etc/nginx/htpasswd/.htpasswd-proxy;") {
@@ -59,15 +67,15 @@ func TestEnsureNginxConfigRendersPlaceholders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if info.Mode().Perm() != 0644 {
-		t.Errorf("权限 = %o, want 0644", info.Mode().Perm())
+	if info.Mode().Perm() != 0640 {
+		t.Errorf("权限 = %o, want 0640", info.Mode().Perm())
 	}
 }
 
 func TestEnsureNginxConfigUsesDefaultPort(t *testing.T) {
 	outPath := withNginxPaths(t, testTemplate)
 	t.Setenv("ADMIN_PORT", "")
-	if err := EnsureNginxConfig(); err != nil {
+	if err := EnsureNginxConfig(testToken); err != nil {
 		t.Fatalf("EnsureNginxConfig: %v", err)
 	}
 	if got := readFile(t, outPath); !strings.Contains(got, "listen 8318;") {
@@ -93,7 +101,7 @@ func TestEnsureNginxConfigRejectsInjectedPort(t *testing.T) {
 		t.Run(bad, func(t *testing.T) {
 			outPath := withNginxPaths(t, testTemplate)
 			t.Setenv("ADMIN_PORT", bad)
-			if err := EnsureNginxConfig(); err == nil {
+			if err := EnsureNginxConfig(testToken); err == nil {
 				t.Fatalf("非法 ADMIN_PORT %q 应当报错", bad)
 			}
 			if _, err := os.Stat(outPath); !os.IsNotExist(err) {
@@ -108,7 +116,7 @@ func TestEnsureNginxConfigRejectsInjectedPort(t *testing.T) {
 func TestEnsureNginxConfigSkipsUnchangedWrite(t *testing.T) {
 	outPath := withNginxPaths(t, testTemplate)
 	t.Setenv("ADMIN_PORT", "8318")
-	if err := EnsureNginxConfig(); err != nil {
+	if err := EnsureNginxConfig(testToken); err != nil {
 		t.Fatalf("EnsureNginxConfig: %v", err)
 	}
 	before, err := os.Stat(outPath)
@@ -118,7 +126,7 @@ func TestEnsureNginxConfigSkipsUnchangedWrite(t *testing.T) {
 	if err := os.Chmod(outPath, 0600); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	if err := EnsureNginxConfig(); err != nil {
+	if err := EnsureNginxConfig(testToken); err != nil {
 		t.Fatalf("第二次 EnsureNginxConfig: %v", err)
 	}
 	after, err := os.Stat(outPath)
@@ -128,8 +136,24 @@ func TestEnsureNginxConfigSkipsUnchangedWrite(t *testing.T) {
 	if !after.ModTime().Equal(before.ModTime()) {
 		t.Errorf("内容未变化却重写了文件: mtime %v -> %v", before.ModTime(), after.ModTime())
 	}
-	if after.Mode().Perm() != 0644 {
+	if after.Mode().Perm() != 0640 {
 		t.Errorf("权限未收敛: %o", after.Mode().Perm())
+	}
+}
+
+// TestEnsureNginxConfigRejectsUnsafeToken: token 会写进 nginx map 正则，
+// 空值/引号/$/反斜杠/空白/分号必须在写盘前拒绝，避免配置注入或空匹配。
+func TestEnsureNginxConfigRejectsUnsafeToken(t *testing.T) {
+	for _, tok := range []string{"", "abc def", `a"b`, "a$b", `a\b`, "a\nb", "a;b", "a{b}"} {
+		t.Run(tok, func(t *testing.T) {
+			outPath := withNginxPaths(t, testTemplate)
+			if err := EnsureNginxConfig(tok); err == nil {
+				t.Fatalf("unsafe token %q must be rejected", tok)
+			}
+			if _, err := os.Stat(outPath); !os.IsNotExist(err) {
+				t.Errorf("校验失败时不应落盘配置 (stat err=%v)", err)
+			}
+		})
 	}
 }
 
@@ -141,7 +165,7 @@ func TestEnsureNginxConfigMissingTemplate(t *testing.T) {
 	t.Cleanup(func() {
 		proxy.NginxConfigTemplatePath, proxy.NginxConfigPath = oldTmpl, oldOut
 	})
-	if err := EnsureNginxConfig(); err == nil {
+	if err := EnsureNginxConfig(testToken); err == nil {
 		t.Fatal("模板缺失应当报错,而不是静默生成空配置")
 	}
 }

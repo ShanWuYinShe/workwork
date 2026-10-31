@@ -4,7 +4,10 @@ ARG NGINX_VERSION=1.30.4
 ARG GIT_VERSION=dev
 
 FROM nginx:${NGINX_VERSION}-alpine
+# 必须在本 stage 重新声明：FROM 之前声明的 ARG 不会传入 stage，LABEL 会
+# 渲染成空串（实测 revision 为空）。
 ARG APK_MIRROR
+ARG GIT_VERSION
 
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache fail2ban supervisor curl logrotate

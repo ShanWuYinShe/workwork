@@ -53,6 +53,31 @@ jobs:
       - name: compose config 校验（无 .env，仅验结构与插值合法性）
         run: docker compose config -q
 
+      # 建网脚本的地址推导必须落在 /64 内（历史 bug：/64 前缀后加 ":1" 推出
+      # :1::/80，docker network create 直接失败）。DRY_RUN 不碰宿主网络。
+      - name: setup-networks 地址推导（dry-run）
+        run: |
+          out=$(IPV6_SUBNET=2001:db8:2623::/64 DRY_RUN=1 FORCE=1 bash setup-networks.sh)
+          echo "$out"
+          echo "$out" | grep -q 'ip-range=2001:db8:2623::/80'
+          ! echo "$out" | grep -q ':1::/80'
+
+      # 新增 services/* 目录却忘记在 deploy-changed.sh 里映射，会导致该服务
+      # 的改动永远不被部署（脚本按路径推导受影响服务）。
+      - name: 部署路径映射覆盖
+        run: |
+          for d in services/*/; do
+            name=$(basename "$d")
+            grep -q "services/$name/" scripts/deploy-changed.sh || {
+              echo "::error::services/$name 未在 scripts/deploy-changed.sh 中映射"
+              exit 1
+            }
+          done
+          grep -q 'docker-compose.yml' scripts/deploy-changed.sh || {
+            echo "::error::deploy-changed.sh 未处理 docker-compose.yml 变更"
+            exit 1
+          }
+
       # make check 的组成部分（versions.env 主本 ↔ Dockerfile/compose/CI），
       # 此前 CI 未跑:版本漂移只在本地门禁或部署时暴露,补齐后 PR 即拦截。
       - name: 基础镜像版本一致性（versions.env 主本）

@@ -117,8 +117,10 @@ export async function getUsers() {
   return req('/users');
 }
 
-export async function addXrayClient(uuid) {
-  return req('/users/xray/add', { method: 'POST', body: JSON.stringify({ uuid }) });
+export async function addXrayClient(uuid, owner) {
+  const body = { uuid };
+  if (owner) body.owner = owner;
+  return req('/users/xray/add', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function deleteXrayClient(uuid) {

@@ -28,7 +28,8 @@
       services = d.services || [];
       isAdmin = user.role === 'admin';
     } catch (e) {
-      toast(e.message, 'error');
+      // 轮询失败不弹 toast：15s 一次会把其他提示刷掉；首次加载失败仍提示。
+      if (!silent) toast(e.message, 'error');
     } finally {
       loading = false;
     }

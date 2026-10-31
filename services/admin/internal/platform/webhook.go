@@ -29,6 +29,8 @@ var (
 // webhookShouldSend 报告该事件当前是否应发送,应发时记录本次发送时间。
 // 相同 (event, summary) 在抑制窗口内只发一次;条目惰性清理——summary 可能
 // 含 IP 等高基数片段,过期条目随查询删除,防 map 无界增长。
+// 注意：这里先占位是为了拦住并发重复；投递失败时调用 webhookForget 释放
+// 占位，否则故障窗口内的后续同事件会被静默抑制。
 func webhookShouldSend(event, summary string, now time.Time) bool {
 	key := event + "\x00" + summary
 	webhookDedupeMu.Lock()
@@ -43,6 +45,14 @@ func webhookShouldSend(event, summary string, now time.Time) bool {
 	}
 	webhookLastSent[key] = now
 	return true
+}
+
+// webhookForget 释放一次失败的投递占位，让下一次同事件仍能告警。
+func webhookForget(event, summary string) {
+	key := event + "\x00" + summary
+	webhookDedupeMu.Lock()
+	delete(webhookLastSent, key)
+	webhookDedupeMu.Unlock()
 }
 
 // webhookMTLSClient 为外发通知构造 client:ALERT_MTLS_CERT/KEY 指向的客户端
@@ -100,6 +110,7 @@ func NotifyWebhook(event, summary string, details map[string]string) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[webhook] panic: %v", r)
+				webhookForget(event, summary)
 			}
 		}()
 		body, err := json.Marshal(webhookPayload{
@@ -110,6 +121,7 @@ func NotifyWebhook(event, summary string, details map[string]string) {
 		})
 		if err != nil {
 			log.Printf("[webhook] marshal %s: %v", event, err)
+			webhookForget(event, summary)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), webhookTimeout)
@@ -117,17 +129,21 @@ func NotifyWebhook(event, summary string, details map[string]string) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			log.Printf("[webhook] build request: %v", err)
+			webhookForget(event, summary)
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := webhookMTLSClient().Do(req)
 		if err != nil {
 			log.Printf("[webhook] deliver %s: %v", event, err)
+			webhookForget(event, summary)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 300 {
 			log.Printf("[webhook] deliver %s: HTTP %d", event, resp.StatusCode)
+			// 投递失败不占用抑制窗口：目标恢复后同事件仍应告警。
+			webhookForget(event, summary)
 		}
 	}()
 }

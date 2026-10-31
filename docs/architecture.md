@@ -18,13 +18,13 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 
 ### services/xray/ — Xray VLESS 代理
 
-- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。出站拨号 IPv6 优先、IPv4 兜底（freedom 出站 `happyEyeballs.prioritizeIPv6: true` + DNS `UseIP`：双栈目标走 v6，仅 v4 目标落回 NAT）。**无公网入站端口**（XHTTP 经 nginx Unix socket 接入；曾有的 Reality 443 入站与 `xray-forward` 转发容器已移除）。注意：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）——若未来需要入站端口，不能直接声明 ports。不要让 xray 加入 `internal_docker`
+- 单容器双网络：IPv4 出站 via 专用 `xray_egress` bridge NAT；IPv6 via ipvlan L3。出站拨号 IPv4 优先、IPv6 兜底（freedom 出站 `happyEyeballs.prioritizeIPv6: false` + DNS `UseIP`；2026-10 实测 `true` 会让无 AAAA 的目标经代理 20s 超时，已改回 false）。**无公网入站端口**（XHTTP 经 nginx Unix socket 接入；曾有的 Reality 443 入站与 `xray-forward` 转发容器已移除）。注意：xray 容器连接 ipvlan 网络后，Docker(29.x) 会把 ipvlan 选为默认网关网络(gwep4)，该容器所有端口映射整体失效（ipvlan 驱动不支持端口映射，与网络连接顺序无关，已实测）——若未来需要入站端口，不能直接声明 ports。不要让 xray 加入 `internal_docker`
 - Inbounds: `xhttp-in`（Unix socket `/run/xray/xrxh.socket`，nginx `/proxy/query` 转发，Cloudflare 前置；无独立 TCP 端口）
 - XHTTP 模式必须是 `packet-up`——上行数据拆为独立 POST 逐包发送，适合不稳定网络；不要改成 `stream-up`
-- XHTTP 分片契约：服务端 `scMaxEachPostBytes` 是单个上行 POST body 上限（`xray.json.tmpl` 显式 4MiB；同时 `scMaxBufferedPosts: 8` 把乱序重组队列最坏内存压在 ~32MiB，与容器 128MiB 上限匹配），nginx `/proxy/query` 的 `client_max_body_size` 必须 ≥ 它（当前 16m）。Xray 客户端该字段默认 1MiB：**服务端上限小于客户端分片时，服务端回 413 且不读 body，客户端上行静默停摆、表现为响应体停滞**（xray 该日志为 Info 级，生产 loglevel=warning 不可见，故由 admin 的 xhttp 自愈按 413 计数外发告警）。因此服务端只放宽上限，客户端保持默认小分片。
+- XHTTP 分片契约：服务端 `scMaxEachPostBytes` 是单个上行 POST body 上限（`xray.json.tmpl` 显式 4MiB；同时 `scMaxBufferedPosts: 8` 把乱序重组队列最坏内存压在 ~32MiB，与容器 256MiB 上限匹配），nginx `/proxy/query` 的 `client_max_body_size` 必须 ≥ 它（当前 16m）。Xray 客户端该字段默认 1MiB：**服务端上限小于客户端分片时，服务端回 413 且不读 body，客户端上行静默停摆、表现为响应体停滞**（xray 该日志为 Info 级，生产 loglevel=warning 不可见，故由 admin 的 xhttp 自愈按 413 计数外发告警）。因此服务端只放宽上限，客户端保持默认小分片。
 - 服务端内置 DNS 取两个独立厂商的加密解析（Cloudflare `1.1.1.1` + Google `8.8.8.8`；`https+local` 即 DOHL——DoH 加密且不过路由组件）+ 同名明文 UDP 兜底 + `localhost`（系统解析器），`enableParallelQuery` 并行取最快：单一 DoH 厂商故障时 freedom 出站的域名解析仍有备份，不会整体失败（2026-10-12 服务器侧实测候选解析器均可达、证书含对应 IP SAN）
 - 客户端单出站 xhttp（经 Cloudflare + nginx TLS 终结）；客户端内置并行 DNS 段加速代理域名解析
-- Clients 的 `email` 字段（= 用户名）用于标识客户端归属（面板里"谁拥有哪个客户端"），同时是 per-user 流量统计的计数器键：模板开启 `statsUserUplink/Downlink` + 内置 StatsService API（容器内 127.0.0.1:10085 dokodemo inbound，routing 首条规则回环），admin 每分钟 docker exec `xray api statsquery` 增量聚合（`internal/proxy/traffic.go`），状态落盘 `.wework/traffic-state.json` 兜住双方重启；展示在 Clients 页与 `GET /api/admin/traffic`
+- Clients 的 `email` 字段恒等于客户端自己的 UUID（不再是登录用户名）：Xray 的 VLESS validator 要求同一入站内非空 email 唯一，取用户名会让一个用户建第二个客户端时整份配置无法加载。`owner` 表示负责该客户端的面板用户（也是 nginx Basic Auth 的认证身份），一个用户可以拥有多个客户端。email 同时是 per-client 流量统计的计数器键：模板开启 `statsUserUplink/Downlink` + 内置 StatsService API（容器内 127.0.0.1:10085 dokodemo inbound，routing 首条规则回环），admin 每分钟 docker exec `xray api statsquery` 增量聚合（`internal/proxy/traffic.go`），状态落盘 `.wework/traffic-state.json` 兜住双方重启；展示在 Clients 页与 `GET /api/admin/traffic`（字段 `email`）
 
 ### services/nginx/ — Nginx + fail2ban
 
@@ -37,7 +37,7 @@ Vite 构建，由 admin Go 二进制从 `/app/ui` 托管（多阶段 Dockerfile:
 ## docker-compose
 
 4 服务: admin, docker-proxy, xray, nginx。网络: `ipvlan_docker`（外部，IPv6 L3）+ `internal_docker`（admin 内网 bridge，网段由 Docker 默认地址池动态分配）+ `xray_egress`（xray 专用 IPv4 egress bridge）+ `docker_proxy`（内部，仅 admin 与 docker-proxy）。`xray` 持有公网 IPv6（ipvlan L3 直连），仅作代理出站；公网入站统一经 nginx（IPv6），xray 无入站端口（曾用于发布 Reality 443 的 `xray-forward` 转发容器已随 Reality 移除）。
-vod_extractor 仅内网（媒体中心 YouTube 搜索与播放解析，无 Data API 配额）；部署硬前提：宿主机 `.wework/vod_extractor/youtube-cookies.txt`（YouTube cookies，Netscape 格式），缺失时 YouTube 搜索/解析全被 bot 检测拦截。
+vod_extractor 随媒体中心拆分到 `media_center` 仓库；本仓不再部署它，也不依赖其 cookies 文件。
 
 ## RBAC 访问矩阵
 

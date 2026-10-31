@@ -55,13 +55,14 @@ Docker-based proxy infrastructure with Xray VLESS proxy, Nginx reverse proxy, an
 ### 启动服务
 
 ```bash
-# 1. 创建 IPvlan 网络（首次运行，需 sudo）
-sudo bash setup-networks.sh
-
-# 2. 配置环境变量
+# 1. 配置环境变量（必须先填 IPV6_SUBNET：setup-networks.sh 会读取它）
 cp .env.example .env
-# 编辑 .env 填写必要的配置
+# 编辑 .env：IPV6_SUBNET 填你实际分配到的 /64（示例前缀 2001:db8::/32 是
+# RFC 3849 文档地址，脚本会拒绝）；NGINX_IPV6/XRAY_IPV6 必须落在该 /64 内
 chmod 600 .env
+
+# 2. 创建 IPvlan 网络（首次运行，需 sudo）
+sudo bash setup-networks.sh
 
 # 3. 启动所有服务
 docker compose up -d
@@ -94,11 +95,10 @@ docker compose ps
 | Dashboard | viewer+ | 系统状态（admin）/ 个人信息（viewer） |
 | Services | admin | Docker 容器管理（启停重启） |
 | Logs | admin | 服务日志查看（实时流） |
-| Clients | viewer+ | Xray 代理账号管理、客户端配置下载 |
-| Users | admin | 用户增删改、角色分配 |
+| Clients | viewer+ | Xray 代理账号管理（一个用户可拥有多个客户端）、客户端配置下载 |
+| Users | viewer+ | viewer 改自己密码；admin 用户增删改、角色分配 |
 | Security | admin | IP 黑名单、限速状态管理 |
 | Settings | admin | 网络状态、IPv6 轮换、DNS 同步 |
-| Media Center | admin | 媒体服务 upstream、nginx 公开前缀、分类搜索词和过滤词配置 |
 | Downloads | viewer+ | Claude Code / Xray 二进制下载 |
 | Transfer | viewer+ | 临时文件传输（上传需登录，分享链接公开可下载） |
 
@@ -144,7 +144,9 @@ workwork/
 │   │
 │   ├── xray/                # Xray 代理（运行时配置由 admin 渲染到 .wework/generated/）
 │   │   ├── entrypoint.sh
-│   │   ├── Dockerfile / Dockerfile.forward   # xray 主容器 / IPv4 443 转发容器
+│   │   └── Dockerfile
+│   │
+│   ├── docker_proxy/        # method+path 级 docker API 白名单反代（admin 经它操作容器）
 │   │
 │   ├── nginx/               # Nginx 反向代理（运行时配置由 admin 渲染）
 │   │   ├── config/fail2ban/
@@ -160,25 +162,28 @@ workwork/
 
 ## 版本排查
 
-所有线上组件的版本号在构建期烙进产物，健康端点与镜像标签均可查：
+所有线上组件的版本号在构建期烙进产物：admin 经健康端点暴露 version；四个镜像都带
+OCI `revision` 标签（xray/nginx 此前因 ARG 未在最终 stage 重新声明而为空，已修复）。
 
 ```bash
 # 服务端健康端点(自带版本号)
 curl -s -u <面板用户>:<密码> https://yinghuoren.com/api/admin/health    # admin 版本(经 nginx,/api/admin/ 有 basic auth)
 docker compose exec nginx curl -s http://admin:8318/api/admin/health   # admin 版本
 
-# 镜像构建源(OCI revision 标签)
-docker image inspect workwork-admin --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+# 镜像构建源(OCI revision 标签，四个镜像都可查)
+docker image inspect workwork-admin workwork-xray workwork-nginx workwork-docker-proxy \
+  --format '{{.RepoTags}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
 
-# 服务启动日志首行均打印版本
-docker compose logs admin xray nginx docker-proxy | head
+# admin / docker-proxy 启动日志打印版本；xray/nginx 以镜像标签为准
+docker compose logs admin docker-proxy | head
 # media/music 各自独立站的版本排查见其仓库 deploy/README.md
 ```
 
 ## 备份与恢复
 
-所有运行时状态（登录凭据、配置、曲库、cookies 凭证、catalog.db）都在单机 `.wework/`
-与 named volume，必须定期备份且异机存放：
+运行时状态（登录凭据、配置、临时文件、fail2ban 状态）都在单机 `.wework/` 与
+`services/nginx/fail2ban-data/`；media/music 已拆分到独立仓库，其数据随各自仓库备份。
+必须定期备份且异机存放：
 
 ```bash
 make backup                    # 打包 .wework/ + cert/ + .env
@@ -194,7 +199,8 @@ BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 r
 
 1. **Cloudflare Authenticated Origin Pulls (mTLS)**
    - 只允许 Cloudflare 服务器连接
-   - 证书: `cert/cloudflare-origin-pull.pem`
+   - CA 证书在镜像内 `/etc/nginx/cloudflare-origin-pull.pem`（构建期从 CF 官方下载）；
+     不是仓库 `cert/` 下的文件（`cert/` 只放你自己的源站证书/私钥）
 
 2. **Nginx Basic Auth**
    - `/admin/` 和 `/api/admin/` 需要 HTTP 基本认证
@@ -210,7 +216,7 @@ BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 r
 
 5. **RBAC 角色控制**
    - `admin`: 全部管理功能
-   - `viewer`: 查看服务状态、管理自己的 Xray 账号、下载客户端配置
+   - `viewer`: 管理自己名下的 Xray 客户端（可多个）、下载客户端配置、改自己的密码
 
 ## 常用命令
 
@@ -251,7 +257,7 @@ bash scripts/sync-versions.sh sync   # 把主本值刷写到各仓全部点位
 make check                  # 本地门禁：gofmt/vet/test + 前端构建
 make build <受影响服务...>   # 受影响服务本地构建通过（版本号自动烙入）
 # 本地能独立启动的服务：make up <svc...> 后等 healthy 并核对版本指纹（见「版本排查」）
-# nginx / xray / vod_extractor 全链路本地不具备启动条件，以构建通过为准
+# nginx / xray 全链路本地不具备启动条件（需 cert/ 与外部 ipvlan 网络），以构建通过为准
 
 # 1. 本地开发（worktree 分支）合并进 main 并推送
 git push origin main
@@ -275,12 +281,12 @@ make build xray && make up xray                             # services/xray/**
 |------|------|------|
 | `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
 | `AUTH_USER` / `AUTH_PASS` | 首启必需：初始管理员与密码（写入 htpasswd；面板改密后 `.env` 里的 `AUTH_PASS` 即作废） | - |
-| `ADMIN_PORT` | admin 容器内端口（改它需同步 compose healthcheck 与 fail2ban action 的硬编码） | `8318` |
-| `NGINX_IPV6` | Nginx IPv6 地址 | `2605:xxx:xxx:1::1` |
-| `XRAY_IPV6` | Xray IPv6 地址 | `2605:xxx:xxx:1::2` |
-| `IPV6_SUBNET` | IPv6 子网 | `2605:xxx:xxx::/64` |
+| `ADMIN_PORT` | admin 容器内端口（compose healthcheck 已跟随此值；fail2ban action 由 nginx 入口脚本按同一 env 渲染） | `8318` |
+| `NGINX_IPV6` | Nginx IPv6 地址（必须落在 `IPV6_SUBNET` 内） | `2605:xxx:xxx::2` |
+| `XRAY_IPV6` | Xray IPv6 地址（必须落在 `IPV6_SUBNET` 内） | `2605:xxx:xxx::3` |
+| `IPV6_SUBNET` | IPv6 /64 子网（`setup-networks.sh` 取首个 /80 作为 ip-range） | `2605:xxx:xxx::/64` |
 | `CF_API_TOKEN` | Cloudflare API Token | - |
-| `INTERNAL_TOKEN` | 内部服务通信令牌 | 自动生成 |
+| `INTERNAL_TOKEN` | 内部服务通信令牌（会渲染进 nginx map，字符集限 `[A-Za-z0-9._~-]`） | 自动生成 |
 | `INTERNAL_TOKEN_ALLOWED_PREFIXES` | 可选：internal token 的路径前缀白名单（逗号分隔）。配置后该 token 只能豁免这些前缀，其余路径退回正常认证，被拒请求以 `[security]` 留痕；留空保持全权 | `/api/admin/security,/api/admin/dashboard` |
 | `TRUSTED_PROXY_CIDRS` | 允许设置 `X-Forwarded-User` 的代理 CIDR（默认仅 loopback） | `127.0.0.0/8,::1/128` |
 | `TRUSTED_PROXY_HOSTS` | 允许设置 `X-Forwarded-User` 的代理主机名/IP（默认 Compose `nginx`） | `nginx` |

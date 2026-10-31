@@ -12,6 +12,7 @@ import (
 	"admin/internal/platform"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"sort"
@@ -48,30 +49,85 @@ var (
 	trafficLoaded   bool
 	// 连续失败一次性告警:旧 xray 镜像无 stats API 时避免每分钟刷屏。
 	trafficFailLogged bool
+	// trafficEmailAliases 是客户端台账规范化产生的"旧 email → 新 email"
+	// 映射（登录用户名 → 客户端 UUID）。在 loadTrafficState 之后应用一次，
+	// 把历史累计值续接到新键。
+	trafficEmailAliases map[string]string
 )
 
 // trafficStatePath var 供测试替换。
 var trafficStatePath = "/app/data/traffic-state.json"
 
-// loadTrafficState 首次调用时从磁盘恢复(进程内只加载一次)。
-func loadTrafficState() {
+// SetTrafficEmailAliases 注册台账规范化产生的 email 迁移映射。可在流量状态
+// 加载前或加载后调用：未加载时记住，加载时应用；已加载时立即应用。
+func SetTrafficEmailAliases(aliases map[string]string) {
+	trafficMu.Lock()
+	defer trafficMu.Unlock()
+	trafficEmailAliases = aliases
 	if trafficLoaded {
-		return
+		applyTrafficEmailAliasesLocked()
+	}
+}
+
+// applyTrafficEmailAliasesLocked 把旧 email 键下的累计/基线合并到新键。
+// 调用方必须持有 trafficMu。
+func applyTrafficEmailAliasesLocked() {
+	for oldEmail, newEmail := range trafficEmailAliases {
+		if oldEmail == "" || newEmail == "" || oldEmail == newEmail {
+			continue
+		}
+		if t, ok := trafficTotals[oldEmail]; ok {
+			cur := trafficTotals[newEmail]
+			cur.Up += t.Up
+			cur.Down += t.Down
+			trafficTotals[newEmail] = cur
+			delete(trafficTotals, oldEmail)
+		}
+		if trafficBaseline != nil {
+			for _, dir := range []string{"uplink", "downlink"} {
+				oldKey := oldEmail + ">>>" + dir
+				newKey := newEmail + ">>>" + dir
+				if v, ok := trafficBaseline[oldKey]; ok {
+					trafficBaseline[newKey] += v
+					delete(trafficBaseline, oldKey)
+				}
+			}
+		}
+	}
+}
+
+// loadTrafficState 首次调用时从磁盘恢复(进程内只加载一次)。
+// 损坏文件已被 LoadJSONFile 隔离（原字节保留在 .corrupt），统计是旁路
+// 数据，可以从零重建；读错误（权限/IO）不能当空表继续，否则下一轮 save
+// 会把原有累计值覆盖掉——返回 error，由采集器重试。
+func loadTrafficState() error {
+	if trafficLoaded {
+		return nil
+	}
+	var st trafficState
+	if err := platform.LoadJSONFile(trafficStatePath, &st); err != nil {
+		if !errors.Is(err, platform.ErrCorruptJSON) {
+			return err
+		}
+		log.Printf("WARNING: traffic state corrupt, starting from zero (%v)", err)
 	}
 	trafficLoaded = true
-	var st trafficState
-	platform.LoadJSONFile(trafficStatePath, &st)
 	if st.Baseline != nil {
 		trafficBaseline = st.Baseline
 	}
 	if st.Totals != nil {
 		trafficTotals = st.Totals
 	}
+	applyTrafficEmailAliasesLocked()
+	return nil
 }
 
 // saveTrafficStateLocked 持锁落盘。失败只记日志:丢一轮基线最坏情况是
 // xray 下次重启后少算一个轮询间隔的增量。
 func saveTrafficStateLocked() {
+	if !trafficLoaded {
+		return
+	}
 	st := trafficState{Baseline: trafficBaseline, Totals: trafficTotals}
 	if err := platform.SaveJSONFile(trafficStatePath, st); err != nil {
 		log.Printf("WARNING: persist traffic state: %v", err)
@@ -183,11 +239,18 @@ func TrafficSnapshot() map[string]userTraffic {
 
 // StartTrafficCollector 每分钟拉取一次 xray per-user 流量,随 ctx 退出。
 func StartTrafficCollector(ctx context.Context, cli *client.Client) {
-	trafficMu.Lock()
-	loadTrafficState()
-	trafficMu.Unlock()
-
 	runPoll := func() {
+		// 状态文件读失败时不要继续查询/落盘：下一轮 save 会用空表覆盖。
+		// 每一轮都重试加载，文件恢复后自动继续。
+		trafficMu.Lock()
+		loadErr := loadTrafficState()
+		loaded := trafficLoaded
+		trafficMu.Unlock()
+		if !loaded {
+			logTrafficFailure("load state", loadErr)
+			return
+		}
+
 		pollCtx, cancel := context.WithTimeout(ctx, trafficExecTimeout)
 		defer cancel()
 		xrayID, err := platform.FindContainer(pollCtx, cli, "xray")
@@ -244,16 +307,17 @@ func ApiTraffic() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		snapshot := TrafficSnapshot()
 		type row struct {
-			User string `json:"user"`
-			Up   int64  `json:"up"`
-			Down int64  `json:"down"`
+			// email 现在是客户端 UUID（xray 统计键），不再是登录用户名。
+			Email string `json:"email"`
+			Up    int64  `json:"up"`
+			Down  int64  `json:"down"`
 		}
 		rows := make([]row, 0, len(snapshot))
-		for user, t := range snapshot {
-			rows = append(rows, row{User: user, Up: t.Up, Down: t.Down})
+		for email, t := range snapshot {
+			rows = append(rows, row{Email: email, Up: t.Up, Down: t.Down})
 		}
 		sort.Slice(rows, func(i, j int) bool {
-			return rows[i].User < rows[j].User
+			return rows[i].Email < rows[j].Email
 		})
 		platform.WriteJSON(w, map[string]any{"traffic": rows, "collected_at": time.Now().UTC().Format(time.RFC3339)})
 	}

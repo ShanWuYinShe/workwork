@@ -34,6 +34,14 @@ BACKUP_RSYNC_TARGET="${BACKUP_RSYNC_TARGET:-}"
 BACKUP_EXCLUDE="${BACKUP_EXCLUDE:-.wework/upload-chunks}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
+# 备份失败通知容器用的基础镜像跟随 versions.env（与构建同源），避免脚本里
+# 硬编码的 alpine 版本在升级后长期漂移、甚至触发离线环境下的意外 pull。
+ALPINE_VERSION="${ALPINE_VERSION:-}"
+if [ -z "$ALPINE_VERSION" ] && [ -f "$ROOT/versions.env" ]; then
+  ALPINE_VERSION="$(grep -E '^ALPINE_VERSION=' "$ROOT/versions.env" | head -1 | cut -d= -f2- || true)"
+fi
+ALPINE_VERSION="${ALPINE_VERSION:-3.24.1}"
+
 # WEBHOOK_URL:优先取调用方环境,否则从 .env 单独提取(同 deploy-changed.sh)。
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f "$ROOT/.env" ]; then
   WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' "$ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
@@ -134,7 +142,7 @@ fi
 if [ -d "$ROOT/services/nginx/fail2ban-data" ]; then
   f="$BACKUP_DIR/workwork-fail2ban-$STAMP.tar.gz"
   docker run --rm -v "$ROOT/services/nginx/fail2ban-data:/data:ro" \
-    -v "$BACKUP_DIR:/backup" alpine:3.24.1 \
+    -v "$BACKUP_DIR:/backup" "alpine:${ALPINE_VERSION}" \
     tar czf "/backup/$(basename "$f")" -C /data .
   parts+=("$f")
 else
@@ -155,12 +163,17 @@ else
   sha() { shasum -a 256 "$@"; }
 fi
 manifest="$BACKUP_DIR/workwork-manifest-$STAMP.txt"
+# 清单里写相对文件名（不是绝对路径）：restore-verify.sh 会 cd 到备份目录后
+# 校验，异机恢复到不同路径时绝对路径必然失效。
+rel_parts=()
+for p in "${parts[@]}"; do
+  rel_parts+=("$(basename "$p")")
+done
 {
   echo "workwork backup $STAMP"
   echo "root: $ROOT"
   echo "missing:[$missing]"
-  du -h "${parts[@]}"
-  sha "${parts[@]}"
+  (cd "$BACKUP_DIR" && du -h "${rel_parts[@]}" && sha "${rel_parts[@]}")
 } >"$manifest"
 # docker run 产物可能归 root(BACKUP_DIR 外层 700 已隔离访问),chmod 尽力而为
 chmod 0600 "${parts[@]}" "$manifest" 2>/dev/null || true

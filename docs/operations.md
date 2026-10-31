@@ -36,8 +36,10 @@ media/music 已拆分至独立站，其数据随各自仓库（media_center / mu
 tar -xzf workwork-wework-<ts>.tar.gz -C ~/workwork          # .wework/
 tar -xzf workwork-cert-<ts>.tar.gz -C ~/workwork            # cert/（若有）
 tar -xzf workwork-env-<ts>.tar.gz -C ~/workwork             # .env（若有）
-tar -xzf workwork-fail2ban-<ts>.tar.gz -C ~/workwork        # fail2ban 状态（若有）
-# 3. sudo bash setup-networks.sh（ipvlan 网络），然后
+# fail2ban 归档内是扁平的 ./fail2ban.sqlite3，必须解到容器挂载的目录
+tar -xzf workwork-fail2ban-<ts>.tar.gz -C ~/workwork/services/nginx/fail2ban-data
+# 3. 先填好 .env（IPV6_SUBNET 用真实 /64），再建网；然后构建启动
+sudo bash setup-networks.sh
 make build admin xray nginx docker-proxy
 docker compose up -d
 # 4. 按健康端点核对版本指纹（README「版本排查」）

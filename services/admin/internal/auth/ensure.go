@@ -7,11 +7,18 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"admin/internal/platform"
 )
+
+// validInternalToken 限定 token 字符集：它会被原样写进 nginx 配置的 map
+// 正则做真实值匹配。允许字母/数字/._~-，覆盖自动生成的 hex，同时排除
+// 引号、反斜杠、$、空白等会破坏/注入 nginx 配置的字符。
+var validInternalToken = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 
 func EnsureHtpasswd() error {
 	if err := os.MkdirAll(NginxAuthDir, 0755); err != nil {
@@ -94,8 +101,55 @@ func SeedAdminUser() error {
 	})
 }
 
+// ReconcileAuthState 对账 users.json 与 .htpasswd 两个真相源：
+//   - htpasswd 有、users.json 无：幽灵凭证。它能过 nginx basic auth，但
+//     Go 侧会以"用户未初始化"403，且管理页看不到、删不掉。启动时删除该行。
+//   - users.json 有、htpasswd 无：该用户无法登录（密码哈希只在 htpasswd），
+//     无法自动恢复（不能拿 .env 里的旧 AUTH_PASS 覆盖已改过的密码）；
+//     记 ERROR + webhook，提示管理员重置密码。
+//
+// 正常写流程会同时更新两者；漂移来自部分失败（写 users.json 成功、写
+// htpasswd 失败）或手工改文件，启动对账把长期残留收敛掉。
+func ReconcileAuthState() error {
+	doc, err := ReadUsersMeta()
+	if err != nil {
+		return err
+	}
+	htUsers, err := ReadHtpasswdUsers()
+	if err != nil {
+		return err
+	}
+	inMeta := make(map[string]bool, len(doc.Users))
+	for u := range doc.Users {
+		inMeta[u] = true
+	}
+	inHt := make(map[string]bool, len(htUsers))
+	for _, u := range htUsers {
+		inHt[u] = true
+		if inMeta[u] {
+			continue
+		}
+		log.Printf("ERROR: htpasswd user %q has no users.json entry; removing orphan credential", u)
+		platform.NotifyWebhook("auth.orphan", "htpasswd 存在无 users.json 条目的幽灵凭证，已删除", map[string]string{"username": u})
+		if err := HtpasswdRemoveUser(u); err != nil {
+			return fmt.Errorf("remove orphan htpasswd user %q: %w", u, err)
+		}
+	}
+	for u := range doc.Users {
+		if inHt[u] {
+			continue
+		}
+		log.Printf("ERROR: users.json user %q has no htpasswd entry; login is impossible until the password is reset", u)
+		platform.NotifyWebhook("auth.drift", "users.json 用户缺少 htpasswd 条目，无法登录", map[string]string{"username": u})
+	}
+	return nil
+}
+
 func EnsureInternalToken() error {
 	if tok := platform.GetEnv("INTERNAL_TOKEN"); tok != "" {
+		if !validInternalToken.MatchString(tok) {
+			return fmt.Errorf("INTERNAL_TOKEN contains characters outside [A-Za-z0-9._~-]; it is rendered into the nginx config and must not contain quotes, $, backslashes or whitespace")
+		}
 		if existing, err := os.ReadFile(InternalTokenPath); err == nil && strings.TrimSpace(string(existing)) == tok {
 			setInternalToken(tok)
 			return platform.EnsurePerm(InternalTokenPath, 0640)
@@ -109,6 +163,9 @@ func EnsureInternalToken() error {
 	if existing, err := os.ReadFile(InternalTokenPath); err == nil {
 		tok := strings.TrimSpace(string(existing))
 		if tok != "" {
+			if !validInternalToken.MatchString(tok) {
+				return fmt.Errorf("existing token %s contains characters outside [A-Za-z0-9._~-]; delete it to regenerate, or set INTERNAL_TOKEN explicitly", InternalTokenPath)
+			}
 			setInternalToken(tok)
 			return platform.EnsurePerm(InternalTokenPath, 0640)
 		}
@@ -161,8 +218,16 @@ func EnsureFail2BanToken() error {
 	return nil
 }
 
+// proxyHtpasswdMu 串行化"读 users.json → bcrypt → 写 .htpasswd-proxy"的
+// 完整重建。两个用户并发首次创建 proxy 密码时，A 的旧快照可能覆盖 B 刚写入
+// 的行，导致 B 拿着 users.json 里的正确密码却被 nginx 401，直到下次重建。
+var proxyHtpasswdMu sync.Mutex
+
 // EnsureProxyHtpasswd regenerates nginx's per-user XHTTP proxy htpasswd file.
 func EnsureProxyHtpasswd() error {
+	proxyHtpasswdMu.Lock()
+	defer proxyHtpasswdMu.Unlock()
+
 	doc, err := ReadUsersMeta()
 	if err != nil {
 		return fmt.Errorf("read users: %w", err)

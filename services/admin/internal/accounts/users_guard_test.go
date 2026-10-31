@@ -37,6 +37,8 @@ func TestLastAdminGuard(t *testing.T) {
 	oldAuth := platform.GetEnv("AUTH_USER")
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "root")
+	// 删用户会级联重建 .htpasswd-proxy，重定向到临时目录避免依赖容器内 /app/data。
+	auth.WithNginxAuthDir(t, t.TempDir())
 
 	doSetRole := func(t *testing.T, username, role string) int {
 		t.Helper()
@@ -97,8 +99,8 @@ func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
 	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
 	os.Setenv("AUTH_USER", "root")
 
-	// 只覆盖守卫分支：HtpasswdFile 是包级常量（指向 /app/data，测试环境不可写），
-	// 而 root 已存在时守卫在读 htpasswd 之前就拒绝——正向创建路径由部署环境验证。
+	// 只覆盖守卫分支：root 已存在时守卫在读/写 htpasswd 之前就拒绝——
+	// 正向创建路径由部署环境验证。
 	doAdd := func(t *testing.T, username string) int {
 		t.Helper()
 		body := strings.NewReader(`{"username":"` + username + `","password":"newpw123","role":"admin"}`)

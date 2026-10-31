@@ -254,7 +254,7 @@ type downloadService struct {
 	maxKeep int
 }
 
-func (s *downloadService) loadManifest() storedManifest {
+func (s *downloadService) loadManifest() (storedManifest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loadManifestLocked()
@@ -263,18 +263,26 @@ func (s *downloadService) loadManifest() storedManifest {
 // loadManifestLocked 供已持有 s.mu 的调用方使用（downloadArchive/cleanupOld/
 // deleteStored）：sync.Mutex 不可重入，持锁后再调 loadManifest 会自死锁，
 // 且死锁期间 s.mu 永久被占，整个下载子系统全部端点挂起。
-func (s *downloadService) loadManifestLocked() storedManifest {
+// 调用方必须处理 error：读失败不能当空表继续，否则随后的 save 会覆盖
+// 全部已缓存版本记录。
+func (s *downloadService) loadManifestLocked() (storedManifest, error) {
 	var m storedManifest
-	platform.LoadJSONFile(s.manifestPath, &m)
-	return m
+	if err := platform.LoadJSONFile(s.manifestPath, &m); err != nil {
+		return storedManifest{}, err
+	}
+	return m, nil
 }
 
 func (s *downloadService) saveManifestLocked(m storedManifest) error {
 	return platform.SaveJSONFile(s.manifestPath, m)
 }
 
-func (s *downloadService) listStored() []storedDownload {
-	return s.loadManifest().Downloads
+func (s *downloadService) listStored() ([]storedDownload, error) {
+	m, err := s.loadManifest()
+	if err != nil {
+		return nil, err
+	}
+	return m.Downloads, nil
 }
 
 func (s *downloadService) platformLabel(plat string) string {
@@ -476,7 +484,16 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 	}
 
 	s.mu.Lock()
-	m := s.loadManifestLocked()
+	m, err := s.loadManifestLocked()
+	if err != nil {
+		s.mu.Unlock()
+		// 文件已 rename 到位但 manifest 不可读：删除刚下载的文件，避免
+		// 无条目的孤儿；原 manifest 现场保留。
+		if rmErr := os.Remove(finalPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("ERROR: remove downloaded file after manifest load failure, manual removal needed: %s: %v", finalPath, rmErr)
+		}
+		return 0, "", fmt.Errorf("load downloads manifest: %w", err)
+	}
 	// 防止并发下载同一 version+plat 导致 manifest 重复条目（文件因 rename 已覆盖一致）。
 	dup := false
 	for _, d := range m.Downloads {
@@ -515,7 +532,11 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 func (s *downloadService) cleanupOld() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m := s.loadManifestLocked()
+	m, err := s.loadManifestLocked()
+	if err != nil {
+		log.Printf("ERROR: downloads cleanup: load manifest: %v (skip this round)", err)
+		return
+	}
 	if len(m.Downloads) <= s.maxKeep {
 		return
 	}
@@ -547,7 +568,12 @@ func (s *downloadService) deleteStored(filename string) error {
 		log.Printf("deleteStored: file already gone, cleaning manifest entry: %q", filename)
 	}
 	s.mu.Lock()
-	m := s.loadManifestLocked()
+	m, err := s.loadManifestLocked()
+	if err != nil {
+		s.mu.Unlock()
+		log.Printf("ERROR: downloads delete: load manifest: %v", err)
+		return fmt.Errorf("load downloads manifest: %w", err)
+	}
 	var kept []storedDownload
 	for _, d := range m.Downloads {
 		if d.Filename != filename {

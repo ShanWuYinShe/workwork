@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -51,9 +52,11 @@ func seedClients(t *testing.T, entries ...xrayClientEntry) string {
 }
 
 // TestAddXrayClientPersistsEntry 校验新增客户端真正落盘,内容与权限正确。
+// email 由存储层收敛为客户端 UUID（与登录用户名解耦）。
 func TestAddXrayClientPersistsEntry(t *testing.T) {
-	want := xrayClientEntry{ID: "11111111-2222-3333-4444-555555555555", Owner: "alice", Email: "alice"}
-	path := seedClients(t, want)
+	entry := xrayClientEntry{ID: "11111111-2222-3333-4444-555555555555", Owner: "alice", Email: "alice"}
+	want := xrayClientEntry{ID: entry.ID, Owner: "alice", Email: entry.ID}
+	path := seedClients(t, entry)
 
 	got := readStoredClients(t, path)
 	if len(got) != 1 || got[0] != want {
@@ -82,28 +85,72 @@ func TestAddXrayClientRejectsDuplicateUUID(t *testing.T) {
 	}
 }
 
-// TestAddXrayClientIfOwnerUnique 校验"每人一个 client"的归属约束与 UUID 唯一性的组合。
-func TestAddXrayClientIfOwnerUnique(t *testing.T) {
-	first := xrayClientEntry{ID: "uuid-alice-1", Owner: "alice", Email: "alice"}
-	path := seedClients(t)
+// TestAddMultipleXrayClientsPerOwner 锁定"一个登录用户可以拥有多个客户端"。
+// 登录用户只是 nginx 认证身份，客户端是独立代理身份；email 必须各自唯一。
+func TestAddMultipleXrayClientsPerOwner(t *testing.T) {
+	path := seedClients(t, xrayClientEntry{ID: "uuid-a1", Owner: "alice", Email: "alice"})
 
-	added, err := addXrayClientIfOwnerUnique(first)
-	if err != nil || !added {
-		t.Fatalf("首次添加应成功: added=%v err=%v", added, err)
+	if err := addXrayClient(xrayClientEntry{ID: "uuid-a2", Owner: "alice", Email: "alice"}); err != nil {
+		t.Fatalf("同一 owner 的第二个客户端应成功: %v", err)
+	}
+	got := readStoredClients(t, path)
+	if len(got) != 2 {
+		t.Fatalf("应有 2 个客户端,实际 %#v", got)
+	}
+	if got[0].Email == got[1].Email {
+		t.Fatalf("同一 owner 的客户端 email 必须互不相同: %#v", got)
+	}
+	for _, c := range got {
+		if c.Email != c.ID {
+			t.Fatalf("email 应恒等于客户端 UUID: %#v", c)
+		}
 	}
 
-	added, err = addXrayClientIfOwnerUnique(xrayClientEntry{ID: "uuid-alice-2", Owner: "alice", Email: "alice"})
-	if err != nil || added {
-		t.Fatalf("同 owner 再加应静默拒绝(不报错): added=%v err=%v", added, err)
+	// 大小写不同的同一 UUID 仍必须被 UUID 唯一性拦下（入库前统一小写）。
+	if err := addXrayClient(xrayClientEntry{ID: "UUID-A1", Owner: "bob", Email: "bob"}); !errors.Is(err, errDuplicateUUID) {
+		t.Fatalf("大小写重复 UUID 应返回 errDuplicateUUID,实际 %v", err)
 	}
-	if got := readStoredClients(t, path); len(got) != 1 {
-		t.Fatalf("被拒绝的添加不应落盘: %#v", got)
+}
+
+// TestEnsureXrayClientsNormalizesLegacyLedger 校验旧台账（email=登录用户名、
+// UUID 大小写混杂、同一 UUID 重复）在启动时被收敛，并给出可续接流量的
+// email 迁移映射。
+func TestEnsureXrayClientsNormalizesLegacyLedger(t *testing.T) {
+	path := useTempXrayClientsStore(t)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir store dir: %v", err)
+	}
+	legacy := `[
+	  {"id":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE","owner":"alice","email":"shared"},
+	  {"id":"11111111-2222-3333-4444-555555555555","owner":"bob","email":"bob"},
+	  {"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","owner":"carol","email":"shared"}
+	]`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy ledger: %v", err)
 	}
 
-	// 同 UUID 换 owner:owner 检查放行后必须被 UUID 唯一性拦下,否则同一身份出现两行台账。
-	added, err = addXrayClientIfOwnerUnique(xrayClientEntry{ID: first.ID, Owner: "bob", Email: "bob"})
-	if !errors.Is(err, errDuplicateUUID) || added {
-		t.Fatalf("重复 UUID 应返回 errDuplicateUUID: added=%v err=%v", added, err)
+	if err := EnsureXrayClients(); err != nil {
+		t.Fatalf("EnsureXrayClients: %v", err)
+	}
+	got := readStoredClients(t, path)
+	if len(got) != 2 {
+		t.Fatalf("同一 UUID 的大小写变体应去重,实际 %#v", got)
+	}
+	for _, c := range got {
+		if c.ID != strings.ToLower(c.ID) {
+			t.Fatalf("UUID 应统一小写: %#v", c)
+		}
+		if c.Email != c.ID {
+			t.Fatalf("email 应收敛为 UUID: %#v", c)
+		}
+	}
+	aliases := XrayEmailAliases()
+	if aliases["bob"] != "11111111-2222-3333-4444-555555555555" {
+		t.Fatalf("bob 的旧 email 应迁移到其客户端 UUID: %#v", aliases)
+	}
+	// 两个不同 UUID 的历史条目共用 "shared" email，无法判断流量归属，不迁移。
+	if _, ok := aliases["shared"]; ok {
+		t.Fatalf("歧义 email 不应产生迁移映射: %#v", aliases)
 	}
 }
 
@@ -113,25 +160,25 @@ func TestDeleteXrayClientIfOwner(t *testing.T) {
 	bob := xrayClientEntry{ID: "uuid-bob", Owner: "bob", Email: "bob"}
 	path := seedClients(t, alice, bob)
 
-	if deleted, err := deleteXrayClientIfOwner(alice.ID, "bob"); !errors.Is(err, errForbidden) || deleted {
+	if _, deleted, err := deleteXrayClientIfOwner(alice.ID, "bob"); !errors.Is(err, errForbidden) || deleted {
 		t.Fatalf("跨 owner 删除必须失败: deleted=%v err=%v", deleted, err)
 	}
 	if got := readStoredClients(t, path); len(got) != 2 {
 		t.Fatalf("越权删除不得改动台账: %#v", got)
 	}
 
-	if deleted, err := deleteXrayClientIfOwner("uuid-missing", ""); !errors.Is(err, errNotFound) || deleted {
+	if _, deleted, err := deleteXrayClientIfOwner("uuid-missing", ""); !errors.Is(err, errNotFound) || deleted {
 		t.Fatalf("删除不存在的 client 应返回 errNotFound: deleted=%v err=%v", deleted, err)
 	}
 
-	if deleted, err := deleteXrayClientIfOwner(alice.ID, ""); err != nil || !deleted {
+	if _, deleted, err := deleteXrayClientIfOwner(alice.ID, ""); err != nil || !deleted {
 		t.Fatalf("admin 删除应成功: deleted=%v err=%v", deleted, err)
 	}
 	if got := readStoredClients(t, path); len(got) != 1 || got[0].ID != bob.ID {
 		t.Fatalf("admin 删除后台账错误: %#v", got)
 	}
 
-	if deleted, err := deleteXrayClientIfOwner(bob.ID, "bob"); err != nil || !deleted {
+	if _, deleted, err := deleteXrayClientIfOwner(bob.ID, "bob"); err != nil || !deleted {
 		t.Fatalf("本人删除应成功: deleted=%v err=%v", deleted, err)
 	}
 	if got := readStoredClients(t, path); len(got) != 0 {
@@ -234,8 +281,16 @@ func TestEnsureXrayClientsSeedsFromEnvOnFirstRun(t *testing.T) {
 		if got[i].ID != wantID {
 			t.Fatalf("第 %d 个 client ID 应为 %s: %#v", i+1, wantID, got[i])
 		}
-		if got[i].Owner != "alice" || got[i].Email != "alice" {
-			t.Fatalf("owner/email 应取 AUTH_USER: %#v", got[i])
+		if got[i].Owner != "alice" {
+			t.Fatalf("owner 应取 AUTH_USER: %#v", got[i])
 		}
+		// email 必须各自等于客户端 UUID：取 AUTH_USER 会让多个客户端
+		// 产生重复 email，Xray 整份配置无法加载。
+		if got[i].Email != wantID {
+			t.Fatalf("email 应等于客户端 UUID: %#v", got[i])
+		}
+	}
+	if got[0].Email == got[1].Email {
+		t.Fatalf("多个客户端的 email 不能重复: %#v", got)
 	}
 }

@@ -72,10 +72,16 @@ func ApiXrayReleases() http.HandlerFunc {
 		for i, r := range releases {
 			out[i] = releaseOutput{Version: r.Version, Date: r.Date}
 		}
+		stored, err := xrayDownloads.listStored()
+		if err != nil {
+			log.Printf("Failed to load download manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		platform.WriteJSON(w, map[string]any{
 			"releases":  out,
 			"platforms": xrayPlatforms,
-			"stored":    xrayDownloads.listStored(),
+			"stored":    stored,
 		})
 	}
 }
@@ -112,7 +118,12 @@ func ApiXrayPlatforms() http.HandlerFunc {
 // GET /api/admin/xray/stored
 func ApiXrayStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		stored := xrayDownloads.listStored()
+		stored, err := xrayDownloads.listStored()
+		if err != nil {
+			log.Printf("Failed to load download manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		if stored == nil {
 			stored = []storedDownload{}
 		}

@@ -124,7 +124,11 @@
       <span class="topbar-title">WorkWork</span>
     </div>
     <div class="main-scroll" bind:this={mainScroll}>
-      {#if currentRoute}
+      {#if authLoading}
+        <!-- 认证未返回前不要按 isAdmin=false 渲染：管理员会先看到"无权限"
+             或 viewer 版页面，随后又跳回正常内容。 -->
+        <div class="page"><div class="loading-skeleton" style="height:120px;"></div></div>
+      {:else if currentRoute}
         {#if !currentRoute.adminOnly || isAdmin}
           <currentRoute.component />
         {:else}

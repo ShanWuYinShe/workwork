@@ -101,7 +101,10 @@ func TestDownloadArchiveAcceptsMatchingDigest(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.dir, "Xray-1.2.3-linux-64.zip")); err != nil {
 		t.Fatalf("产物未落盘: %v", err)
 	}
-	stored := s.listStored()
+	stored, err := s.listStored()
+	if err != nil {
+		t.Fatalf("listStored: %v", err)
+	}
 	if len(stored) != 1 || stored[0].Checksum != want {
 		t.Fatalf("manifest 条目异常: %+v", stored)
 	}
@@ -121,7 +124,11 @@ func TestDownloadArchiveRejectsDigestMismatch(t *testing.T) {
 			t.Fatalf("校验失败却留下产物: %s", e.Name())
 		}
 	}
-	if stored := s.listStored(); len(stored) != 0 {
+	stored, err := s.listStored()
+	if err != nil {
+		t.Fatalf("listStored: %v", err)
+	}
+	if len(stored) != 0 {
 		t.Fatalf("校验失败却写入 manifest: %+v", stored)
 	}
 }
@@ -148,7 +155,11 @@ func TestHandleToolDownloadRejectsTamperedAsset(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "校验失败") {
 		t.Fatalf("应返回校验失败事件, got %q", rec.Body.String())
 	}
-	if stored := s.listStored(); len(stored) != 0 {
+	stored, err := s.listStored()
+	if err != nil {
+		t.Fatalf("listStored: %v", err)
+	}
+	if len(stored) != 0 {
 		t.Fatalf("校验失败却写入 manifest: %+v", stored)
 	}
 }

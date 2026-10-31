@@ -120,10 +120,14 @@ func validTransferFilename(name string) bool {
 	return true
 }
 
-func loadTransferManifestLocked() transferManifest {
+// loadTransferManifestLocked 读取 manifest。调用方必须处理 error：读失败
+// 时不能把零值当空表继续，否则紧接着的 save 会把全部条目覆盖掉。
+func loadTransferManifestLocked() (transferManifest, error) {
 	var m transferManifest
-	platform.LoadJSONFile(transferManifestPath, &m)
-	return m
+	if err := platform.LoadJSONFile(transferManifestPath, &m); err != nil {
+		return transferManifest{}, err
+	}
+	return m, nil
 }
 
 func saveTransferManifestLocked(m transferManifest) error {
@@ -193,7 +197,11 @@ func cleanupExpiredTransferFiles() {
 	transferMu.Lock()
 	defer transferMu.Unlock()
 
-	m := loadTransferManifestLocked()
+	m, err := loadTransferManifestLocked()
+	if err != nil {
+		log.Printf("ERROR: transfer cleanup: load manifest: %v (skip this round)", err)
+		return
+	}
 	now := time.Now().UTC()
 	var kept []transferFile
 	var freed int64
@@ -339,7 +347,13 @@ func ApiTransferUpload() http.HandlerFunc {
 		// 可以先把磁盘塞满再在 Phase 2 逐一失败,配额形同虚设。Phase 2 仍保留
 		// 基于实际写入量的精确检查(预检只是快速失败,不追求精确)。
 		transferMu.Lock()
-		snapshot := loadTransferManifestLocked()
+		snapshot, err := loadTransferManifestLocked()
+		if err != nil {
+			transferMu.Unlock()
+			log.Printf("ERROR: transfer upload precheck: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		if snapshot.TotalSize+header.Size > transferMaxTotal {
 			transferMu.Unlock()
 			platform.WriteError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(snapshot.TotalSize)), 400)
@@ -405,7 +419,14 @@ func ApiTransferUpload() http.HandlerFunc {
 
 		// Phase 2: 加锁 — 用实际写入量做容量检查 + 生成分享码 + 重命名 + 更新 manifest
 		transferMu.Lock()
-		m := loadTransferManifestLocked()
+		m, err := loadTransferManifestLocked()
+		if err != nil {
+			transferMu.Unlock()
+			os.Remove(tmpPath)
+			log.Printf("ERROR: transfer upload: load manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 
 		if m.TotalSize+written > transferMaxTotal {
 			transferMu.Unlock()
@@ -498,8 +519,13 @@ func ApiTransferList() http.HandlerFunc {
 		userInfo, username := auth.GetUserFromContext(r)
 
 		transferMu.Lock()
-		m := loadTransferManifestLocked()
+		m, err := loadTransferManifestLocked()
 		transferMu.Unlock()
+		if err != nil {
+			log.Printf("ERROR: transfer list: load manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 
 		// 权限过滤
 		var files []transferFile
@@ -546,7 +572,12 @@ func ApiTransferDelete() http.HandlerFunc {
 		transferMu.Lock()
 		defer transferMu.Unlock()
 
-		m := loadTransferManifestLocked()
+		m, err := loadTransferManifestLocked()
+		if err != nil {
+			log.Printf("ERROR: transfer delete: load manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		found := false
 		var kept []transferFile
 		var removedNames []string
@@ -611,7 +642,13 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 		}
 
 		transferMu.Lock()
-		m := loadTransferManifestLocked()
+		m, err := loadTransferManifestLocked()
+		if err != nil {
+			transferMu.Unlock()
+			log.Printf("ERROR: transfer download: load manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 
 		var target *transferFile
 		for i := range m.Files {
@@ -643,11 +680,23 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 			return
 		}
 
-		// 下载计数移到 ServeContent 之后按"实际交付"判定(见
-		// deliveredFullDownload):此前在响应前预计数,HEAD(无响应体)或越界
-		// range(416)也各耗一次 MaxDownloads——知道分享码即可打空枪把限次
-		// 链接提前打死(已实测复现)。specCoversLast 只表达请求意图,是否
-		// 兑现由 countingResponseWriter 的 status/written 确认。
+		// 预留计数：检查与自增必须在同一把锁内完成。此前检查在锁内、自增
+		// 在 ServeContent 之后，并发请求都能通过检查，限次链接被放大成
+		// 任意次。先预留，HEAD/416/未覆盖末字节的 range/打开失败在响应后回退。
+		target.Downloads++
+		if err := saveTransferManifestLocked(m); err != nil {
+			if target.MaxDownloads > 0 {
+				transferMu.Unlock()
+				log.Printf("ERROR: transfer download: persist reserved count: %v", err)
+				platform.WriteInternalError(w, err)
+				return
+			}
+			// 不限次链接：计数只用于展示，持久化失败不阻断下载。
+			log.Printf("WARNING: transfer download: persist count (unlimited): %v", err)
+		}
+
+		// specCoversLast 只表达请求意图，是否兑现由 countingResponseWriter
+		// 的 status/written 确认（见 deliveredFullDownload）。
 		specCoversLast := rangeCountsAsDownload(r.Header.Get("Range"), target.Size)
 		filePath := transferFilePath(code, target.Filename)
 		// mime.FormatMediaType 生成 RFC 5987 编码(非 ASCII 文件名输出
@@ -664,6 +713,7 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 		f, err := os.Open(filePath)
 		if err != nil {
 			transferMu.Unlock()
+			refundTransferDownload(code)
 			if os.IsNotExist(err) {
 				platform.WriteError(w, "文件不存在或已过期", 404)
 				return
@@ -676,6 +726,7 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 		if err != nil {
 			f.Close()
 			transferMu.Unlock()
+			refundTransferDownload(code)
 			log.Printf("transfer download: stat %s: %v", code, err)
 			platform.WriteInternalError(w, err)
 			return
@@ -691,22 +742,35 @@ func ApiTransferPublicDownload() http.HandlerFunc {
 		cw := &countingResponseWriter{ResponseWriter: w}
 		http.ServeContent(cw, r, target.Filename, info.ModTime(), f)
 
-		// 按实际交付结果计数(见 specCoversLast 与 deliveredFullDownload 注释)。
-		// 计数持久化失败:不阻断下载本身(文件已读出),仅记录。
-		if deliveredFullDownload(r, cw, specCoversLast, info.Size()) {
-			transferMu.Lock()
-			m2 := loadTransferManifestLocked()
-			for i := range m2.Files {
-				if m2.Files[i].Code == code {
-					m2.Files[i].Downloads++
-					if err := saveTransferManifestLocked(m2); err != nil {
-						log.Printf("ERROR: save transfer manifest (download count): %v", err)
-					}
-					break
-				}
-			}
-			transferMu.Unlock()
+		// 按实际交付结果决定是否保留预留计数：HEAD(无响应体)、416、未覆盖
+		// 末字节的 range 不算一次下载，回退；完整/覆盖末字节的交付保留。
+		if !deliveredFullDownload(r, cw, specCoversLast, info.Size()) {
+			refundTransferDownload(code)
 		}
+	}
+}
+
+// refundTransferDownload 回退一次预留的下载计数。读取失败只记日志：计数
+// 回退失败不应该影响已经完成的下载响应。
+func refundTransferDownload(code string) {
+	transferMu.Lock()
+	defer transferMu.Unlock()
+	m, err := loadTransferManifestLocked()
+	if err != nil {
+		log.Printf("ERROR: transfer download refund: load manifest: %v", err)
+		return
+	}
+	for i := range m.Files {
+		if m.Files[i].Code != code {
+			continue
+		}
+		if m.Files[i].Downloads > 0 {
+			m.Files[i].Downloads--
+			if err := saveTransferManifestLocked(m); err != nil {
+				log.Printf("ERROR: transfer download refund: save: %v", err)
+			}
+		}
+		return
 	}
 }
 
@@ -829,18 +893,21 @@ func DeleteUploadsByUploader(uploader string) (int, error) {
 	transferMu.Lock()
 	defer transferMu.Unlock()
 
-	m := loadTransferManifestLocked()
+	m, err := loadTransferManifestLocked()
+	if err != nil {
+		return 0, err
+	}
 	removed := 0
 	var kept []transferFile
 	for _, f := range m.Files {
 		if f.Uploader == uploader {
 			if err := os.Remove(transferFilePath(f.Code, f.Filename)); err != nil && !os.IsNotExist(err) {
-				// 单文件删除失败不中断:manifest 先行收敛,残留文件由过期
-				// 清理回收(它按 manifest 条目删,条目已移除——失败文件成为
-				// 孤儿,但磁盘满类故障下这是可接受的降级)。
-				log.Printf("ERROR: transfer cascade delete %s: %v", f.Code, err)
+				// 删除失败时保留条目：条目一旦移除，文件既不可见也无法再被
+				// 清理（清理只遍历 manifest），会成为永久的无主文件。
+				log.Printf("ERROR: transfer cascade delete %s: %v (entry kept for retry)", f.Code, err)
+				kept = append(kept, f)
+				continue
 			}
-			m.TotalSize -= f.Size
 			removed++
 			continue
 		}
@@ -850,8 +917,10 @@ func DeleteUploadsByUploader(uploader string) (int, error) {
 		return 0, nil
 	}
 	m.Files = kept
-	if m.TotalSize < 0 {
-		m.TotalSize = 0
+	// 按保留条目重算总占用，避免逐项减法在部分失败/历史漂移下出现负数。
+	m.TotalSize = 0
+	for _, f := range kept {
+		m.TotalSize += f.Size
 	}
 	if err := saveTransferManifestLocked(m); err != nil {
 		return removed, err

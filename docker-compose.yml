@@ -16,6 +16,9 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      # fail2ban 的 admin-api action 端口由入口脚本按此值渲染（必须与
+      # admin 容器实际监听端口一致）。
+      - ADMIN_PORT=${ADMIN_PORT:-8318}
     init: true
     deploy:
       resources:
@@ -230,6 +233,9 @@ services:
         APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
         GIT_VERSION: ${GIT_VERSION:-dev}
     restart: unless-stopped
+    # 优雅关闭预算：srv.Shutdown 最多 10s + 守护 goroutine 等待 5s。
+    # Docker 默认只给 10s，会 SIGKILL 掉最后一次封禁/部署状态写入。
+    stop_grace_period: 20s
     init: true
     deploy:
       resources:
@@ -250,8 +256,8 @@ services:
       - docker_proxy
     group_add:
       # 101 = nginx worker 组:admin 以它写 htpasswd(0640 group 101,nginx
-      # worker 可读、宿主其他用户不可读)。代码侧 chgrp 失败会自动退回 0644,
-      # 不会造成 nginx 读不了凭证的整站锁死。
+      # worker 可读、宿主其他用户不可读)。代码侧 chgrp 失败时保持 0640 并
+      # 告警（不再降级 0644），因此这一项是面板可用的硬前提。
       - "101"
     cap_drop:
       - ALL

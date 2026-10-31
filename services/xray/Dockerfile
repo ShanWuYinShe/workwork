@@ -19,7 +19,11 @@ RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && chmod +x /tmp/xray/xray
 
 FROM alpine:${ALPINE_VERSION}
+# 必须在本 stage 重新声明：FROM 之前声明的 ARG 不会传入 stage，LABEL 会
+# 渲染成空串（实测 version/revision 均为空）。
 ARG APK_MIRROR
+ARG XRAY_VERSION
+ARG GIT_VERSION
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache ca-certificates iproute2 su-exec \
     && addgroup -g 101 xraysocket \

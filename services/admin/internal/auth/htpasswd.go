@@ -33,22 +33,6 @@ func verifyHtpasswdLine(user, pass, line string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) == nil
 }
 
-// ProxyAuthForUser returns "username:password" for the xhttp proxy Authorization header.
-// Creates a per-user proxy password on first call.
-func ProxyAuthForUser(username string) (string, error) {
-	if username == "" || username == "internal" {
-		return "", nil
-	}
-	pass, err := GetOrCreateProxyPassword(username)
-	if err != nil {
-		return "", err
-	}
-	if pass == "" {
-		return "", nil
-	}
-	return username + ":" + pass, nil
-}
-
 // ProxyAuthForUserRead 与 ProxyAuthForUser 相同，但只读取已存在的密码，
 // 不创建。用于 GET /api/admin/users：读端点不应有写副作用（生成密码 + 重写
 // htpasswd）。用户没有 proxy 密码时返回空串，生成的 config 中 XHTTPProxyAuth
@@ -71,18 +55,18 @@ var htpasswdMu sync.Mutex
 const htpasswdGID = 101
 
 // writeHtpasswdFile 原子写入 htpasswd 凭证文件并收紧权限(0640 + chgrp 101)。
-// chgrp 失败(进程无 101 附属组,如本地未配 compose group_add)时退回 0644
-// 并留 WARNING:宁可维持旧的可读性也不能让 nginx 读不了 htpasswd——那会
-// 整站 basic auth 全员失效。
+// chgrp 失败时**不降级到 0644**：0644 会让宿主任意用户拿到 bcrypt 哈希做
+// 离线爆破。保持 0640 并由 webhook/ERROR 告警；若 nginx 因此读不到凭证，
+// 表现为 basic auth 全员 401（响亮失败），远好于凭证哈希静默外泄。
 func writeHtpasswdFile(path string, content []byte) error {
 	if err := platform.AtomicWriteFile(path, content, 0640); err != nil {
 		return err
 	}
 	if err := os.Chown(path, -1, htpasswdGID); err != nil {
-		if chmodErr := os.Chmod(path, 0644); chmodErr != nil {
-			log.Printf("ERROR: fallback chmod 0644 %s: %v", path, chmodErr)
-		}
-		log.Printf("WARNING: chgrp %d %s failed (%v); keeping 0644 — add group_add [\"%d\"] to the admin service", htpasswdGID, path, err, htpasswdGID)
+		log.Printf("ERROR: chgrp %d %s failed (%v); keeping 0640 — add group_add [\"%d\"] to the admin service, otherwise nginx cannot read credentials", htpasswdGID, path, err, htpasswdGID)
+		platform.NotifyWebhook("auth.permission", "htpasswd chgrp 失败，凭证保持 0640（nginx 可能无法读取）", map[string]string{
+			"path": path, "gid": fmt.Sprint(htpasswdGID), "error": err.Error(),
+		})
 		return nil
 	}
 	return nil
@@ -92,7 +76,7 @@ func writeHtpasswdFile(path string, content []byte) error {
 // 旧版本创建的 0644 文件在升级后自动收紧)。
 func ensureHtpasswdPerm(path string) {
 	if err := os.Chown(path, -1, htpasswdGID); err != nil {
-		log.Printf("WARNING: chgrp %d %s failed (%v); file stays readable — add group_add [\"%d\"] to the admin service", htpasswdGID, path, err, htpasswdGID)
+		log.Printf("ERROR: chgrp %d %s failed (%v); nginx may not be able to read credentials — add group_add [\"%d\"] to the admin service", htpasswdGID, path, err, htpasswdGID)
 		return
 	}
 	if err := platform.EnsurePerm(path, 0640); err != nil {

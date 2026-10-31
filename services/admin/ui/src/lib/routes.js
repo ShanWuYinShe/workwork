@@ -48,7 +48,8 @@ export const navSections = [
   {
     key: 'accessControl',
     items: [
-      { path: '/users', key: 'users', icon: 'user-circle', adminOnly: true },
+      // viewer 也需要这个入口改自己的密码（页面内只有改密表单，不展示用户管理）。
+      { path: '/users', key: 'users', icon: 'user-circle' },
       { path: '/security', key: 'security', icon: 'shield', adminOnly: true },
     ],
   },

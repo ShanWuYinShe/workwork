@@ -74,7 +74,7 @@ spot_value() {
         GO_VERSION)  { grep -E "go-version:" "$p" || true; } | head -1 | sed "s/.*go-version:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}.*/\1/" ;;
         BUN_VERSION) { grep -E "bun-version:" "$p" || true; } | head -1 | sed "s/.*bun-version:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}.*/\1/" ;;
       esac ;;
-    compose) { grep -oE "\\\$\{$key:-[^}]*\}" "$p" || true; } | head -1 | sed "s/.*:-//;s/}//" ;;
+    compose) : ;; # compose 同一 key 可能出现多次，由主循环全量校验（见下）
   esac
 }
 
@@ -112,6 +112,30 @@ for root in "$MASTER_ROOT" $SITES; do
       case "$typ" in
         ci) case "$key" in GO_VERSION|BUN_VERSION) ;; *) continue ;; esac ;;
       esac
+      # compose 的同一个 key 可能在多个服务里出现（如 GO_VERSION 在 admin
+      # 与 docker-proxy 各一次）。逐处校验：此前 head -1 只看第一处，改坏
+      # 第二处时门禁仍显示一致。
+      if [ "$typ" = "compose" ]; then
+        vals=$(grep -oE "\\\$\{$key:-[^}]*\}" "$root/$f" 2>/dev/null | sed "s/.*:-//;s/}//" | sort -u || true)
+        [ -n "$vals" ] || continue
+        cur=$(printf '%s\n' "$vals" | paste -sd, -)
+        if [ "$vals" = "$want" ]; then
+          printf "  ✓ %-42s %-14s %s\n" "$f" "$key" "$cur"
+        else
+          drift=$((drift+1))
+          printf "  ✗ %-42s %-14s %s (主本 %s)\n" "$f" "$key" "$cur" "$want"
+          if [ "$MODE" = "sync" ]; then
+            if [ -n "$DRY" ]; then
+              echo "    [dry] 将全部改写为 $want"
+            else
+              rewrite "$root" "$typ" "$f" "$key" "$want"
+              echo "    已改写 → $want"
+              changed=$((changed+1))
+            fi
+          fi
+        fi
+        continue
+      fi
       cur=$(spot_value "$root" "$typ" "$f" "$key")
       [ -n "$cur" ] || continue
       if [ "$cur" = "$want" ]; then

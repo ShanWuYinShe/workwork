@@ -133,7 +133,7 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 }
 
 func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
-	clients := []xrayClientEntry{{ID: "uuid-1", Owner: "viewer", Email: "viewer"}}
+	clients := []xrayClientEntry{{ID: "uuid-1", Owner: "viewer", Email: "uuid-1"}}
 	got, err := encodeXrayClients(clients)
 	if err != nil {
 		t.Fatalf("encodeXrayClients: %v", err)
@@ -159,6 +159,29 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 	}
 	if got, err := encodeXrayClients(nil); err != nil || got != "[]" {
 		t.Fatalf("expected empty clients to encode as [], got %q, err %v", got, err)
+	}
+}
+
+// TestValidateXrayClientsEmailGuard 锁定配置写盘前的门禁：Xray 的 vless
+// validator 拒绝重复（大小写不敏感）email，生成器必须在落盘前拦截。
+func TestValidateXrayClientsEmailGuard(t *testing.T) {
+	bad := map[string][]xrayClientEntry{
+		"duplicate (case-insensitive)": {
+			{ID: "a", Email: "same"},
+			{ID: "b", Email: "SAME"},
+		},
+		"empty": {{ID: "a", Email: ""}},
+	}
+	for name, clients := range bad {
+		if err := validateXrayClients(clients); err == nil {
+			t.Fatalf("%s: expected validation error, got nil", name)
+		}
+	}
+	if err := validateXrayClients([]xrayClientEntry{
+		{ID: "a", Email: "a"},
+		{ID: "b", Email: "b"},
+	}); err != nil {
+		t.Fatalf("distinct emails must pass: %v", err)
 	}
 }
 

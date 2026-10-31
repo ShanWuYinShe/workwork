@@ -13,7 +13,7 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 2. **CSRF 中间件**（Go，变更类请求）：浏览器发起的写请求 `Origin` 必须与 `Host` 一致（`auth.CSRFMiddleware`）。它必须位于限流**之前**——先限流会让伪造请求耗尽受害者 IP 的配额。
 3. **Go rate limiter**：20 req/10s → 429 → 自动封禁 30min；IPv6 按 **/64 网段**聚合计数（换后缀不重置预算），封禁仍按具体 IP。**解封 API 必须两个维度都清**（整点计数 + /64 前缀预算），只清前者同前缀仍被拦截。`GET /api/transfer/*` 公开下载豁免（nginx 已有 1r/s + 3 并发约束）。
 4. **Go IP blocker**：持久黑名单 → 403。
-5. **nginx 层**：`limit_req admin_api`（10r/s burst 50）+ `blocked-ips.conf` return 403，对**携带 internal token 的请求豁免**（nginx 只判存在性，token 真伪由 admin 恒时比较；伪造者过不了校验、照常被应用层限流封禁，防线不弱化）。`transfer_dl/transfer_conn` 刻意不豁免。
+5. **nginx 层**：`limit_req admin_api`（10r/s burst 50）+ `blocked-ips.conf` return 403，对**携带合法 internal token 的请求豁免**（admin 把 token 真实值渲染进 nginx map；nginx 值匹配，伪造头不匹配，照常限流/封禁。应用层仍需恒时比较作为第二道）。`transfer_dl/transfer_conn` 刻意不豁免。
 6. **fail2ban（nginx 内）**：经 scoped `X-Fail2Ban-Token` 调 admin block/unblock API 封真实 IP。计数语义：filter 只计**带错误凭证**的 401，浏览器冷启动质询的无凭证 401 不计入，maxretry=5 即真实错密码 5 次。误封教训与验证手法见 references/defense-layers.md。
 7. **Cloudflare DDoS/WAF** 在边缘；**htpasswd bcrypt**（`$2y$`）哈希全部密码。
 8. **docker API 白名单代理**（`services/docker_proxy`）：`(method, path)` 逐条锚定，匹配前先剥 query，**禁止二次 URL 解码**（`%252F` 会让「检查的串」与「上游执行的串」不一致）；容器级路径靠 compose 项目归属校验，无容器句柄的读端点必须自带项目 label 过滤，一律 fail-closed。**加新 docker 调用：容器级端点靠归属校验，列表/事件端点必须自带 `platform.ComposeProjectFilters(...)`，否则运行期 403**；`ALLOWED_COMPOSE_PROJECTS` 由 compose 从 `COMPOSE_PROJECT_NAME` 接线，两者不一致会让本栈容器被整体拒绝、面板操作静默失效。细节与本地 e2e 测试见 references/defense-layers.md。

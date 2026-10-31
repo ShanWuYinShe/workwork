@@ -39,6 +39,11 @@ func main() {
 		log.Fatalf("Config generation failed: %v", err)
 	}
 
+	// 台账规范化可能把客户端 email 从登录用户名改写为客户端 UUID；把
+	// 旧键→新键映射交给流量统计，续接历史累计值（否则旧流量会挂在
+	// 不存在于客户端列表里的键上）。
+	proxy.SetTrafficEmailAliases(accounts.XrayEmailAliases())
+
 	// 不要用 client.WithTimeout:它设置的是 http.Client.Timeout,即整个
 	// 请求-响应周期(含 body 读取)的硬墙,会把无 deadline 的长连接流掐断——
 	// 服务日志 SSE(/api/admin/services 的 logs/stream,Follow:true)会在
@@ -173,7 +178,7 @@ func main() {
 	mux.Handle("/favicon.svg", static)
 	mux.Handle("/icons.svg", static)
 
-	// Wrap all routes: security headers -> IP block -> rate limit -> serve
+	// Wrap all routes: CSRF -> IP block -> rate limit -> serve
 	// Static assets bypass rate limiting to avoid consuming request quota.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -205,8 +210,10 @@ func main() {
 		w.Header().Set("Cache-Control", "no-store")
 		// CSRF 校验必须在限流之前:跨站伪造请求来自受害者自己的浏览器与 IP,
 		// 若先限流,攻击会耗尽受害者 IP 的配额触发 30min 自动封禁(限流器被
-		// 武器化为 DoS 受害者)。安全头/静态资源分支不需要 CSRF(均为 GET)。
-		auth.CSRFMiddleware(auth.RateLimitMiddleware(auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		// 武器化为 DoS 受害者)。IP 封禁必须在限流之前:已封禁 IP 不应再消耗
+		// 限流预算、触发封禁写盘/webhook（否则封禁后仍可周期性放大写盘）。
+		// 安全头/静态资源分支不需要这些（均为 GET）。
+		auth.CSRFMiddleware(auth.IPBlockMiddleware(auth.RateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		})))(w, r)
 	})
@@ -280,6 +287,8 @@ func main() {
 	case <-time.After(5 * time.Second):
 		log.Println("Shutdown: daemons did not exit in 5s, proceeding")
 	}
+	// 去抖中的封禁写入必须在这里落盘，否则限流热路径最后 1s 的封禁会丢。
+	auth.FlushBlockedIPs()
 	log.Println("Server stopped")
 }
 

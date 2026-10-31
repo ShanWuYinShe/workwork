@@ -24,11 +24,12 @@ limit_req_zone $binary_remote_addr zone=transfer_dl:10m rate=1r/s;
 limit_conn_zone $binary_remote_addr zone=transfer_conn:10m;
 
 # ── 合法 internal token 的全链路豁免 ──
-# 携带 X-Internal-Token / Authorization: Bearer 的请求在 nginx 层只做"存在性"
-# 判断(跳过限速与 IP 封禁);token 真伪由 admin 恒时比较——伪造 token 到得了
-# admin,但校验失败后照常被应用层限流(20req/10s)与 30min 封禁,防线不弱化。
-map $http_internal_token $tok_header { default 0; "~.+" 1; }
-map $http_authorization $tok_bearer { default 0; "~^Bearer " 1; }
+# 只有 token **值**匹配才豁免（跳过限速与 IP 封禁）；只看头是否存在的旧实现
+# 让任意伪造头都能绕过（实测伪造头 10 次全 200，不带头第 3 次 429）。
+# token 由 admin 渲染时注入（字符集受限，见 auth.EnsureInternalToken），
+# admin 应用层仍用恒时比较做第二道校验。
+map $http_internal_token $tok_header { default 0; "~^__INTERNAL_TOKEN_REGEX__$" 1; }
+map $http_authorization $tok_bearer { default 0; "~^Bearer __INTERNAL_TOKEN_REGEX__$" 1; }
 map "$tok_header$tok_bearer" $has_internal_tok { "~1" 1; default 0; }
 
 # IP 封禁豁免:$blocked_final = (blocked-ips.conf 任一封禁命中) 且 (未携带

@@ -48,6 +48,11 @@ var ErrLastAdmin = errors.New("cannot remove the last admin user")
 // ErrProtectedAdmin 表示"不能降级受保护的管理员账号"(AUTH_USER)。
 var ErrProtectedAdmin = errors.New("cannot demote the default admin account")
 
+// ErrUserNotFound 表示 users.json 中不存在该用户。GetOrCreateProxyPassword
+// 用它拒绝"为已删除用户懒创建凭证"——删除流程与在途 add 并发时，这曾让
+// 被删用户重新获得 proxy 访问权。
+var ErrUserNotFound = errors.New("user not found")
+
 // internalToken/fail2banToken 由 deploy.go 生成并加载。
 // 避免使用 os.Setenv 注入进程环境（并发不安全）以及 platform.GetEnv 的双重来源行为。
 var internalToken atomic.Value // holds string
@@ -56,6 +61,12 @@ var fail2banToken atomic.Value // holds string
 func getInternalToken() string {
 	v, _ := internalToken.Load().(string)
 	return v
+}
+
+// InternalToken 返回当前进程使用的 internal token（未初始化时为空串）。
+// nginx 渲染需要把同一个值写进 map，做真实值匹配而不是"头存在即豁免"。
+func InternalToken() string {
+	return getInternalToken()
 }
 
 func setInternalToken(tok string) {
@@ -162,31 +173,34 @@ func IsProtectedAdmin(username string) bool {
 	return username == platform.GetEnv("AUTH_USER")
 }
 
-func UpdateUserMeta(username string, info UserInfo) error {
-	return UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
-		doc.Users[username] = info
-		return true, nil
-	})
-}
-
-func DeleteUserMeta(username string) error {
-	return UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
-		delete(doc.Users, username)
-		return true, nil
-	})
-}
-
 func GetUserFromContext(r *http.Request) (*UserInfo, string) {
 	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
 	username, _ := r.Context().Value(usernameCtxKey).(string)
 	return info, username
 }
 
+// UserMetaExists 报告 users.json 中是否存在该用户。供"admin 代用户创建
+// Xray 客户端"等需要确认目标用户真实存在的路径使用。
+func UserMetaExists(username string) (bool, error) {
+	doc, err := ReadUsersMeta()
+	if err != nil {
+		return false, err
+	}
+	_, ok := doc.Users[username]
+	return ok, nil
+}
+
 func GetOrCreateProxyPassword(username string) (string, error) {
 	var password string
 	created := false
 	err := UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
-		info := doc.Users[username]
+		// 用户不存在时必须拒绝，而不是顺手新建一条只有 ProxyPassword、
+		// Role 为空的幽灵条目：删除用户与在途 add 并发时，这正是被删用户
+		// 重新拿回 proxy 访问权的路径。
+		info, ok := doc.Users[username]
+		if !ok {
+			return false, ErrUserNotFound
+		}
 		if info.ProxyPassword != "" {
 			password = info.ProxyPassword
 			return false, nil
@@ -486,7 +500,7 @@ func isInternalRequest(r *http.Request) bool {
 	}
 	// 拒绝必须留痕：运维据此发现外部自动化实际需要的最小前缀集合，
 	// 再把它们配进 INTERNAL_TOKEN_ALLOWED_PREFIXES。
-	log.Printf("[security] internal-token rejected: path %s not in INTERNAL_TOKEN_ALLOWED_PREFIXES", r.URL.Path)
+	log.Printf("[security] internal-token rejected: path %q not in INTERNAL_TOKEN_ALLOWED_PREFIXES", r.URL.Path)
 	return false
 }
 
@@ -589,12 +603,4 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			next(w, r.WithContext(ctx))
 		}
 	}
-}
-
-// WithTestUser 供外部包测试向请求 ctx 注入已认证用户(生产代码不得调用;
-// 生产路径由 requireRole 中间件写入)。
-func WithTestUser(r *http.Request, info *UserInfo, username string) *http.Request {
-	ctx := context.WithValue(r.Context(), userInfoCtxKey, info)
-	ctx = context.WithValue(ctx, usernameCtxKey, username)
-	return r.WithContext(ctx)
 }

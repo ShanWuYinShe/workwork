@@ -34,4 +34,17 @@ if [ -w /etc/nginx/htpasswd ]; then
     touch /etc/nginx/htpasswd/.htpasswd /etc/nginx/htpasswd/.htpasswd-proxy 2>/dev/null || true
 fi
 
+# fail2ban 的 admin-api action 里写的是 http://admin:8318/…；ADMIN_PORT 是
+# 可配项（compose healthcheck 已跟随）。不渲染的话，改端口后封禁/解封会
+# 连不上 admin，且 fail2ban 只记一条 curl 失败日志，表现为防护静默失效。
+case "${ADMIN_PORT:-}" in
+    ''|*[!0-9]*)
+        echo "WARNING: ADMIN_PORT='${ADMIN_PORT:-}' is not numeric, fail2ban action keeps the baked-in port" >&2
+        ;;
+    *)
+        sed -i "s|http://admin:[0-9]\+/|http://admin:${ADMIN_PORT}/|g" \
+            /etc/fail2ban/action.d/admin-api.conf
+        ;;
+esac
+
 exec "$@"

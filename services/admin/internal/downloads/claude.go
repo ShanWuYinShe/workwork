@@ -81,10 +81,16 @@ func ApiClaudeCodeReleases() http.HandlerFunc {
 		for i, r := range releases {
 			out[i] = releaseOutput{Version: r.Version, Date: r.Date}
 		}
+		stored, err := claudeDownloads.listStored()
+		if err != nil {
+			log.Printf("Failed to load download manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		platform.WriteJSON(w, map[string]any{
 			"releases":  out,
 			"platforms": claudePlatforms,
-			"stored":    claudeDownloads.listStored(),
+			"stored":    stored,
 		})
 	}
 }
@@ -121,7 +127,12 @@ func ApiClaudeCodePlatforms() http.HandlerFunc {
 // GET /api/admin/claude-code/stored — viewer+ can see downloaded files
 func ApiClaudeCodeStored() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		stored := claudeDownloads.listStored()
+		stored, err := claudeDownloads.listStored()
+		if err != nil {
+			log.Printf("Failed to load download manifest: %v", err)
+			platform.WriteInternalError(w, err)
+			return
+		}
 		if stored == nil {
 			stored = []storedDownload{}
 		}
@@ -253,7 +264,15 @@ func handleToolDownload(s *downloadService) http.HandlerFunc {
 		// "Download completed but no result received"——存储列表过期(其他会话/
 		// 浏览器已下载)时用户看到的是误导性失败,而不是"已下载过",前端
 		// already_exists 分支因此永远不可达。
-		for _, sd := range s.listStored() {
+		stored, err := s.listStored()
+		if err != nil {
+			// 读不到清单就无法判断是否已下载：按流协议回错误，不能静默继续
+			// 并在后面用空清单覆盖。
+			log.Printf("Failed to load download manifest: %v", err)
+			sendEvent(map[string]any{"type": "error", "error": "读取下载清单失败"})
+			return
+		}
+		for _, sd := range stored {
 			if sd.Version == body.Version && sd.Plat == body.Plat {
 				sendEvent(map[string]any{"type": "done", "status": "already_exists", "filename": sd.Filename})
 				return

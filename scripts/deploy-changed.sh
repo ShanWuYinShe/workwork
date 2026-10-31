@@ -48,16 +48,25 @@ notify_deploy_failure() {
 # ---------- 并发部署防护 ----------
 # cron 与人工同时触发会交错执行 build/up。锁经 fd 9 在下方 re-exec 时保持
 # 持有;macOS 无 flock CLI(仅服务器 Linux 有),缺席时降级为只告警不拦截。
+# DEPLOY_LOCK_HELD 标记"锁已由父进程持有"：re-exec 的子进程跳过重新打开
+# 锁文件（重新 exec 9> 会先关闭旧 fd，造成锁短暂释放的窗口）。
 lockfile="${TMPDIR:-/tmp}/workwork-deploy.lock"
-exec 9>"$lockfile"
-if command -v flock >/dev/null 2>&1; then
-  if ! flock -n 9; then
-    echo "错误: 另一个 deploy-changed 正在进行(锁: $lockfile),拒绝并发部署" >&2
-    exit 1
+if [ "${DEPLOY_LOCK_HELD:-}" != "1" ]; then
+  exec 9>"$lockfile"
+  if command -v flock >/dev/null 2>&1; then
+    if ! flock -n 9; then
+      echo "错误: 另一个 deploy-changed 正在进行(锁: $lockfile),拒绝并发部署" >&2
+      exit 1
+    fi
+  else
+    echo "⚠ flock 不可用，跳过并发部署防护（仅本地复跑会出现）"
   fi
-else
-  echo "⚠ flock 不可用，跳过并发部署防护（仅本地复跑会出现）"
+  export DEPLOY_LOCK_HELD=1
 fi
+
+# 成功部署的 commit 基线。不能用 git HEAD 当基线：部署失败并回滚后 HEAD
+# 已经前移，下一次 diff 会从失败提交开始，失败批次的改动永久漏部署。
+deployed_marker=".wework/deployed-commit"
 
 # ---------- 输入与前置校验 ----------
 # 分支断言:部署只允许发生在 main 上。在 origin/main 的祖先分支上 pull
@@ -76,7 +85,18 @@ else
     echo "错误: 工作区有未提交改动，拒绝部署（先 commit 或确认清理）" >&2
     exit 1
   fi
-  old=$(git rev-parse HEAD)
+  if [ -f "$deployed_marker" ]; then
+    marker="$(tr -d '[:space:]' <"$deployed_marker")"
+    if [ -n "$marker" ] && git cat-file -e "${marker}^{commit}" 2>/dev/null; then
+      old="$marker"
+      echo "基线: 上次成功部署的 commit $old"
+    else
+      echo "⚠ $deployed_marker 记录的 commit '$marker' 不存在，回退到 HEAD 作为基线" >&2
+      old=$(git rev-parse HEAD)
+    fi
+  else
+    old=$(git rev-parse HEAD)
+  fi
   git pull --ff-only origin main
   # pull 可能替换本脚本文件:若继续执行,bash 会按旧字节偏移读新内容,
   # 执行错乱(实测 admin 漏建、版本导出失效)。以磁盘上的新版本重新执行
@@ -137,8 +157,19 @@ if printf '%s\n' "$changed" | grep -q '^services/admin/configs/nginx\.conf\.tmpl
   config_reload="$config_reload nginx"
 fi
 
-if printf '%s\n' "$changed" | grep -q '^docker-compose.yml$\|^.env.example$'; then
-  echo "⚠ compose/env 变更: 请人工确认受影响服务后执行 make up <svc...>"
+# 编排层变更无法按服务精确推导：compose 里的 env/卷/资源/健康检查可能影响
+# 任意服务。此前只打印一句"请人工确认"就继续，services 为空时直接 exit 0，
+# 这类修复永远不落地（bd2668c 只改 docker-compose.yml 就是实例）。改为按
+# 全量服务处理。
+if printf '%s\n' "$changed" | grep -qx 'docker-compose.yml'; then
+  echo "⚠ docker-compose.yml 变更：编排层无法精确推导，按全量服务处理"
+  for svc in $ALL_SERVICES; do add_svc "$svc"; done
+fi
+# .env.example 是示例文档，不是运行时输入；运行时 .env 被 gitignore，改它
+# 不会出现在 git diff 里，需要人工 make up。这里明确区分，避免把示例变更
+# 当成需要部署的配置变更。
+if printf '%s\n' "$changed" | grep -qx '.env.example'; then
+  echo "ℹ .env.example 变更（示例文档）：不触发部署；若改的是实际 .env，请手动 make up <svc...>"
 fi
 
 # 版本号烙进镜像(经健康端点暴露),describe 即本次部署版本。
@@ -161,7 +192,36 @@ echo "=== 受影响服务:$services ==="
 # 记录部署前各服务镜像(含 tag)，部署后打印精确回滚命令。
 # 用临时文件而不用关联数组：保持 bash 3 兼容（macOS 本地复跑）。
 prev_file="$(mktemp)"
-trap 'rm -f "$prev_file"' EXIT
+# 部署前快照 .wework/generated/：admin 启动时会先把模板渲染到这里。若新
+# 模板渲染出的配置没通过 nginx -t / xray -test，运行中的进程还能靠内存旧
+# 配置活着，但下一次任意 restart/宿主重启会加载坏配置直接下线。校验失败时
+# 恢复快照，把这个"定时炸弹"拆掉。
+generated_dir="$PWD/.wework/generated"
+generated_backup=""
+if [ -d "$generated_dir" ]; then
+  generated_backup="$(mktemp -d)"
+  if ! cp -a "$generated_dir/." "$generated_backup/" 2>/dev/null; then
+    echo "⚠ .wework/generated 快照失败，校验失败时将无法恢复旧配置" >&2
+    rm -rf "$generated_backup"
+    generated_backup=""
+  fi
+fi
+cleanup_deploy_temps() {
+  rm -f "$prev_file"
+  if [ -n "${generated_backup:-}" ]; then
+    rm -rf "$generated_backup"
+  fi
+}
+trap cleanup_deploy_temps EXIT
+restore_generated_configs() {
+  if [ -n "${generated_backup:-}" ] && [ -d "$generated_backup" ]; then
+    echo "=== 恢复部署前的运行时配置（.wework/generated） ==="
+    rm -rf "$generated_dir"
+    mkdir -p "$generated_dir"
+    cp -a "$generated_backup/." "$generated_dir/"
+    echo "  已恢复，避免下次重启加载未通过校验的配置"
+  fi
+}
 for svc in $services $config_reload; do
   cid="$(docker compose ps -q "$svc" 2>/dev/null || true)"
   if [ -n "$cid" ]; then
@@ -220,8 +280,22 @@ if printf '%s' "$config_reload" | grep -qw xray; then
   fi
 fi
 if [ -n "${validate_failed// /}" ]; then
+  # 坏配置已经由 admin 渲染到 .wework/generated/。先把 admin 回滚到部署前
+  # 镜像（避免它的下一次启动再次渲染坏模板），再恢复部署前的配置快照。
+  if printf '%s\n' "$services" | grep -qw admin; then
+    prev_image="$(awk -v s=admin '$1==s{print $2}' "$prev_file")"
+    if [ -n "$prev_image" ] && [ "${prev_image##*:}" != "$IMAGE_TAG" ]; then
+      echo "  回滚 admin → $prev_image（避免再次渲染坏配置）"
+      if IMAGE_TAG="${prev_image##*:}" docker compose up -d --no-deps admin; then
+        echo "  admin 已回滚"
+      else
+        echo "  !! admin 回滚失败，需人工处理: IMAGE_TAG=${prev_image##*:} docker compose up -d --no-deps admin" >&2
+      fi
+    fi
+  fi
+  restore_generated_configs
   notify_deploy_failure "配置校验失败($validate_failed),未重启对应服务,线上仍跑旧配置"
-  echo "错误:$validate_failed 新配置校验未通过,已跳过重启,线上仍跑旧配置。修复模板后重新跑 deploy-changed。" >&2
+  echo "错误:$validate_failed 新配置校验未通过,已跳过重启并恢复部署前配置。修复模板后重新跑 deploy-changed。" >&2
   exit 1
 fi
 
@@ -285,6 +359,11 @@ for svc in $services; do
 done
 
 if [ -n "$fail" ]; then
+  # admin 未 healthy/版本不符：它可能只渲染了一半配置，恢复部署前快照，
+  # 避免下一次重启加载半成品。
+  if printf '%s\n' "$fail" | grep -qw admin; then
+    restore_generated_configs
+  fi
   echo "!! 部署校验未通过:$fail"
   echo "=== 自动回滚（到部署前镜像） ==="
   rolled_back=1
@@ -327,5 +406,11 @@ if [ -n "$fail" ]; then
   # 外发失败通知（WEBHOOK_URL,与 admin 事件通知同源;未配置为 no-op）。
   notify_deploy_failure "部署校验未通过:$fail"
   exit 1
+fi
+# 只有完整成功才推进基线。失败路径保持旧基线，下一次会把同一批变更重新
+# 部署（而不是因为 HEAD 已前移而永久跳过）。基线落盘失败不能让一次成功
+# 的部署变成非零退出，只告警（下次会重复部署一批已上线的变更）。
+if ! mkdir -p "$(dirname "$deployed_marker")" || ! printf '%s\n' "$new" >"$deployed_marker"; then
+  echo "⚠ 无法写入部署基线 $deployed_marker；下次部署可能重复处理已上线的变更" >&2
 fi
 echo "部署校验通过 ✅（回滚：IMAGE_TAG=<旧tag> docker compose up -d --no-deps$services）"

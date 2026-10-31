@@ -3,6 +3,7 @@ package auth
 import (
 	"admin/internal/platform"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -34,18 +35,42 @@ type ipBlockStore struct {
 	mu      sync.Mutex
 	path    string
 	Entries []ipBlockEntry `json:"entries"`
+	// loadErr 记录启动时读取失败（非文件不存在、非损坏隔离）的错误。
+	// 此时内存里的 Entries 不是磁盘现状，必须拒绝 save，否则会用空表
+	// 覆盖原文件，历史封禁全部丢失（fail-open）。
+	loadErr error
+	// saveTimer 是 saveDebounced 的去抖定时器（调用方须持有 mu）。
+	saveTimer *time.Timer
 }
 
 var ipBlocker = &ipBlockStore{path: "/app/data/blocked-ips.json"}
 
+// FlushBlockedIPs 立即落盘待写入的封禁状态（优雅关闭时调用，避免去抖窗口
+// 内的最后一批封禁丢失）。
+func FlushBlockedIPs() {
+	ipBlocker.flush()
+}
+
 func (s *ipBlockStore) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// 解析失败交给 platform.LoadJSONFile:它把损坏文件隔离为 <path>.corrupt
-	// 并触发 webhook 告警。此前只打一条 WARNING 就返回——entries 为空(历史
-	// 封禁静默失效,fail-open),且紧随其后的任意 save() 会用空表原子覆盖
-	// 原文件,现场一并丢失。文件不存在时仍按空表启动。
-	platform.LoadJSONFile(s.path, s)
+	// 用临时结构加载，失败时不污染内存现状。
+	var loaded struct {
+		Entries []ipBlockEntry `json:"entries"`
+	}
+	if err := platform.LoadJSONFile(s.path, &loaded); err != nil {
+		if errors.Is(err, platform.ErrCorruptJSON) {
+			// 损坏文件已被隔离（原字节保留在 .corrupt），从空表继续；
+			// 新封禁仍要能落盘/同步到 nginx，所以不置 loadErr。
+			log.Printf("WARNING: blocked-ips corrupt, starting from empty (quarantined): %v", err)
+		} else {
+			s.loadErr = err
+			log.Printf("ERROR: blocked-ips load failed, refusing to overwrite %s until the file is readable again: %v", s.path, err)
+			return
+		}
+	}
+	s.loadErr = nil
+	s.Entries = loaded.Entries
 	// expires_at 不可解析的条目:blockEntryExpired 视为"未过期"(保持
 	// fail-closed),cleanupExpired 又因解析失败永不清理,结果是永久占位
 	// 且无任何告警。加载时归一化成显式永久封禁(空 ExpiresAt):与强制执行
@@ -64,6 +89,56 @@ func (s *ipBlockStore) load() {
 func (s *ipBlockStore) save() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+		s.saveTimer = nil
+	}
+	s.saveLocked()
+}
+
+// saveDebounced 合并高频封禁写入：限流拒绝路径可能每个请求都触发封禁，
+// 立即全量序列化+fsync+nginx reload 会被放大成磁盘/CPU 风暴。1s 内的多次
+// 调用只落盘一次；进程关闭时用 flush() 保证最后一次写入不丢。
+func (s *ipBlockStore) saveDebounced() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loadErr != nil {
+		log.Printf("ERROR: refusing to persist blocked IPs: initial load failed (%v); fix or remove %s", s.loadErr, s.path)
+		return
+	}
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+	}
+	var tm *time.Timer
+	tm = time.AfterFunc(time.Second, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		// 只清理"自己"：如果期间又排了一个新 timer，不要把它的指针清掉。
+		if s.saveTimer == tm {
+			s.saveTimer = nil
+		}
+		s.saveLocked()
+	})
+	s.saveTimer = tm
+}
+
+// flush 取消待触发的去抖定时器并立即落盘，供优雅关闭调用。
+func (s *ipBlockStore) flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.saveTimer != nil {
+		s.saveTimer.Stop()
+		s.saveTimer = nil
+	}
+	s.saveLocked()
+}
+
+// saveLocked 假设调用方已持有 s.mu。
+func (s *ipBlockStore) saveLocked() {
+	if s.loadErr != nil {
+		log.Printf("ERROR: refusing to persist blocked IPs: initial load failed (%v); fix or remove %s", s.loadErr, s.path)
+		return
+	}
 	// 容量告警:永久条目(无 ExpiresAt)只能手工/自动化清理,单调累积会让
 	// blocked-ips.json 与 nginx map 无限膨胀(每次 reload 全量渲染)。超过
 	// 阈值按 1000 取模周期性告警,提示运维审视是否存在可清退的过期条目。

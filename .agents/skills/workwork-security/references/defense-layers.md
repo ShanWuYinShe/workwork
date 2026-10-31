@@ -12,7 +12,8 @@
 ## nginx 限速与封禁的 internal token 豁免
 
 - 模板在 **http 级** 用 map 组合：`$has_internal_tok` → 空限速键（跳过 `limit_req`）/ `$blocked_final`（跳过 `return 403`）。
-- 豁免只做存在性判断；token 真伪由 admin 恒时比较，伪造者照常落入应用层限流与封禁，防线不弱化。
+- token 值由 admin 渲染进 nginx map（字符集限 `[A-Za-z0-9._~-]`），nginx 做真实值匹配；伪造头不匹配，不再获得任何豁免。应用层恒时比较作为第二道。
+- 历史坑：旧实现只判"头是否存在"，任意假 token 即可绕过 nginx 限速与 fail2ban 封禁（实测伪造头 10 次全 200、不带头第 3 次 429）；不要再退回存在性判断。
 - `transfer_dl` / `transfer_conn` 刻意不豁免（公开下载本就受自身并发约束）。
 - 改 nginx 模板后先做语法预验证：抽取模板 http 级片段 + 模拟 `blocked-ips.conf` 的 map，用与 `versions.env` 钉死版本一致的镜像跑：
   ```bash

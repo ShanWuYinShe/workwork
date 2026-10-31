@@ -83,3 +83,40 @@ func TestAccumulate(t *testing.T) {
 		t.Fatal("totals of removed user should be kept for display")
 	}
 }
+
+// TestSetTrafficEmailAliasesMigratesHistory 锁定台账 email 规范化（登录用户名
+// → 客户端 UUID）时历史流量续接：旧键的累计值与基线必须搬到新键，否则
+// 迁移后流量展示从零开始、旧键变成客户端列表里不存在的幽灵行。
+func TestSetTrafficEmailAliasesMigratesHistory(t *testing.T) {
+	trafficMu.Lock()
+	prevTotals, prevBaseline := trafficTotals, trafficBaseline
+	prevLoaded, prevAliases := trafficLoaded, trafficEmailAliases
+	trafficTotals = map[string]userTraffic{"alice": {Up: 10, Down: 20}}
+	trafficBaseline = map[string]int64{"alice>>>uplink": 10, "alice>>>downlink": 20}
+	trafficLoaded = true
+	trafficEmailAliases = nil
+	trafficMu.Unlock()
+	t.Cleanup(func() {
+		trafficMu.Lock()
+		trafficTotals, trafficBaseline = prevTotals, prevBaseline
+		trafficLoaded, trafficEmailAliases = prevLoaded, prevAliases
+		trafficMu.Unlock()
+	})
+
+	SetTrafficEmailAliases(map[string]string{"alice": "uuid-alice"})
+	snap := TrafficSnapshot()
+	if _, ok := snap["alice"]; ok {
+		t.Fatalf("old email key should be gone: %+v", snap)
+	}
+	if got := snap["uuid-alice"]; got.Up != 10 || got.Down != 20 {
+		t.Fatalf("totals not migrated: %+v", got)
+	}
+	trafficMu.Lock()
+	defer trafficMu.Unlock()
+	if trafficBaseline["uuid-alice>>>uplink"] != 10 || trafficBaseline["uuid-alice>>>downlink"] != 20 {
+		t.Fatalf("baseline not migrated: %+v", trafficBaseline)
+	}
+	if _, ok := trafficBaseline["alice>>>uplink"]; ok {
+		t.Fatalf("old baseline key should be gone: %+v", trafficBaseline)
+	}
+}

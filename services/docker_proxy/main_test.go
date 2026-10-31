@@ -2,8 +2,56 @@ package main
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// TestValidateExecRequest 锁定 exec 创建请求的字段白名单：admin 只用
+// Cmd/AttachStdout/AttachStderr；Privileged/User/Env/WorkingDir/Stdin/Detach
+// 必须拒绝，否则能连上代理即可在目标容器里提权执行。
+func TestValidateExecRequest(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"minimal", `{"Cmd":["true"],"AttachStdout":true}`, 0},
+		{"privileged", `{"Cmd":["true"],"Privileged":true}`, http.StatusForbidden},
+		{"user", `{"Cmd":["true"],"User":"root"}`, http.StatusForbidden},
+		{"env", `{"Cmd":["true"],"Env":["A=B"]}`, http.StatusForbidden},
+		{"workdir", `{"Cmd":["true"],"WorkingDir":"/tmp"}`, http.StatusForbidden},
+		{"stdin", `{"Cmd":["true"],"AttachStdin":true}`, http.StatusForbidden},
+		{"detach", `{"Cmd":["true"],"Detach":true}`, http.StatusForbidden},
+		{"invalid", `{`, http.StatusBadRequest},
+		{"oversized", strings.Repeat("a", (1<<20)+1), http.StatusRequestEntityTooLarge},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1.47/containers/abc/exec", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			ok := validateExecRequest(rec, req)
+			if tc.want == 0 {
+				if !ok {
+					t.Fatalf("valid exec rejected: %d %s", rec.Code, rec.Body.String())
+				}
+				got, err := io.ReadAll(req.Body)
+				if err != nil || string(got) != tc.body {
+					t.Fatalf("body not restored: %q err=%v", got, err)
+				}
+				return
+			}
+			if ok {
+				t.Fatalf("unsafe exec payload accepted")
+			}
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
 
 // TestAllowed 锁定白名单边界:admin 调用面放行,create/delete/images 等
 // 越权端点(含 API 版本前缀形态)一律拒绝。

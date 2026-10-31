@@ -112,9 +112,8 @@ func ipv6PrefixKey(ip string) (string, bool) {
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
-	// 持久化封禁在锁外执行:ipBlocker.save() 是全量序列化 + 落盘,若放在
-	// rl.mu 内,攻击者持续超限会不断触发磁盘 IO,期间所有 IP 的限流判断
-	// 全部排队,放大成全局请求延迟。
+	// 持久化封禁在锁外执行:ipBlocker.saveDebounced() 会合并短时间内的多次
+	// 封禁写盘,避免攻击者持续超限时每个请求都触发全量序列化+fsync。
 	var blockAfterUnlock string
 
 	rl.mu.Lock()
@@ -124,6 +123,43 @@ func (rl *rateLimiter) allow(ip string) bool {
 	countKey, isV6 := ipv6PrefixKey(ip)
 	if !isV6 {
 		countKey = ip
+	}
+
+	// /64 网段计数条目(与封禁条目分离:封禁按具体 IP,计数按网段)。
+	// 惰性建表:测试可用字面量构造 rateLimiter(只初始化 entries)。
+	var ce *rateLimitEntry
+	if isV6 {
+		if rl.v6Prefix == nil {
+			rl.v6Prefix = make(map[string]*rateLimitEntry)
+		}
+		var exists bool
+		ce, exists = rl.v6Prefix[countKey]
+		if !exists {
+			if len(rl.entries)+len(rl.v6Prefix) >= maxRateLimitEntries {
+				rl.mu.Unlock()
+				return false
+			}
+			ce = &rateLimitEntry{}
+			rl.v6Prefix[countKey] = ce
+		}
+	}
+	cutoff := now.Add(-rl.window)
+	if isV6 {
+		// /64 超限 = 整个网段预算耗尽:当前这个新 IP 直接封禁(换后缀无效)。
+		// 这一步必须在创建 per-IP 条目之前：否则轮换源地址的攻击者每个
+		// 请求都会往 entries 里塞一条新记录，撑满 maxRateLimitEntries 后
+		// 所有新 IP（含正常用户）都会被拒。
+		pruneTimestamps(ce, cutoff)
+		if len(ce.timestamps) >= rl.maxReqs {
+			blockAfterUnlock = ip
+			rl.mu.Unlock()
+			ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
+			ipBlocker.saveDebounced()
+			platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
+				"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
+			})
+			return false
+		}
 	}
 
 	e, exists := rl.entries[ip]
@@ -150,40 +186,6 @@ func (rl *rateLimiter) allow(ip string) bool {
 		e.timestamps = nil
 	}
 
-	// /64 网段计数条目(与封禁条目分离:封禁按具体 IP,计数按网段)。
-	// 惰性建表:测试可用字面量构造 rateLimiter(只初始化 entries)。
-	// 仅 IPv6 需要:IPv4 的 countKey 即自身,聚合表只写 v6,否则容量预算被
-	// v4 双份时间戳提前耗半。
-	var ce *rateLimitEntry
-	if isV6 {
-		if rl.v6Prefix == nil {
-			rl.v6Prefix = make(map[string]*rateLimitEntry)
-		}
-		var exists bool
-		ce, exists = rl.v6Prefix[countKey]
-		if !exists {
-			ce = &rateLimitEntry{}
-			rl.v6Prefix[countKey] = ce
-		}
-	}
-	cutoff := now.Add(-rl.window)
-	if isV6 {
-		// /64 超限 = 整个网段预算耗尽:当前这个新 IP 直接封禁(换后缀无效)。
-		// 旧的封禁判定在下面对 e.timestamps 的阈值检查保持不变。
-		pruneTimestamps(ce, cutoff)
-		if len(ce.timestamps) >= rl.maxReqs {
-			e.blockedAt = now
-			blockAfterUnlock = ip
-			rl.mu.Unlock()
-			ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
-			ipBlocker.save()
-			platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
-				"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
-			})
-			return false
-		}
-	}
-
 	// Prune old timestamps
 	var kept []time.Time
 	for _, t := range e.timestamps {
@@ -200,7 +202,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 		rl.mu.Unlock()
 		// Also add to persistent IP blocker (outside the lock)
 		ipBlocker.add(blockAfterUnlock, "rate limit exceeded", rl.banTime)
-		ipBlocker.save()
+		ipBlocker.saveDebounced()
 		platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip, map[string]string{
 			"ip": ip, "duration": rl.banTime.String(),
 		})

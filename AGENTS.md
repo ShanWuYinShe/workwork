@@ -38,9 +38,9 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - 文档单一来源：架构"是什么"只写在 `docs/architecture.md`，AGENTS 不复述实现细节。文档与可验证实现冲突时以代码为准并修正文档，不要按错误描述继续。
 - 配置字段核对: Xray、Nginx、Docker 等配置以官方源码/文档为准；优先读取官方 GitHub 仓库的 Go struct JSON tag 或官方文档确认字段名大小写、合法值范围和字段语义。
 - Never use `RemoteAddr` for auth — 所有流量经 Docker bridge，看起来都是内网地址。
-- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/fail2ban/token`）。`INTERNAL_TOKEN` 默认全权（仓库代码不主动发起携带该 token 的调用，它服务于外部自动化，默认收紧会静默破坏它们）；配置 `INTERNAL_TOKEN_ALLOWED_PREFIXES`（逗号分隔路径前缀）后只豁免白名单内路径，白名单外的使用会以 `[security]` 留痕——新部署建议按日志逐步收敛。携带方式：`X-Internal-Token` 头或 `Authorization: Bearer <token>`（nginx 透传，外部自动化经公网可用）。持合法 token 的请求豁免全部防护层（nginx 限速与 IP 封禁按"携带即豁免"，admin 层恒时比较验真伪后豁免应用层限流与 IP 封禁）——授权请求不被防护误伤；伪造 token 在 admin 校验失败后照常被限流封禁，防线不弱化。
-- Secrets: gitignored `configs/`、`cert/`、`.wework/`。本地 `.env` 覆盖默认值。
-- Xray 客户端归属: 非 admin 用户只能管理自己的 Xray 客户端（每人一个）。Admin 可看全部。
+- Internal auth: `INTERNAL_TOKEN`（启动时自动生成，存储在 `.wework/.internal-token`）；fail2ban 使用独立 scoped token（`.wework/fail2ban/token`）。`INTERNAL_TOKEN` 默认全权（仓库代码不主动发起携带该 token 的调用，它服务于外部自动化，默认收紧会静默破坏它们）；配置 `INTERNAL_TOKEN_ALLOWED_PREFIXES`（逗号分隔路径前缀）后只豁免白名单内路径，白名单外的使用会以 `[security]` 留痕——新部署建议按日志逐步收敛。携带方式：`X-Internal-Token` 头或 `Authorization: Bearer <token>`（nginx 透传，外部自动化经公网可用）。token 会被渲染进 nginx map 做**真实值匹配**，字符集限 `[A-Za-z0-9._~-]`（含引号/`$`/空白会破坏配置，启动即拒绝）。持合法 token 的请求豁免全部防护层（nginx 值匹配豁免限速与 IP 封禁；admin 层恒时比较后豁免应用层限流与 IP 封禁）——授权请求不被防护误伤；伪造 token 在 nginx 就不匹配，照常限流/封禁。
+- Secrets: gitignored `cert/`、`.wework/`。本地 `.env` 覆盖默认值。
+- Xray 客户端归属: 登录用户是 nginx 认证身份，客户端是独立代理身份，一个用户可以拥有多个客户端。非 admin 只能管理自己名下的客户端；admin 可看/管全部，并可代指定用户创建（`owner` 字段）。客户端 email 恒等于其 UUID（Xray 要求同一入站内 email 唯一）。
 - 配置文件写入：统一使用 `atomicWriteFile`（写 .tmp → rename），防止写到一半崩溃导致配置损坏。禁止直接 `os.WriteFile` 写配置文件。
 - 错误响应：业务错误用 `writeError(w, msg, code)`（msg 返回客户端）；内部错误（文件 I/O、Docker API、第三方 API 等可能泄露内部状态的）必须用 `writeInternalError(w, err)`（只返回固定 "Internal error"，真实错误记日志）。
 - 新增 API 端点：在 `main.go` 的 `mux.HandleFunc(...)` 区域注册，所有认证端点用 `auth.RequireRole("viewer")` 或 `auth.RequireRole("admin")` 包裹；健康检查用无认证的裸 handler。handler 实现放对应 internal/ 域包（platform←auth←accounts/proxy←infra/downloads/transfer/nginxcfg，依赖单向无环）；大上传端点必须同步在 main.go 的 init() 里 `platform.ExemptBodyLimit(...)` 声明并在 main_test.go 契约测试登记。

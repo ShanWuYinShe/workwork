@@ -30,6 +30,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -92,9 +93,48 @@ func allowed(method, rawPath string) bool {
 
 // 引用具体容器/exec 的路径(要求第二段后有 "/",/containers/json 列表不受影响)。
 var (
-	containerRefRe = regexp.MustCompile(versioned + `/containers/([^/]+)/`)
-	execRefRe      = regexp.MustCompile(versioned + `/exec/([^/]+)/`)
+	containerRefRe   = regexp.MustCompile(versioned + `/containers/([^/]+)/`)
+	execRefRe        = regexp.MustCompile(versioned + `/exec/([^/]+)/`)
+	execCreatePathRe = regexp.MustCompile(versioned + `/containers/[^/]+/exec$`)
 )
+
+// validateExecRequest 限制 exec 创建请求的字段。白名单放行 exec 是为了让
+// admin 能跑日志/统计/ip 命令，但 ExecOptions 还允许 Privileged、User、
+// Env、WorkingDir 等载荷：一旦放开，能连上本代理的主体就能在目标容器里
+// 以任意用户/特权/环境执行，等价容器 root。admin 侧只用 Cmd +
+// AttachStdout/AttachStderr，其余字段一律拒绝。
+func validateExecRequest(w http.ResponseWriter, r *http.Request) bool {
+	const maxExecBody = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxExecBody+1))
+	if err != nil {
+		http.Error(w, "cannot read exec body", http.StatusBadRequest)
+		return false
+	}
+	if len(body) > maxExecBody {
+		http.Error(w, "exec body too large", http.StatusRequestEntityTooLarge)
+		return false
+	}
+	var req struct {
+		Privileged  bool     `json:"Privileged"`
+		User        string   `json:"User"`
+		Env         []string `json:"Env"`
+		WorkingDir  string   `json:"WorkingDir"`
+		AttachStdin bool     `json:"AttachStdin"`
+		Detach      bool     `json:"Detach"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "invalid exec json", http.StatusBadRequest)
+		return false
+	}
+	if req.Privileged || req.User != "" || len(req.Env) > 0 || req.WorkingDir != "" || req.AttachStdin || req.Detach {
+		log.Printf("denied exec payload %q: privileged/user/env/workdir/stdin/detach not allowed", r.URL.Path)
+		http.Error(w, "exec payload contains fields outside the proxy allowlist", http.StatusForbidden)
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return true
+}
 
 // allowedProjects 是放行的 com.docker.compose.project label 集合。
 var allowedProjects = parseAllowedProjects(os.Getenv("ALLOWED_COMPOSE_PROJECTS"))
@@ -335,6 +375,11 @@ func main() {
 			log.Printf("denied %s %q (unscoped list/events: missing allowed compose project label filter)", r.Method, r.URL.Path)
 			http.Error(w, "list/events must be scoped to an allowed compose project", http.StatusForbidden)
 			return
+		}
+		if r.Method == http.MethodPost && execCreatePathRe.MatchString(r.URL.Path) {
+			if !validateExecRequest(w, r) {
+				return
+			}
 		}
 		// 允许的请求同样留痕:代理无认证,唯一边界是 docker_proxy 网络可达性;
 		// 头注释"残余暴露面在日志可审计"(跨项目 list/events)依赖这里,否则

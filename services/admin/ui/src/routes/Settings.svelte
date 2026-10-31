@@ -40,8 +40,10 @@
     syncMsg = t('syncing');
     try {
       const d = await syncDNS();
-      syncMsg = d.results.join('; ');
+      // refresh() 会清空 syncMsg，必须先暂存结果、刷新后再写回。
+      const results = d.results.join('; ');
       await refresh();
+      syncMsg = results;
     } catch (e) {
       toast(t('syncFailed', { error: e.message }), 'error');
     } finally {

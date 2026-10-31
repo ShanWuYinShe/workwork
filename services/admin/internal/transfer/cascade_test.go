@@ -24,7 +24,10 @@ func TestDeleteUploadsByUploader(t *testing.T) {
 		if err := os.WriteFile(p, []byte("data"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		m := loadTransferManifestLocked()
+		m, err := loadTransferManifestLocked()
+		if err != nil {
+			t.Fatal(err)
+		}
 		m.Files = append(m.Files, transferFile{
 			Code: code, Filename: filename, Size: size, Uploader: uploader,
 		})
@@ -55,7 +58,10 @@ func TestDeleteUploadsByUploader(t *testing.T) {
 	if len(names) != 1 || names[0] != "codeccc.bin" {
 		t.Fatalf("only bob's file should remain on disk, got %v", names)
 	}
-	m := loadTransferManifestLocked()
+	m, err := loadTransferManifestLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(m.Files) != 1 || m.Files[0].Uploader != uploaderB {
 		t.Fatalf("manifest should keep only bob's entry, got %+v", m.Files)
 	}

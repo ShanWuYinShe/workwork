@@ -9,9 +9,20 @@ if [ -z "${IPV6_SUBNET:-}" ] && [ -f .env ]; then
   IPV6_SUBNET=$(grep -E '^IPV6_SUBNET=' .env | tail -1 | cut -d= -f2- | tr -d "\"'" || true)
 fi
 IPV6_SUBNET="${IPV6_SUBNET:-2001:db8:2623::/64}"
+# 本脚本按 /64 规划：静态地址范围取该 /64 的第一个 /80。此前在 /64 前缀后
+# 再加 ":1"，推导出 2001:db8:2623:1::/80——不在 2001:db8:2623::/64 内，
+# docker network create 会直接报 "ip-range not a subnet"。
+case "${IPV6_SUBNET}" in
+  */64) ;;
+  *)
+    echo "ERROR: IPV6_SUBNET must end with /64 (got '${IPV6_SUBNET}')." >&2
+    echo "The static address plan (NGINX_IPV6/XRAY_IPV6) assumes a /64." >&2
+    exit 1
+    ;;
+esac
 IPV6_PREFIX="${IPV6_SUBNET%/64}"
 IPV6_PREFIX="${IPV6_PREFIX%::}"
-IPV6_STATIC_RANGE="${IPV6_PREFIX}:1::/80"
+IPV6_STATIC_RANGE="${IPV6_PREFIX}::/80"
 
 # 文档前缀守卫:2001:db8::/32 是 RFC 3849 保留的示例前缀,用它建网容器全部
 # 正常启动、healthcheck 全绿,但公网 IPv6 完全不通——此前静默回落极易误用。
@@ -30,6 +41,11 @@ esac
 
 create_network() {
   local name=$1; shift
+  # DRY_RUN=1 只打印推导结果，供本地/CI 校验地址规划而不碰宿主网络。
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    echo "[dry-run] network=${name} parent=${PARENT_IFACE} subnet=${IPV6_SUBNET} ip-range=${IPV6_STATIC_RANGE} args=$*"
+    return
+  fi
   if docker network ls --format '{{.Name}}' | grep -q "^${name}$"; then
     # 已存在也校验 subnet 一致:此前只按名字跳过,subnet/parent 被人改过的
     # 网络会与 compose 期待值静默漂移。

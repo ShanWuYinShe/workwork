@@ -611,7 +611,19 @@ func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, 
 	return staticIP
 }
 
+// restartXraySem 串行化 xray 容器重启。并发的客户端增删/用户删除各自
+// GenXrayConfig + RestartXray，如果不串行化，会出现两个 ContainerRestart
+// 交错（伪失败、额外停机），也会让"后写入的配置"与"后完成的重启"顺序错乱。
+var restartXraySem = make(chan struct{}, 1)
+
 func RestartXray(ctx context.Context, cli *client.Client) error {
+	// 等锁也受调用方 ctx 约束：排队超时直接返回，不再叠加一次重启。
+	select {
+	case restartXraySem <- struct{}{}:
+		defer func() { <-restartXraySem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
 		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=xray",

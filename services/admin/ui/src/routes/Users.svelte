@@ -68,13 +68,14 @@
     }
   }
 
-  // 字段级校验：与后端 IsValidUsername（^[a-zA-Z0-9_-]+$，≤64）对齐，
-  // 空字段给出明确提示而不是静默 return。
+  // 字段级校验：与后端 IsValidUsername（^[a-zA-Z0-9_-]+$，≤64）和
+  // minPasswordLen=8 对齐，空字段给出明确提示而不是静默 return。
   function validateNewUser() {
     const name = newUser.trim();
     if (!name) return t('errUsernameRequired');
     if (!/^[a-zA-Z0-9_-]+$/.test(name) || name.length > 64) return t('errUsernameFormat');
     if (!newPass) return t('errPasswordRequired');
+    if (newPass.length < 8) return t('errPasswordTooShort');
     return '';
   }
 
@@ -82,16 +83,26 @@
     if (!pwUser.trim()) return t('errUsernameRequired');
     if (!isAdmin && !oldPass) return t('errOldPasswordRequired');
     if (!pwPass) return t('errPasswordRequired');
+    if (pwPass.length < 8) return t('errPasswordTooShort');
     return '';
   }
 
   async function addUser() {
     addUserError = validateNewUser();
     if (addUserError || addingUser) return;
+    const name = newUser.trim();
+    // 后端该端点兼作编辑路径：同名会静默覆盖密码/角色。前端必须先确认。
+    const exists = adminUsers.some((u) => u.username === name);
+    if (
+      exists &&
+      !(await showConfirm(t('confirmUserOverwrite', { user: name }), { danger: true }))
+    ) {
+      return;
+    }
     addingUser = true;
     try {
-      await addAdminUser(newUser.trim(), newPass, newRole);
-      toast(t('userAdded', { user: newUser.trim() }), 'success');
+      await addAdminUser(name, newPass, newRole);
+      toast(exists ? t('userUpdated', { user: name }) : t('userAdded', { user: name }), 'success');
       newUser = '';
       newPass = '';
       newRole = 'viewer';

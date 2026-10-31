@@ -22,48 +22,76 @@ import (
 var genMu sync.Mutex
 
 // GenXrayConfig generates xray.json from the template + persisted client data.
-// Always regenerates — client data lives in /app/data/xray-clients.json.
+// 返回 changed 表示运行配置内容是否真的变了——调用方据此决定要不要重启
+// xray（配置相同不重启，避免无意义的代理闪断）。
 // xrayClientsMu 只在读取快照时短暂持有,生成与写盘由 genMu 串行化,客户端
 // 增删不会被慢速模板处理/写盘阻塞,同时保证后完成的生成者必然持有更新快照。
-func GenXrayConfig() error {
+func GenXrayConfig() (changed bool, err error) {
 	genMu.Lock()
 	defer genMu.Unlock()
 
 	tmpl, err := os.ReadFile(proxy.XrayConfigTemplatePath)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	xrayClientsMu.Lock()
 	clients, err := readXrayClientsNoLock()
 	if err != nil {
 		xrayClientsMu.Unlock()
-		return fmt.Errorf("read xray clients: %w", err)
+		return false, fmt.Errorf("read xray clients: %w", err)
 	}
 	// 复制切片以在锁外安全使用
 	clientsCopy := make([]xrayClientEntry, len(clients))
 	copy(clientsCopy, clients)
 	xrayClientsMu.Unlock()
 
+	// 门禁：email 必须非空且（大小写不敏感）唯一。Xray 的 VLESS validator
+	// 会拒绝重复 email 并导致整份配置无法加载；必须在写盘前拦住，避免把
+	// 坏配置落盘后 xray 起不来、而台账已经写入的死局。
+	if err := validateXrayClients(clientsCopy); err != nil {
+		return false, err
+	}
+
 	xhttpJSON, err := encodeXrayClients(clientsCopy)
 	if err != nil {
-		return fmt.Errorf("encode xhttp clients: %w", err)
+		return false, fmt.Errorf("encode xhttp clients: %w", err)
 	}
 
 	out := string(tmpl)
 	out = strings.ReplaceAll(out, "__XRAY_CLIENTS_JSON__", xhttpJSON)
 
-	// Always write — content comparison happens inside WriteFile (atomic overwrite).
 	// The file is shared with xray container via bind mount.
 	if err := os.MkdirAll(filepath.Dir(proxy.XrayConfigPath), 0755); err != nil {
-		return err
+		return false, err
 	}
 	existing, _ := os.ReadFile(proxy.XrayConfigPath)
 	if string(existing) == out {
-		return platform.EnsurePerm(proxy.XrayConfigPath, 0640)
+		return false, platform.EnsurePerm(proxy.XrayConfigPath, 0640)
 	}
 	log.Printf("Regenerating xray config (%d clients, dns=%v)", len(clientsCopy), strings.Contains(out, `"dns"`))
-	return platform.AtomicWriteFile(proxy.XrayConfigPath, []byte(out), 0640)
+	if err := platform.AtomicWriteFile(proxy.XrayConfigPath, []byte(out), 0640); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// validateXrayClients 是 Xray 配置的加载前门禁：email 非空且大小写不敏感唯一。
+// 与 Xray vless validator 的语义一致（它对 email 做 lower-case 后去重）。
+func validateXrayClients(clients []xrayClientEntry) error {
+	seen := make(map[string]string, len(clients))
+	for _, c := range clients {
+		email := strings.TrimSpace(c.Email)
+		if email == "" {
+			return fmt.Errorf("xray client %s has empty email", c.ID)
+		}
+		key := strings.ToLower(email)
+		if prevID, ok := seen[key]; ok {
+			return fmt.Errorf("duplicate xray client email %q (clients %s and %s)", email, prevID, c.ID)
+		}
+		seen[key] = c.ID
+	}
+	return nil
 }
 
 // encodeXrayClients 将持久化的 client 条目编码为 Xray inbound `clients` JSON 数组。

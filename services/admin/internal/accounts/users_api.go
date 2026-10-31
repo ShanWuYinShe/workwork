@@ -47,28 +47,27 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 		}
 
 		// 只读：GET 端点不创建 proxy 密码（避免写副作用）。
-		// proxyAuth 仅当列表里全部客户端都属于当前用户时才填充——admin 视角
-		// 的 filtered 含其他用户的客户端，取"第一个 owner"会把他人明文凭证
-		// 嵌进返回的 generatedJSON，admin 转发配置即泄露他人凭证。
-		proxyAuth := ""
-		if len(filtered) > 0 {
-			allOwned := true
-			for _, c := range filtered {
-				if c["owner"] != username {
-					allOwned = false
-					break
-				}
-			}
-			if allOwned {
-				proxyAuth = auth.ProxyAuthForUserRead(username)
+		// generatedJSON 仍只服务"当前用户自己的客户端"：admin 视角的 filtered
+		// 含其他用户的客户端，取"第一个 client"会把他人 UUID/明文凭证嵌进
+		// 返回的配置，admin 转发配置即泄露他人凭证。混合归属时留空。
+		allOwned := len(filtered) > 0
+		for _, c := range filtered {
+			if c["owner"] != username {
+				allOwned = false
+				break
 			}
 		}
-		genJSON := GenerateClientConfig(filtered, ClientConfig{
-			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
-			XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
-			XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
-			XHTTPProxyAuth: proxyAuth,
-		})
+		proxyAuth := ""
+		genJSON := ""
+		if allOwned {
+			proxyAuth = auth.ProxyAuthForUserRead(username)
+			genJSON = GenerateClientConfig(filtered, ClientConfig{
+				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
+				XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
+				XHTTPProxyAuth: proxyAuth,
+			})
+		}
 
 		// Build adminUsers with role info
 		doc, err := auth.ReadUsersMeta()
@@ -214,10 +213,9 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "该用户名为保留名", 400)
 			return
 		}
-		if body.Role == "" {
-			body.Role = "viewer"
-		}
-		if body.Role != "admin" && body.Role != "viewer" {
+		// role 省略时：编辑既有用户保留原角色，新建用户默认 viewer。
+		// 此前省略 role 会被当成 viewer，编辑路径会静默把管理员降级。
+		if body.Role != "" && body.Role != "admin" && body.Role != "viewer" {
 			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
@@ -252,13 +250,23 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 		// read-check-write),消除两段式守卫的 TOCTOU。
 		var previousInfo auth.UserInfo
 		var hadPrevious bool
+		resolvedRole := body.Role
 		if err := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
 			prev, ok := doc.Users[body.Username]
 			hadPrevious = ok
 			if ok {
 				previousInfo = prev
 			}
-			if ok && prev.Role == "admin" && body.Role != "admin" {
+			role := body.Role
+			if role == "" {
+				if ok && prev.Role != "" {
+					role = prev.Role
+				} else {
+					role = "viewer"
+				}
+			}
+			resolvedRole = role
+			if ok && prev.Role == "admin" && role != "admin" {
 				if auth.IsProtectedAdmin(body.Username) {
 					return false, auth.ErrProtectedAdmin
 				}
@@ -273,7 +281,7 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 				}
 			}
 			newInfo := auth.UserInfo{
-				Role:      body.Role,
+				Role:      role,
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			}
 			if ok {
@@ -305,13 +313,10 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			rollbackErr := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
 				cur, ok := doc.Users[body.Username]
 				if !ok {
-					if !hadPrevious {
-						return false, nil // 已被并发删除,无需回滚
-					}
-					doc.Users[body.Username] = previousInfo
-					return true, nil
+					// 并发删除优先：不要用旧快照把已删除用户复活。
+					return false, nil
 				}
-				if cur.Role != body.Role {
+				if cur.Role != resolvedRole {
 					return false, nil // 已被并发修改,保留现状不覆盖
 				}
 				if hadPrevious {
@@ -330,7 +335,7 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 		}
 		_, actor := auth.GetUserFromContext(r)
 		log.Printf("[security] user upsert user=%s role=%s created=%t by=%s",
-			body.Username, body.Role, !hadPrevious, actor)
+			body.Username, resolvedRole, !hadPrevious, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -355,6 +360,11 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "不能删除自己", 400)
 			return
 		}
+
+		// 与 ApiAddXray 串行化：删除流程与在途 add 并发时，后者可以在
+		// users.json/xray-clients.json 里把被删用户/客户端写回来。
+		userLifecycleMu.Lock()
+		defer userLifecycleMu.Unlock()
 
 		// last-admin 检查与删除在 auth.UpdateUsersMeta 的单次持锁回调内完成(原子
 		// read-check-write),消除两段式守卫的 TOCTOU——并发删除两个管理员时
@@ -387,11 +397,10 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
-		if !deleted {
-			platform.WriteError(w, "用户不存在", 404)
-			return
-		}
 
+		// 即使 users.json 里已经没有该用户，也继续执行清理：上一次删除可能
+		// 在中途失败（htpasswd/xray 级联），重试必须能补齐。此前这里直接
+		// 404 早退，导致"请重试删除"的提示永远无法兑现，凭证/UUID 永久残留。
 		if err := auth.HtpasswdRemoveUser(body.Username); err != nil {
 			// users.json 已删、nginx 凭证未清：面板登录已不可用（auth.RequireRole
 			// 会以 "用户未初始化" 拒绝），但 htpasswd 行残留。如实
@@ -402,37 +411,40 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		}
 
 		// 撤销代理凭证：.htpasswd-proxy 从 users.json 重建，被删用户自动剔除。
-		// 此前只在启动/首次创建 proxy 密码时重建，被删用户的 bcrypt 行会
-		// 无限期残留，nginx /proxy/query 仍接受其密码。
+		// 重建失败同样返回 500，让调用方重试；否则残留的 nginx 凭证行会
+		// 继续接受被删用户的 proxy 密码。
 		if err := auth.EnsureProxyHtpasswd(); err != nil {
-			// 不作为整体失败：面板登录已删除，残留行在下次重建时失效。
 			log.Printf("ERROR: revoke proxy credentials for %s: %v", body.Username, err)
+			platform.WriteError(w, "用户已删除，但清理代理凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
+			return
 		}
 
 		// 联动删除该用户的 Xray 客户端：UUID 不随用户删除失效，留存等同
-		// 保留完整代理访问权。有删除才重新生成配置并重启 xray。
-		// 级联失败不再假报 ok：用户已删但 UUID 在旧 config 里仍然有效,
-		// 漂移窗口无上限——如实 500 让调用方知道需要跟进(与上方 htpasswd
-		// 部分失败的处理模式一致)。
-		const xrayCascadeFailMsg = "用户已删除，但联动更新 Xray 配置失败，其代理 UUID 在配置生效前仍然有效，请重启 Xray 或检查客户端列表"
+		// 保留完整代理访问权。重试路径（!deleted）即使没有可删的台账条目，
+		// 也要重新生成并重启——上一次可能已删台账但没来得及让 xray 加载。
+		const xrayCascadeFailMsg = "用户已删除，但联动更新 Xray 配置失败，其代理 UUID 在配置生效前仍然有效，请重启 Xray 或重试删除"
 		removed, err := deleteXrayClientsByOwner(body.Username)
 		if err != nil {
 			log.Printf("ERROR: delete xray clients for %s: %v", body.Username, err)
 			platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 			return
 		}
-		if removed > 0 {
-			if err := GenXrayConfig(); err != nil {
+		if removed > 0 || !deleted {
+			changed, err := GenXrayConfig()
+			if err != nil {
 				log.Printf("ERROR: regenerate xray config after user delete: %v", err)
 				platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 				return
 			}
-			restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
-			defer cancel()
-			if err := proxy.RestartXray(restartCtx, cli); err != nil {
-				log.Printf("ERROR: restart xray after user delete: %v", err)
-				platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
-				return
+			if changed || !deleted {
+				restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
+				err := proxy.RestartXray(restartCtx, cli)
+				cancel()
+				if err != nil {
+					log.Printf("ERROR: restart xray after user delete: %v", err)
+					platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
+					return
+				}
 			}
 		}
 		// 级联清理其名下的 transfer 上传:用户已删,文件既无法自助管理,
@@ -447,7 +459,7 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			}
 		}
 		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] user delete user=%q xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, removed, uploadsRemoved, actor)
+		log.Printf("[security] user delete user=%q deleted=%t xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, deleted, removed, uploadsRemoved, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

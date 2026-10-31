@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -21,7 +22,10 @@ func TestLoadJSONFileQuarantinesCorruptFile(t *testing.T) {
 	var dest struct {
 		Files []string `json:"files"`
 	}
-	LoadJSONFile(path, &dest)
+	err := LoadJSONFile(path, &dest)
+	if !errors.Is(err, ErrCorruptJSON) {
+		t.Fatalf("corruption must return ErrCorruptJSON, got %v", err)
+	}
 
 	if len(dest.Files) != 0 {
 		t.Fatalf("dest should stay zero-valued on corruption, got %+v", dest)
@@ -47,7 +51,9 @@ func TestLoadJSONFileMissingKeepsZero(t *testing.T) {
 	var dest struct {
 		Files []string `json:"files"`
 	}
-	LoadJSONFile(path, &dest)
+	if err := LoadJSONFile(path, &dest); err != nil {
+		t.Fatalf("missing file must not return an error: %v", err)
+	}
 	if len(dest.Files) != 0 {
 		t.Fatalf("dest should stay zero for missing file")
 	}

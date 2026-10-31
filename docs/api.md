@@ -15,12 +15,13 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
   专用码（如 `CONFIG_CONFLICT`、`INVALID_DURATION`、`BLOCK_NOT_FOUND`）在
   需要分支的端点标注于下表。
 - **错误文案统一为中文**；前端 toast 原样透传 `error`。
-- **变更类请求**（POST/PUT/DELETE）校验 `Origin` 与 `Host` 一致（CSRF 防线），
-  跨站写请求 403。
+- **变更类请求**（POST/PUT/DELETE）校验 `Origin`：配置了 `XHTTP_DOMAIN` 时只接受
+  该域名（端口不敏感）作为 Origin，不一致 403；未配置域名时才退化为与请求 Host
+  比对。不带 `Origin` 的请求放行（非浏览器客户端；浏览器跨站写请求必带 Origin）。
 - **限流**：20 请求/10s/IP（IPv6 按 /64 聚合），超限 429 `RATE_LIMITED` 并自动
   封禁 30 分钟；公开分享下载 `GET /api/transfer/*` 豁免（由 nginx 单独限速）；
-  持合法 `INTERNAL_TOKEN`（`X-Internal-Token` 或 `Authorization: Bearer`）的请求
-  豁免限流与 IP 封禁。
+  持**合法** `INTERNAL_TOKEN`（`X-Internal-Token` 或 `Authorization: Bearer`）的
+  请求豁免限流与 IP 封禁——nginx 层按 token 真实值匹配，伪造头不再豁免。
 - **请求体上限**：默认 1MB；大上传端点豁免并在 handler 内自限
   （见各端点标注）。
 - **审计**：变更类操作成功时服务端记 `[security]` 行（含 actor），不进入响应。
@@ -38,22 +39,25 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | 端点 | 角色 | 说明 |
 |------|------|------|
 | `GET /auth/me` | viewer+ | 当前用户信息与角色 |
-| `GET /users` | viewer+ | 全量用户+客户端视图（admin 返回 generatedJSON；viewer 只见自己）。面板用户数天然有限，未分页 |
-| `POST /users/password` | viewer+ | 修改自己密码。`{username, old_password, new_password}`；viewer 只能改自己 |
-| `POST /users/admin/add` | admin | 创建/更新管理员。`{username, password, role}` |
-| `POST /users/admin/delete` | admin | 删除用户（级联删 htpasswd 行、代理凭证、xray 客户端、transfer 上传）。`{username}` |
+| `GET /users` | viewer+ | 全量用户+客户端视图（admin 返回 generatedJSON，仅当列表里全部客户端都属于自己时；viewer 只见自己）。面板用户数天然有限，未分页 |
+| `POST /users/password` | viewer+ | 修改自己密码。`{username, old_password, password}`；viewer 只能改自己 |
+| `POST /users/admin/add` | admin | 创建/更新用户。`{username, password, role?}`；省略 role 时编辑既有用户保留原角色、新建默认 viewer |
+| `POST /users/admin/delete` | admin | 删除用户（级联删 htpasswd 行、代理凭证、xray 客户端、transfer 上传）。`{username}`；可重入（重复删除会继续补齐清理） |
 | `POST /users/roles/set` | admin | 设置角色。`{username, role}` |
 
 错误码要点：`403` 内置管理员保护（不可删/不可改角色）；`400` `LAST_ADMIN`
 （最后一个 admin 不可删/不可降级，降级与删除两类端点均返回）。
 
-### Xray 客户端（每人一个，viewer 管理自己的）
+### Xray 客户端（一个用户可拥有多个，viewer 管理自己的）
 
 | 端点 | 角色 | 说明 |
 |------|------|------|
-| `POST /users/xray/add` | viewer+ | `{uuid}`。重复 UUID 409；非 admin 且已有客户端 400 |
-| `POST /users/xray/delete` | viewer+ | `{uuid}`，只能删自己的 |
+| `POST /users/xray/add` | viewer+ | `{uuid, owner?}`。UUID 重复 409；admin 可指定 `owner`（目标用户必须存在），非 admin 只能为自己创建 |
+| `POST /users/xray/delete` | viewer+ | `{uuid}`，只能删自己的；admin 可删任意 |
 | `GET /users/xray/config/{uuid}` | viewer+ | 该客户端的完整客户端配置 JSON（路径中的 UUID 在日志中脱敏） |
+
+客户端台账的 `email` 恒等于客户端 UUID（Xray 要求同一入站内 email 唯一）；
+登录用户只承担 nginx Basic Auth 身份，一个用户可以创建多个客户端。
 
 ### Dashboard / 服务 / 日志
 
@@ -88,7 +92,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 
 | 端点 | 角色 | 说明 |
 |------|------|------|
-| `GET /traffic` | admin | 按用户累计代理流量：`{traffic: [{user, up, down}], collected_at}`（xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
+| `GET /traffic` | admin | 按客户端累计代理流量：`{traffic: [{email, up, down}], collected_at}`（email = 客户端 UUID；xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
 
 （media/music 已拆分至独立站，其 API 契约见各自仓库 `media_center` / `music_player`；
 旧前缀由 Cloudflare 边缘 308 重定向承载，本面板不再提供。）
@@ -118,7 +122,11 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | 端点 | 说明 |
 |------|------|
 | `GET /api/transfer/{code}` | 分享码下载（nginx 1r/s + 3 并发限速；Go 限流豁免） |
-| `GET /api/admin/health` | 健康检查（无认证）：`{status, version}`，未就绪 503 |
+| `GET /speedtest/{size}` | 公开测速（`size` 上限 32MB；nginx 单独限速） |
+| `GET /healthz` | nginx 存活探针（204，由 nginx 直接返回） |
+| `GET /api/admin/health` | 健康检查（admin 侧无业务认证，但 nginx 对 `/api/admin/` 仍要求 basic auth）：`{success:true,data:{status,version}}`，未就绪 503 |
+
+> 机器可读的存活探针请用 `/healthz`；`/api/admin/health` 经 nginx 需要凭证。
 
 ## 前端对接要点
 

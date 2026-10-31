@@ -2,6 +2,7 @@ package platform
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -59,17 +60,25 @@ func syncDir(dir string) error {
 	return d.Sync()
 }
 
-// LoadJSONFile 从 path 读取 JSON 文件到 dest。文件不存在时 dest 保持零值。
-// 解析失败时把损坏文件隔离为 <path>.corrupt 后再返回零值:调用方(manifest
-// 类状态)会以零值继续并最终全量重写——若不隔离,下一次写入会把损坏的字节
-// 静默覆盖掉,现场即丢失;隔离保留了原始字节供事后恢复,并触发 webhook 告警。
-func LoadJSONFile(path string, dest any) {
+// ErrCorruptJSON 表示 JSON 解析失败（文件已隔离为 .corrupt）。调用方据此
+// 决定能否以空值继续：manifest/封禁表必须中止写入，避免用空表覆盖原文件；
+// 旁路统计（traffic）可以从零重建（原字节已在 .corrupt 里保留）。
+var ErrCorruptJSON = errors.New("corrupt json state file")
+
+// LoadJSONFile 从 path 读取 JSON 文件到 dest。
+// 文件不存在返回 nil（dest 保持零值）；其他读错误返回 error；解析失败把
+// 损坏文件隔离为 <path>.corrupt、外发告警并返回 ErrCorruptJSON 包装错误。
+//
+// 调用方禁止把 error 当"空表"继续：此前本函数无返回值，manifest/封禁表
+// 读失败后会被零值覆盖，既有条目/封禁一次性丢失（数据丢失与 fail-open）。
+func LoadJSONFile(path string, dest any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("ERROR: LoadJSONFile read %s: %v", path, err)
+		if os.IsNotExist(err) {
+			return nil
 		}
-		return
+		log.Printf("ERROR: LoadJSONFile read %s: %v", path, err)
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 	if err := json.Unmarshal(data, dest); err != nil {
 		log.Printf("ERROR: LoadJSONFile decode %s: %v", path, err)
@@ -80,8 +89,9 @@ func LoadJSONFile(path string, dest any) {
 		NotifyWebhook("data.corrupt", "状态文件损坏已隔离: "+path, map[string]string{
 			"path": path, "quarantined_as": quarantine,
 		})
-		return
+		return fmt.Errorf("%w: %s: %v", ErrCorruptJSON, path, err)
 	}
+	return nil
 }
 
 // SaveJSONFile 将 v 序列化为 JSON 并原子写入 path（自动创建目录）。

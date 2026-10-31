@@ -1,12 +1,41 @@
 package main
 
 import (
+	"os"
 	"reflect"
+	"regexp"
 	"sort"
+	"strings"
 	"testing"
 
 	"admin/internal/platform"
 )
+
+// TestLargeUploadRoutesDeclareExemption 扫描路由注册，确保任何路径含
+// "upload" 的路由都声明了 body-limit 豁免。上方两向清单测试只能守住
+// "已声明集合"，发现不了"新增上传端点但忘记声明"（历史事故形态）。
+func TestLargeUploadRoutesDeclareExemption(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	re := regexp.MustCompile(`mux\.HandleFunc\("([^"]*[Uu]pload[^"]*)"`)
+	matches := re.FindAllStringSubmatch(string(data), -1)
+	if len(matches) == 0 {
+		t.Fatal("no upload routes found in main.go; scan pattern is stale")
+	}
+	for _, m := range matches {
+		pattern := m[1]
+		parts := strings.SplitN(pattern, " ", 2)
+		if len(parts) != 2 {
+			t.Fatalf("unexpected route pattern %q", pattern)
+		}
+		path := parts[1]
+		if !platform.BodyLimitExempt(path) {
+			t.Errorf("upload route %q is not body-limit exempt (call platform.ExemptBodyLimit and update the contract test)", pattern)
+		}
+	}
+}
 
 // TestBodyLimitExemptionsRegistered 锁定"大上传端点必须在 init 声明豁免"的
 // 契约:大上传端点豁免清单与路由注册一一对应,漏加会让合法上传线上全 400

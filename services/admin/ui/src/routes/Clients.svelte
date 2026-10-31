@@ -15,16 +15,22 @@
   import { toast } from '../lib/toast.svelte.js';
 
   let clients = $state([]);
-  // trafficMap: username → {up, down}(admin 才加载;viewer 看不到该列)。
+  // trafficMap: client UUID → {up, down}（admin 才加载;viewer 看不到该列）。
+  // 流量统计键是 Xray email，现在等于客户端 UUID，不再是登录用户名。
   let trafficMap = $state({});
   let generatedJSON = $state('');
   let loading = $state(true);
   let isAdmin = $state(false);
   let currentUser = $state('');
+  let adminUsers = $state([]);
+  // 管理员可代其他用户创建客户端；留空表示归自己。
+  let ownerInput = $state('');
   let deletingId = $state('');
   let creating = $state(false);
   let selectedUUID = $state('');
   let configLoading = $state(false);
+  // 配置请求序号：快速切换客户端时，旧响应不得覆盖新选择。
+  let configSeq = 0;
 
   onMount(async () => {
     try {
@@ -32,6 +38,8 @@
       const allClients = d.xrayClients || [];
       isAdmin = user.role === 'admin';
       currentUser = user.username;
+      adminUsers = d.adminUsers || [];
+      ownerInput = currentUser;
       clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
       if (isAdmin) loadTraffic();
 
@@ -46,13 +54,13 @@
     }
   });
 
-  /** 拉取 per-user 流量并转成 owner 索引的 map;失败静默(旁路数据)。 */
+  /** 拉取 per-client 流量并转成客户端 UUID 索引的 map;失败静默(旁路数据)。 */
   async function loadTraffic() {
     try {
       const data = await getTraffic();
       const map = {};
       for (const row of data.traffic || []) {
-        map[row.user] = { up: row.up, down: row.down };
+        if (row.email) map[row.email] = { up: row.up, down: row.down };
       }
       trafficMap = map;
     } catch {
@@ -65,11 +73,13 @@
     const allClients = d.xrayClients || [];
     isAdmin = user.role === 'admin';
     currentUser = user.username;
+    adminUsers = d.adminUsers || [];
     clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
     if (isAdmin) loadTraffic();
 
     // Reset selected if it no longer exists
     if (selectedUUID && !clients.find((c) => c.id === selectedUUID)) {
+      configSeq++;
       selectedUUID = '';
       generatedJSON = '';
     }
@@ -87,24 +97,32 @@
   }
 
   async function loadConfig(uuid) {
+    const seq = ++configSeq;
     configLoading = true;
     try {
       const d = await getXrayClientConfig(uuid);
+      if (seq !== configSeq) return;
       generatedJSON = d.config || '';
       selectedUUID = uuid;
     } catch (e) {
+      if (seq !== configSeq) return;
       toast(e.message, 'error');
     } finally {
-      configLoading = false;
+      if (seq === configSeq) configLoading = false;
     }
   }
 
   async function generateAndAdd() {
-    if (creating || hasOwnClient) return;
+    if (creating) return;
     const uuid = crypto.randomUUID();
     creating = true;
     try {
-      await addXrayClient(uuid);
+      // 管理员填写了其他用户名时按该用户创建；留空/等于自己则走默认归属。
+      const owner =
+        isAdmin && ownerInput.trim() && ownerInput.trim() !== currentUser
+          ? ownerInput.trim()
+          : undefined;
+      await addXrayClient(uuid, owner);
       await loadData();
       selectedUUID = uuid;
       await loadConfig(uuid);
@@ -125,6 +143,7 @@
     try {
       await deleteXrayClient(uuid);
       if (selectedUUID === uuid) {
+        configSeq++;
         selectedUUID = '';
         generatedJSON = '';
       }
@@ -159,8 +178,6 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-
-  let hasOwnClient = $derived(!isAdmin && clients.length >= 1);
 </script>
 
 <div class="page">
@@ -173,23 +190,34 @@
     </div>
   </div>
 
-  {#if !isAdmin}
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">{t('generateClient')}</div>
-      </div>
-      <div class="inline-actions">
-        {#if hasOwnClient}
-          <span class="helper-text">{t('oneClientLimit')}</span>
-        {:else}
-          <button class="btn btn-primary" onclick={generateAndAdd} disabled={loading || creating}>
-            {creating ? t('generating') : t('generateAndAdd')}
-          </button>
-          <span class="helper-text">{t('generateDesc')}</span>
-        {/if}
-      </div>
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">{t('generateClient')}</div>
     </div>
-  {/if}
+    <div class="inline-actions">
+      {#if isAdmin}
+        <input
+          type="text"
+          bind:value={ownerInput}
+          list="client-owner-options"
+          placeholder={t('ownerPlaceholder')}
+          aria-label={t('selectOwner')}
+          class="input-w-sm"
+        />
+        <datalist id="client-owner-options">
+          {#each adminUsers as u (u.username)}
+            <option value={u.username}></option>
+          {/each}
+        </datalist>
+      {/if}
+      <button class="btn btn-primary" onclick={generateAndAdd} disabled={loading || creating}>
+        {creating ? t('generating') : t('generateAndAdd')}
+      </button>
+      <span class="helper-text">
+        {t('generateDesc')}{isAdmin ? ` ${t('ownerHint')}` : ''}
+      </span>
+    </div>
+  </div>
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:120px;"></div></div>
@@ -227,14 +255,17 @@
                       class="link link-btn cell-strong td-mono"
                       title={c.id}
                       aria-label={t('clientConfig') + ': ' + c.id.slice(0, 8)}
-                      onclick={() => loadConfig(c.id)}>{c.id.slice(0, 16)}...</button
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        loadConfig(c.id);
+                      }}>{c.id.slice(0, 16)}...</button
                     >
                   </td>
                   {#if isAdmin}
                     <td class="td-muted">{c.owner || '—'}</td>
                   {/if}
                   {#if isAdmin}
-                    {@const usage = trafficMap[c.owner || '']}
+                    {@const usage = trafficMap[c.id]}
                     <td class="td-mono td-muted">
                       {usage ? `${formatSize(usage.up)} / ${formatSize(usage.down)}` : '—'}
                     </td>
@@ -306,9 +337,7 @@
     </div>
   {:else if clients.length && !configLoading}
     <div class="card">
-      <div class="empty-state">
-        {isAdmin ? t('clickClientToView') : t('noProxyClients')}
-      </div>
+      <div class="empty-state">{t('clickClientToView')}</div>
     </div>
   {/if}
 </div>
