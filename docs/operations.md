@@ -74,7 +74,7 @@ fail2ban 库 integrity_check、证书配对），失败即 `backup.failure` webh
 历史里的私钥应视为已泄露，即使远程仓库是私有的。若 `cert/server_cert.pem/key`
 （源站 TLS 证书）仍在有效期且私钥与历史中一致：
 
-1. 签发新证书替换（源站证书按 `~/cf_token_and_cert/` 内 README 的 Cloudflare
+1. 签发新证书替换（源站证书按 `~/work/dogod/cf_token_and_cert/` 内 README 的 Cloudflare
    Origin CA 流程签发；确认新私钥 != 历史泄露的那把）；
 2. 新证书放到服务器 `workwork/cert/`，`make restart nginx` 生效；
 3. 用 `openssl s_client -connect yinghuoren.com:443` 核对线上证书已更换、
@@ -123,7 +123,7 @@ git push --force --mirror
 
 ### Cloudflare 凭据轮换（常规运维）
 
-- CF API token 与各域名源站证书统一归档在 `~/cf_token_and_cert/`（换证书注意事项
+- CF API token 与各域名源站证书统一归档在 `~/work/dogod/cf_token_and_cert/`（换证书注意事项
   见该目录 README）；
 - 轮换 CF API token 后同步更新服务器 `.env` 的 `CF_API_TOKEN` 并 `make up admin`；
 - fail2ban / internal token 随 `.wework/` 备份保留，不需要单独轮换；怀疑泄露时

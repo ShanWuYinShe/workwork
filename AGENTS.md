@@ -47,3 +47,14 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 - 审计留痕：变更类端点（增删改、启停、发布、封禁等）必须在成功路径记 `log.Printf("[security] <动作> <关键标识> by=%s", actor)`，actor 取 `auth.GetUserFromContext(r)`；只读端点不需要。用户可控的标识（文件名、昵称等）必须 `%q` 转义——换行注入会伪造出假审计行。请求日志（RequestLogMiddleware）已带 user 字段兜底。
 - 环境变量：通过 `platform.GetEnv()` 读取（见 `services/admin/internal/platform/env.go`），不直接用 `os.Getenv`。
 
+
+## skill 索引（改对应领域前先加载对应 skill）
+
+| skill | 管什么 |
+|---|---|
+| `workwork-deploy` | 部署拓扑、服务器发布流程、`deploy-changed.sh` 与版本指纹核对 |
+| `workwork-security` | 认证/RBAC、Internal token、fail2ban、代理与防护层约定 |
+| `workwork-versions` | 版本号来源、`sync-versions.sh` 一致性校验与发布门禁 |
+
+> 新增 skill 时**必须**同步本表——漏索引时系统仍会挂载它，但 AI 很难主动想到加载，
+> 等于沉淀白写（2026-10-31 复核：本文件此前 0 处提到 skill，3 个 skill 全是孤儿）。
