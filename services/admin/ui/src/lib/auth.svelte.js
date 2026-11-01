@@ -1,5 +1,5 @@
 // @ts-check
-import { getCurrentUser } from './api.js';
+import { getCurrentUser } from './api/index.js';
 
 /** @type {{ username: string, role: string, created_at?: string } | null} */
 let user = $state(null);

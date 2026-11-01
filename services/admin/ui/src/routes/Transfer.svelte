@@ -1,7 +1,12 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from '../lib/auth.svelte.js';
-  import { getTransferFiles, deleteTransferFile, transferUploadUrl } from '../lib/api.js';
+  import {
+    getTransferFiles,
+    deleteTransferFile,
+    transferUploadUrl,
+    transferShareURL,
+  } from '../lib/api/index.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -163,7 +168,7 @@
   }
 
   function shareUrl(code) {
-    return window.location.origin + '/api/transfer/' + encodeURIComponent(code);
+    return transferShareURL(code);
   }
 
   async function copyLink(code) {

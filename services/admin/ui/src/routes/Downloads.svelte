@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { auth } from '../lib/auth.svelte.js';
   import {
-    BASE,
     getClaudeReleases,
     getClaudeStored,
     getClaudePlatforms,
@@ -15,7 +14,8 @@
     downloadXrayVersion,
     deleteXrayDownload,
     refreshXrayVersions,
-  } from '../lib/api.js';
+    downloadFileURL,
+  } from '../lib/api/index.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
@@ -177,9 +177,8 @@
   }
 
   function downloadUrl(filename) {
-    const prefix = tab === 'claude' ? 'claude-code' : 'xray';
-    // 文件名进 URL 路径段须编码:含 #/? 的名字会被截断成错误 URL。
-    return `${BASE}/${prefix}/downloads/${encodeURIComponent(filename)}`;
+    const tool = tab === 'claude' ? 'claude-code' : 'xray';
+    return downloadFileURL(tool, filename);
   }
 
   let latestReleases = $derived(releases.slice(0, 15));

@@ -7,7 +7,7 @@
     deleteAdminUser,
     changePassword,
     setUserRole,
-  } from '../lib/api.js';
+  } from '../lib/api/index.js';
   import { t } from '../lib/i18n.svelte.js';
   import { formatDate } from '../lib/format.js';
   import { showConfirm } from '../lib/confirm.svelte.js';

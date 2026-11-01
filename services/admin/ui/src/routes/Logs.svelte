@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { BASE, getServices } from '../lib/api.js';
+  import { getServices, serviceLogsStreamURL } from '../lib/api/index.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName } from '../lib/services.js';
@@ -54,9 +54,7 @@
     closeStream();
     if (!selectedService) return;
     if (clear) logLines = [];
-    es = new EventSource(
-      `${BASE}/services/${encodeURIComponent(selectedService)}/logs/stream?tail=200`,
-    );
+    es = new EventSource(serviceLogsStreamURL(selectedService));
     es.onopen = () => {
       reconnectDelay = 1000;
       // 重连成功后服务端会重新推送尾部 tail=200 行；清掉断线前的旧行，

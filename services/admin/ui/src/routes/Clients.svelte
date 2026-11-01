@@ -7,7 +7,7 @@
     deleteXrayClient,
     getXrayClientConfig,
     getTraffic,
-  } from '../lib/api.js';
+  } from '../lib/api/index.js';
   import { formatSize } from '../lib/format.js';
   import { t } from '../lib/i18n.svelte.js';
   import ClientConfigCard from '../lib/ui/ClientConfigCard.svelte';

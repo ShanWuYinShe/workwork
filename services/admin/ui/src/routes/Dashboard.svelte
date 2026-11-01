@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getDashboard } from '../lib/api.js';
+  import { getDashboard } from '../lib/api/index.js';
   import { auth } from '../lib/auth.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
   import ClientConfigCard from '../lib/ui/ClientConfigCard.svelte';

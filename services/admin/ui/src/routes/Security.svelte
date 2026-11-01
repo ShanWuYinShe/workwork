@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getBlockedIPs, blockIP, unblockIP } from '../lib/api.js';
+  import { getBlockedIPs, blockIP, unblockIP } from '../lib/api/index.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';

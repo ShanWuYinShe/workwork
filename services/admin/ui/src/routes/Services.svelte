@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { navigate } from '../lib/nav.svelte.js';
-  import { getServices, serviceAction } from '../lib/api.js';
+  import { getServices, serviceAction } from '../lib/api/index.js';
   import { auth } from '../lib/auth.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
