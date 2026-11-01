@@ -58,7 +58,9 @@ type apiDeps struct {
 	ipv6State *proxy.IPv6State
 	// cascadeUploads 让 accounts 删除用户时清理 transfer 文件，避免反向依赖。
 	cascadeUploads func(string) (int, error)
-	layout         runtime.Layout
+	// renameAlias 让客户端改名后流量统计键同步迁移。
+	renameAlias func(oldName, newName string)
+	layout      runtime.Layout
 }
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
@@ -79,6 +81,7 @@ func apiRoutes(d apiDeps) []apiRoute {
 		// ── Xray 客户端 ──
 		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/add", Handler: accounts.ApiAddXray(users, xraySvc), Role: roleViewer, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/delete", Handler: accounts.ApiDeleteXray(xraySvc), Role: roleViewer, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/rename", Handler: accounts.ApiRenameXray(xraySvc, d.renameAlias), Role: roleViewer, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/users/xray/config/{uuid}", Handler: accounts.ApiXrayClientConfig(users, xraySvc), Role: roleViewer},
 
 		// ── 面板 / 服务 / 日志 ──

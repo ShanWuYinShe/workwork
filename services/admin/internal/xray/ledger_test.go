@@ -178,3 +178,33 @@ func TestLedgerRejectsDuplicateAndInvalidName(t *testing.T) {
 		t.Fatalf("owner should generate lower-case name, got %+v err=%v", created, err)
 	}
 }
+
+func TestLedgerRenameValidatesOwnershipAndUniqueness(t *testing.T) {
+	l, _ := newLedger(t)
+	if _, err := l.Add(Client{ID: "uuid-a", Owner: "alice", Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Add(Client{ID: "uuid-b", Owner: "bob", Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+
+	old, updated, err := l.Rename("UUID-A", "alice-main", "")
+	if err != nil || old.Name != "alice" || updated.Name != "alice-main" {
+		t.Fatalf("rename: old=%+v updated=%+v err=%v", old, updated, err)
+	}
+	if _, _, err := l.Rename("uuid-a", "BOB", ""); !errors.Is(err, ErrDuplicateName) {
+		t.Fatalf("duplicate name: %v", err)
+	}
+	if _, _, err := l.Rename("uuid-a", "bad name", ""); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("invalid name: %v", err)
+	}
+	if _, _, err := l.Rename("uuid-a", "x", "bob"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-owner rename: %v", err)
+	}
+	if _, _, err := l.Rename("missing", "x", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing rename: %v", err)
+	}
+	if again, _, err := l.Rename("uuid-a", "alice-main", ""); err != nil || again.Name != "alice-main" {
+		t.Fatalf("idempotent rename: %+v err=%v", again, err)
+	}
+}

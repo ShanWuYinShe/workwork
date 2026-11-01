@@ -108,3 +108,23 @@ func TestTrafficTrackerEmailAliasesMigrateHistory(t *testing.T) {
 		t.Fatalf("old baseline key should be gone: %+v", tr.baseline)
 	}
 }
+
+func TestTrafficTrackerRenameAliasChain(t *testing.T) {
+	tr := &TrafficTracker{
+		totals:   map[string]userTraffic{"alice": {Up: 10, Down: 20}},
+		baseline: map[string]int64{"alice>>>uplink": 10, "alice>>>downlink": 20},
+		loaded:   true,
+	}
+	tr.AddEmailAlias("alice", "alice-main")
+	if got := tr.Snapshot()["alice-main"]; got.Up != 10 || got.Down != 20 {
+		t.Fatalf("first rename alias failed: %+v", tr.Snapshot())
+	}
+	tr.AddEmailAlias("alice-main", "alice-final")
+	snap := tr.Snapshot()
+	if _, ok := snap["alice-main"]; ok {
+		t.Fatalf("intermediate name should be gone: %+v", snap)
+	}
+	if got := snap["alice-final"]; got.Up != 10 || got.Down != 20 {
+		t.Fatalf("renamed totals not migrated: %+v", snap)
+	}
+}

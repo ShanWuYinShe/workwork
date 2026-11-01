@@ -126,6 +126,39 @@ func (s *Service) Delete(ctx context.Context, id, ownerFilter string) (Client, e
 	return deleted, nil
 }
 
+// Rename 修改客户端用户名（Xray email）；渲染/重启失败时回滚旧名称并
+// 恢复旧配置。返回改名前后条目供流量 alias 与审计使用。
+func (s *Service) Rename(ctx context.Context, id, newName, ownerFilter string) (Client, Client, error) {
+	old, updated, err := s.ledger.Rename(id, newName, ownerFilter)
+	if err != nil {
+		return Client{}, Client{}, err
+	}
+	if old.Name == updated.Name {
+		return old, updated, nil
+	}
+	rollback := func(cause error) error {
+		if _, _, rbErr := s.ledger.Rename(id, old.Name, ""); rbErr != nil {
+			return fmt.Errorf("%w (rollback failed: %v)", cause, rbErr)
+		}
+		if _, rbErr := s.render(); rbErr != nil {
+			return fmt.Errorf("%w (restore failed: %v)", cause, rbErr)
+		}
+		return cause
+	}
+
+	changed, err := s.render()
+	if err != nil {
+		return Client{}, Client{}, rollback(err)
+	}
+	if !changed {
+		return old, updated, nil
+	}
+	if err := s.restart(ctx); err != nil {
+		return Client{}, Client{}, rollback(fmt.Errorf("%w: %v", ErrRestart, err))
+	}
+	return old, updated, nil
+}
+
 // DeleteByOwner 删除用户全部客户端并重载；removed==0 时不重启（正常删除
 // 无客户端可删）。重试路径由调用方调用 Reload 强制重载。
 func (s *Service) DeleteByOwner(ctx context.Context, owner string) (int, error) {

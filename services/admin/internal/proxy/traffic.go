@@ -80,6 +80,30 @@ func (t *TrafficTracker) SetEmailAliases(aliases map[string]string) {
 	}
 }
 
+// AddEmailAlias 记录运行期客户端改名（old→new），并把已有 alias 链
+// （A→old）一起指向 new；随后立即迁移已加载的累计与基线。
+func (t *TrafficTracker) AddEmailAlias(oldEmail, newEmail string) {
+	oldEmail = strings.ToLower(strings.TrimSpace(oldEmail))
+	newEmail = strings.ToLower(strings.TrimSpace(newEmail))
+	if oldEmail == "" || newEmail == "" || oldEmail == newEmail {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.aliases == nil {
+		t.aliases = make(map[string]string)
+	}
+	for source, target := range t.aliases {
+		if target == oldEmail {
+			t.aliases[source] = newEmail
+		}
+	}
+	t.aliases[oldEmail] = newEmail
+	if t.loaded {
+		t.applyEmailAliasesLocked()
+	}
+}
+
 // applyEmailAliasesLocked 把旧 email 键下的累计/基线合并到新键。
 // 调用方必须持有 t.mu。
 func (t *TrafficTracker) applyEmailAliasesLocked() {

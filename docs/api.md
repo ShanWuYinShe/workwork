@@ -54,6 +54,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 |------|------|------|
 | `POST /users/xray/add` | viewer+ | `{uuid, owner?, name?}`。`name` 是客户端用户名/Xray email，留空按 owner 自动生成；重复 409。admin 可指定 `owner`（目标用户必须存在），非 admin 只能为自己创建 |
 | `POST /users/xray/delete` | viewer+ | `{uuid}`，只能删自己的；admin 可删任意 |
+| `POST /users/xray/rename` | viewer+ | `{uuid, name}`，修改客户端用户名/Xray email；非 admin 只能改自己的；重复 409、非法 400；成功后流量统计键自动迁移 |
 | `GET /users/xray/config/{uuid}` | viewer+ | 该客户端的完整客户端配置 JSON（路径中的 UUID 在日志中脱敏） |
 
 客户端台账的 `name` 是网页上的客户端用户名，也是 Xray 配置的 `email`（日志/流量统计直接显示）；

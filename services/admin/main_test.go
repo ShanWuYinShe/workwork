@@ -25,6 +25,7 @@ func testRouteDeps(layout runtime.Layout) apiDeps {
 		traffic:        proxy.NewTrafficTracker(layout),
 		ipv6State:      proxy.NewIPv6State(layout),
 		cascadeUploads: nil,
+		renameAlias:    nil,
 		layout:         layout,
 	}
 }

@@ -5,6 +5,7 @@
     getUsers,
     addXrayClient,
     deleteXrayClient,
+    renameXrayClient,
     getXrayClientConfig,
     getTraffic,
   } from '../lib/api/index.js';
@@ -27,6 +28,9 @@
   let ownerInput = $state('');
   let clientName = $state('');
   let deletingId = $state('');
+  let renamingId = $state('');
+  let renameValue = $state('');
+  let savingRename = $state(false);
   let creating = $state(false);
   let selectedUUID = $state('');
   let configLoading = $state(false);
@@ -129,6 +133,33 @@
       toast(e.message, 'error');
     } finally {
       creating = false;
+    }
+  }
+
+  function startRename(client) {
+    renamingId = client.id;
+    renameValue = client.name || '';
+  }
+
+  function cancelRename() {
+    renamingId = '';
+    renameValue = '';
+  }
+
+  async function saveRename(client) {
+    const name = renameValue.trim();
+    if (!name || savingRename) return;
+    savingRename = true;
+    try {
+      const d = await renameXrayClient(client.id, name);
+      renamingId = '';
+      renameValue = '';
+      await loadData();
+      toast(t('clientRenamed', { name: d?.name || name }), 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      savingRename = false;
     }
   }
 
@@ -239,7 +270,54 @@
                   class:selected={selectedUUID === c.id}
                   onclick={() => loadConfig(c.id)}
                 >
-                  <td class="cell-strong td-mono">{c.name || '—'}</td>
+                  <td class="cell-strong td-mono">
+                    {#if renamingId === c.id}
+                      <div class="rename-cell">
+                        <input
+                          type="text"
+                          class="input-w-sm"
+                          bind:value={renameValue}
+                          maxlength="64"
+                          aria-label={t('clientName')}
+                          onkeydown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              saveRename(c);
+                            } else if (e.key === 'Escape') {
+                              cancelRename();
+                            }
+                          }}
+                        />
+                        <button
+                          class="btn btn-sm btn-primary"
+                          disabled={savingRename}
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            saveRename(c);
+                          }}>{t('save')}</button
+                        >
+                        <button
+                          class="btn btn-sm btn-ghost"
+                          disabled={savingRename}
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            cancelRename();
+                          }}>{t('cancel')}</button
+                        >
+                      </div>
+                    {:else}
+                      <div class="rename-cell">
+                        <span>{c.name || '—'}</span>
+                        <button
+                          class="btn btn-sm btn-ghost"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            startRename(c);
+                          }}>{t('rename')}</button
+                        >
+                      </div>
+                    {/if}
+                  </td>
                   <td class="td-mono">
                     <button
                       class="link link-btn cell-strong td-mono"
@@ -307,5 +385,10 @@
   }
   .clickable-row.selected {
     background: var(--c-accent-bg, rgba(59, 130, 246, 0.1));
+  }
+  .rename-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
   }
 </style>

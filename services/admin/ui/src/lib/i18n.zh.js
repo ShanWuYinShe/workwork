@@ -18,6 +18,9 @@ export const zh = {
   adminPanel: '管理面板',
   // Generic UI
   cancel: '取消',
+  save: '保存',
+  rename: '重命名',
+  clientRenamed: '客户端已重命名为 {name}。',
   ok: '确认',
   retry: '重试',
   authFailedTitle: '认证失败',

@@ -18,6 +18,9 @@ export const en = {
   adminPanel: 'Admin Panel',
   // Generic UI
   cancel: 'Cancel',
+  save: 'Save',
+  rename: 'Rename',
+  clientRenamed: 'Client renamed to {name}.',
   ok: 'OK',
   delete: 'Delete',
   retry: 'Retry',

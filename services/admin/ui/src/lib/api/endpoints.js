@@ -59,6 +59,10 @@ export async function deleteXrayClient(uuid) {
   return req('/users/xray/delete', { method: 'POST', body: JSON.stringify({ uuid }) });
 }
 
+export async function renameXrayClient(uuid, name) {
+  return req('/users/xray/rename', { method: 'POST', body: JSON.stringify({ uuid, name }) });
+}
+
 export async function getXrayClientConfig(uuid) {
   return req(`/users/xray/config/${uuid}`);
 }

@@ -105,6 +105,66 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	}
 }
 
+// ApiRenameXray 修改客户端用户名（Xray email）。非 admin 只能改自己的；
+// 成功后通过 onRename 把流量统计键从旧名迁移到新名。
+func ApiRenameXray(svc *xray.Service, onRename func(oldName, newName string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, _ := requestctx.ActorFrom(r.Context())
+
+		var body struct {
+			UUID string `json:"uuid"`
+			Name string `json:"name"`
+		}
+		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
+			platform.WriteError(w, "请求体不是合法 JSON", 400)
+			return
+		}
+		if body.UUID == "" || strings.TrimSpace(body.Name) == "" {
+			platform.WriteError(w, "UUID 与用户名必填", 400)
+			return
+		}
+		body.UUID = strings.ToLower(body.UUID)
+
+		ownerFilter := ""
+		if actor.Role != identity.RoleAdmin {
+			ownerFilter = actor.Username
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
+		defer cancel()
+		oldClient, updated, err := svc.Rename(ctx, body.UUID, body.Name, ownerFilter)
+		if err != nil {
+			switch {
+			case errors.Is(err, xray.ErrForbidden):
+				platform.WriteError(w, "无权操作：不是你的客户端", 403)
+			case errors.Is(err, xray.ErrNotFound):
+				platform.WriteError(w, "客户端不存在", 404)
+			case errors.Is(err, xray.ErrDuplicateName):
+				platform.WriteError(w, "客户端用户名已被占用", 409)
+			case errors.Is(err, xray.ErrInvalidName):
+				platform.WriteError(w, "客户端用户名不合法（小写字母/数字开头，仅含字母数字 . _ -，最长 64）", 400)
+			case errors.Is(err, xray.ErrRestart):
+				log.Printf("ERROR: rename xray client %s: %v", body.UUID, err)
+				platform.WriteError(w, "客户端改名失败：Xray 无法加载新配置，已回滚", http.StatusBadGateway)
+			default:
+				log.Printf("ERROR: rename xray client %s: %v", body.UUID, err)
+				platform.WriteInternalError(w, err)
+			}
+			return
+		}
+		if oldClient.Name != updated.Name {
+			if onRename != nil {
+				onRename(oldClient.Name, updated.Name)
+			}
+			log.Printf("[security] xray client rename uuid=%s old=%q new=%q owner=%q by=%s",
+				body.UUID, oldClient.Name, updated.Name, updated.Owner, actor.Username)
+		}
+		platform.WriteJSON(w, map[string]string{
+			"status": "ok", "uuid": body.UUID, "owner": updated.Owner,
+			"old_name": oldClient.Name, "name": updated.Name,
+		})
+	}
+}
+
 func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actor, _ := requestctx.ActorFrom(r.Context())

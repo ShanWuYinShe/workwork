@@ -113,3 +113,28 @@ func TestServiceDeleteRollsBackOnRestartFailure(t *testing.T) {
 		t.Fatalf("deleted client not rolled back: %+v", clients)
 	}
 }
+
+func TestServiceRenameRollsBackOnRestartFailure(t *testing.T) {
+	layout := newRenderLayout(t)
+	calls := 0
+	svc := NewService(layout, nil, RestarterFunc(func(context.Context) error {
+		calls++
+		if calls > 1 {
+			return errors.New("boom")
+		}
+		return nil
+	}))
+	if _, err := svc.Add(context.Background(), Client{ID: "a", Owner: "alice", Name: "alice"}); err != nil {
+		t.Fatalf("seed add: %v", err)
+	}
+	if _, _, err := svc.Rename(context.Background(), "a", "alice-main", ""); !errors.Is(err, ErrRestart) {
+		t.Fatalf("expected ErrRestart, got %v", err)
+	}
+	clients, err := svc.Clients()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clients) != 1 || clients[0].Name != "alice" {
+		t.Fatalf("rename not rolled back: %+v", clients)
+	}
+}

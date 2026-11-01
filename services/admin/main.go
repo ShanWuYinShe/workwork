@@ -120,6 +120,7 @@ func main() {
 		traffic:        trafficTracker,
 		ipv6State:      ipv6State,
 		cascadeUploads: transferStore.DeleteUploadsByUploader,
+		renameAlias:    trafficTracker.AddEmailAlias,
 		layout:         layout,
 	})
 	bodyLimits := platform.NewBodyLimits(bodyLimitExemptions(routes))

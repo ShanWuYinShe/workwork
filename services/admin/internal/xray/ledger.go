@@ -171,6 +171,44 @@ func (l *Ledger) Delete(id, ownerFilter string) (Client, error) {
 	return deleted, l.saveLocked(kept)
 }
 
+// Rename 修改客户端用户名（Xray email）。ownerFilter 非空时只允许改该
+// owner 的客户端；返回改名前后条目供调用方迁移流量与审计。
+func (l *Ledger) Rename(id, newName, ownerFilter string) (Client, Client, error) {
+	id = strings.ToLower(strings.TrimSpace(id))
+	newName = normalizeClientName(newName)
+	if !ValidClientName(newName) {
+		return Client{}, Client{}, ErrInvalidName
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	clients, err := l.file.Load()
+	if err != nil {
+		return Client{}, Client{}, err
+	}
+	for i, c := range clients {
+		if c.ID != id {
+			continue
+		}
+		if ownerFilter != "" && c.Owner != ownerFilter {
+			return Client{}, Client{}, ErrForbidden
+		}
+		if c.Name == newName {
+			return c, c, nil
+		}
+		for _, other := range clients {
+			if other.ID != id && other.Name == newName {
+				return Client{}, Client{}, ErrDuplicateName
+			}
+		}
+		old := c
+		updated := c
+		updated.Name = newName
+		clients[i] = updated
+		return old, updated, l.saveLocked(clients)
+	}
+	return Client{}, Client{}, ErrNotFound
+}
+
 // DeleteByOwner 删除某用户全部客户端，返回删除数量。
 func (l *Ledger) DeleteByOwner(owner string) (int, error) {
 	l.mu.Lock()
