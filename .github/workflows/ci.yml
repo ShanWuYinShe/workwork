@@ -63,9 +63,19 @@ jobs:
       # 的改动永远不被部署（脚本按路径推导受影响服务）。
       - name: 部署路径映射覆盖
         run: |
+          # compose 服务名允许连字符，目录用下划线（docker-proxy → docker_proxy）。
           for name in $(./scripts/compose-services.sh); do
-            grep -q "services/$name/" scripts/deploy-changed.sh || {
-              echo "::error::compose 服务 $name 未在 scripts/deploy-changed.sh 中映射"
+            dir=${name//-/_}
+            grep -q "services/$dir/" scripts/deploy-changed.sh || {
+              echo "::error::compose 服务 $name（目录 services/$dir）未在 scripts/deploy-changed.sh 中映射"
+              exit 1
+            }
+          done
+          # 反向：services/ 下新增目录却忘记加进 compose，部署同样永远不会发生。
+          for d in services/*/; do
+            dir=$(basename "$d")
+            ./scripts/compose-services.sh | tr ' ' '\n' | sed 's/-/_/g' | grep -qx "$dir" || {
+              echo "::error::目录 services/$dir 未在 docker-compose.yml 中定义服务"
               exit 1
             }
           done
