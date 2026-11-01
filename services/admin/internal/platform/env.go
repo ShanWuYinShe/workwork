@@ -71,3 +71,15 @@ func unquoteEnvValue(v string) string {
 	}
 	return v
 }
+
+// DefaultAdminPort 是 ADMIN_PORT 的唯一代码兜底值；compose/.env.example 的
+// 同名默认值由 scripts/env-schema.sh 校验一致。
+const DefaultAdminPort = "8318"
+
+// AdminPort 返回 admin 监听端口；未配置时返回 DefaultAdminPort。
+func AdminPort() string {
+	if p := GetEnv("ADMIN_PORT"); p != "" {
+		return p
+	}
+	return DefaultAdminPort
+}

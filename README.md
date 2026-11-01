@@ -119,7 +119,10 @@ workwork/
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
 │   ├── backup.sh
-│   ├── deploy-changed.sh     # 服务器部署：pull + 按变更最小 build/up
+│   ├── deploy-changed.sh     # 服务器部署：pull + 按变更最小 build/up + 渲染产物哈希检测
+│   ├── env-schema.tsv        # 环境变量单一事实源（默认值/必填/校验/消费方）
+│   ├── env-schema.sh         # 校验代码/compose/.env.example 与 schema 一致
+│   ├── test-env-schema.sh    # 上述门禁的正/负例行为测试
 │   └── restore-verify.sh     # 备份恢复机械校验：哈希/状态文件/sqlite 完整性/证书配对
 ├── .env                      # 环境变量（不提交）
 ├── .env.example              # 环境变量示例
@@ -133,10 +136,14 @@ workwork/
 │   │   ├── deploy.go        # 启动引导:调用各域 Ensure* 生成运行时配置
 │   │   ├── main_test.go     # 路由装配契约测试(大上传端点豁免清单)
 │   │   └── internal/
-│   │       ├── platform/    # 零业务底座:env、原子写、HTTP 响应、docker 封装、compose 工具
-│   │       ├── auth/        # 认证原语:htpasswd、用户元数据、token、中间件链、限流、IP 封禁
+│   │       ├── runtime/     # Layout(路径)、JSONFile[T](原子写/损坏隔离)、Clock
+│   │       ├── platform/    # 零业务底座:env、HTTP 响应、docker 封装、compose 工具
+│   │       ├── requestctx/  # 认证 actor 请求上下文(域包不依赖 auth)
+│   │       ├── identity/    # users.json 唯一 owner、htpasswd/proxy 凭证、token、角色策略
+│   │       ├── auth/        # 认证中间件、限流、IP 封禁、可信代理、nginx 封禁同步
+│   │       ├── xray/        # 客户端台账、客户端配置生成、重启编排(渲染/重启注入)
 │   │       ├── accounts/    # 用户管理 + Xray 客户端管理(删用户级联删客户端,故合域)
-│   │       ├── proxy/       # xray/nginx 配置路径、IPv6 轮换、CF DNS、服务守护 watcher
+│   │       ├── proxy/       # IPv6 轮换、CF DNS、流量统计、服务守护 watcher
 │   │       ├── infra/       # docker 服务管理、日志流、Dashboard
 │   │       ├── nginxcfg/    # nginx 模板渲染(XHTTP 认证/端口/IPv6 注入)
 │   │       ├── downloads/   # Claude Code / Xray 二进制下载
@@ -263,7 +270,9 @@ make build <受影响服务...>   # 受影响服务本地构建通过（版本�
 git push origin main
 
 # 2. 服务器一键部署（推荐）：pull + 按变更最小 build/up，
-#    部署后自带健康自校验（等 healthy + 版本指纹核对，不通过即 fail 并给出回滚命令）
+#    部署后自带健康自校验（等 healthy + 版本指纹核对，不通过即 fail 并给出回滚命令）。
+#    配置消费者（xray/nginx）除模板变更外，还会比较渲染产物哈希：渲染代码或
+#    相关 env 导致 generated/ 内容变化时同样会校验并重启，不依赖模板路径。
 ssh workwork-server "cd workwork && make deploy-changed"
 # 复跑/指定基线: scripts/deploy-changed.sh <old-commit>
 
@@ -275,13 +284,15 @@ make build xray && make up xray                             # services/xray/**
 
 ## 环境变量
 
-完整清单以 [.env.example](./.env.example) 为准（含各变量的生成方式与默认值），本表只列最常改动的。
+完整清单以 [.env.example](./.env.example) 与 [scripts/env-schema.tsv](./scripts/env-schema.tsv) 为准：
+后者登记每个变量的默认值、是否必填、取值校验与消费方，`make check` 会校验它与
+compose 的 `${KEY:-...}` 兜底、`.env.example` 三处一致，漂移即失败。本表只列最常改动的。
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `COMPOSE_PROJECT_NAME` | admin 通过 docker.sock 管理的 Compose 项目名 | `workwork` |
+| `COMPOSE_PROJECT_NAME` | docker-proxy 放行、admin 管理的 Compose 项目名（容器归属校验） | `workwork` |
 | `AUTH_USER` / `AUTH_PASS` | 首启必需：初始管理员与密码（写入 htpasswd；面板改密后 `.env` 里的 `AUTH_PASS` 即作废） | - |
-| `ADMIN_PORT` | admin 容器内端口（compose healthcheck 已跟随此值；fail2ban action 由 nginx 入口脚本按同一 env 渲染） | `8318` |
+| `ADMIN_PORT` | admin 监听端口；compose healthcheck、nginx 反代与 fail2ban action 全链路派生 | `8318` |
 | `NGINX_IPV6` | Nginx IPv6 地址（必须落在 `IPV6_SUBNET` 内） | `2605:xxx:xxx::2` |
 | `XRAY_IPV6` | Xray IPv6 地址（必须落在 `IPV6_SUBNET` 内） | `2605:xxx:xxx::3` |
 | `IPV6_SUBNET` | IPv6 /64 子网（`setup-networks.sh` 取首个 /80 作为 ip-range） | `2605:xxx:xxx::/64` |

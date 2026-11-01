@@ -56,7 +56,7 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	go test -C services/admin -race ./...
 	go vet -C services/docker_proxy ./...
 	go test -C services/docker_proxy -race ./...
-	@for sh in scripts/*.sh setup-networks.sh services/nginx/*.sh services/xray/*.sh; do \
+	@for sh in $$(find scripts services/nginx services/xray -name '*.sh' -type f) setup-networks.sh; do \
 	  bash -n "$$sh" || exit 1; \
 	  if command -v shellcheck >/dev/null 2>&1; then shellcheck -S warning "$$sh" || exit 1; fi; \
 	done
@@ -66,6 +66,8 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	@# (media_center/music_player)的 versions.env、Dockerfile ARG、CI 全部一致;
 	@# 站点目录缺失时(CI)仅告警不失败。
 	@bash scripts/sync-versions.sh check
+	@# 环境变量 schema/compose/.env.example 三处一致 + 取值格式；含负例行为测试。
+	@bash scripts/test-env-schema.sh
 	bun install --frozen-lockfile --cwd services/admin/ui
 	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui lint

@@ -1,0 +1,48 @@
+# 环境变量单一事实源。
+#
+# 列（TAB 分隔）：
+#   KEY        变量名
+#   DEFAULT    代码/compose 兜底值（空串表示无默认、由使用者填写）
+#   REQUIRED   yes=启动/部署必需；first-boot=仅首次引导必需；no=可选
+#   VALIDATION 校验类型（见 scripts/env-schema.sh）
+#   CONSUMERS  消费方说明（只作文档，不参与校验）
+#
+# 修改默认值时必须同步 docker-compose.yml 的 `${KEY:-...}` 与 .env.example；
+# `make check` 会校验三处一致，漂移即失败。
+#
+# 新增环境变量时：先在此登记，再改代码/compose/.env.example，否则门禁失败。
+ADMIN_PORT	8318	no	port	admin 监听；compose healthcheck/nginx fail2ban 渲染
+AUTH_USER	admin	first-boot	username	nginx Basic Auth 用户名/受保护管理员
+AUTH_PASS		first-boot	secret	首次启动生成 htpasswd 的密码
+FAIL2BAN_TOKEN		no	token	fail2ban scoped token（空=自动生成）
+INTERNAL_TOKEN		no	token	内部自动化 token（空=自动生成）
+INTERNAL_TOKEN_ALLOWED_PREFIXES		no	prefixes	internal token 允许的路径前缀
+COMPOSE_PROJECT_NAME	workwork	no	project	docker 容器归属校验
+XHTTP_DOMAIN		yes	domain	VLESS SNI/证书/DNS 同步锚点
+XHTTP_ADDRESS		no	host	客户端出站地址（优选入口，可选）
+XHTTP_ALPN	h2	no	enum:h2,h3	客户端 ALPN
+NGINX_DOMAINS		no	domains	额外同步到 Cloudflare 的域名（逗号分隔）
+CF_API_TOKEN		no	secret	Cloudflare DNS API token（空=禁用 DNS 功能）
+IPV6_SUBNET		no	ipv6_cidr	ipvlan 网段/轮换前缀
+NGINX_IPV6		no	ipv6	nginx 的 ipvlan 地址
+XRAY_IPV6		no	ipv6	xray 的 ipvlan 地址
+TRUSTED_PROXY_CIDRS	127.0.0.0/8,::1/128	no	cidrs	可信反代 CIDR（逗号分隔）
+TRUSTED_PROXY_HOSTS	nginx	no	hosts	可信反代主机名（逗号分隔）
+WEBHOOK_URL		no	url	事件通知 webhook（空=关闭）
+ALERT_MTLS_CERT		no	path	webhook mTLS 证书（空=无证推送）
+ALERT_MTLS_KEY		no	path	webhook mTLS 私钥
+WEBHOOK_CALLER_DIR		no	path	宿主证书目录（compose 挂载源）
+TRANSFER_USER_QUOTA	5368709120	no	int	单用户中转配额（字节，0=不限）
+CERT_DIR	/app/certs	no	path	证书到期监控目录
+IMAGE_TAG	latest	no	string	镜像 tag（deploy 导出；回滚用）
+GIT_VERSION	dev	no	string	构建期版本烙印
+GO_VERSION	1.26.10	no	version	Go 基础镜像
+ALPINE_VERSION	3.24.1	no	version	Alpine 基础镜像
+BUN_VERSION	1.3.14	no	version	Bun 构建工具
+NGINX_VERSION	1.30.4	no	version	Nginx 基础镜像
+XRAY_VERSION	26.6.27	no	version	Xray 版本
+APK_MIRROR	mirrors.aliyun.com	no	host	apk 镜像源
+DOCKER_SOCKET	/var/run/docker.sock	no	path	docker-proxy 上游 socket（容器内路径）
+LISTEN	:2375	no	string	docker-proxy 监听地址（仅容器内网）
+ALLOWED_COMPOSE_PROJECTS	workwork	no	project	docker-proxy 放行的 compose 项目（compose 注入）
+DOCKER_GID		no	int	已废弃：admin 经 docker-proxy 访问，不再直挂 socket

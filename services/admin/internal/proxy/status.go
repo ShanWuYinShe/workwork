@@ -84,6 +84,7 @@ func ApiNetworkStatus(cli *client.Client) http.HandlerFunc {
 		}
 
 		platform.WriteJSON(w, map[string]any{
+			"admin_port":     platform.AdminPort(),
 			"subnet":         subnetDisplay,
 			"static_range":   staticRange,
 			"rotating_range": rotatingRange,

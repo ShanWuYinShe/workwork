@@ -6,6 +6,7 @@
   import { toast } from '../lib/toast.svelte.js';
 
   let net = $state({
+    admin_port: '',
     nginx_ip: '-',
     xray_ip: '-',
     nginx_rotating: null,
@@ -148,12 +149,12 @@
           <thead><tr><th>{t('service')}</th><th>{t('port')}</th><th>{t('access')}</th></tr></thead>
           <tbody>
             <tr
-              ><td class="cell-strong">admin</td><td class="td-mono">8318</td><td class="td-muted"
-                >{t('internalDockerViaNginx')}</td
+              ><td class="cell-strong">admin</td><td class="td-mono">{net.admin_port || '—'}</td><td
+                class="td-muted">{t('internalDockerViaNginx')}</td
               ></tr
             >
             <tr
-              ><td class="cell-strong">xray xhttp</td><td class="td-mono">8447</td><td
+              ><td class="cell-strong">xray xhttp</td><td class="td-mono">unix socket</td><td
                 class="td-muted">{t('internalDockerViaProxyQuery')}</td
               ></tr
             >

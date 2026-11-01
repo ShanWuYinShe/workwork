@@ -44,7 +44,7 @@ func EnsureNginxConfig(internalToken string, layout runtime.Layout) error {
 	out = replaceEnv(out, map[string]string{
 		"__ADMIN_PORT__": "ADMIN_PORT",
 	}, map[string]string{
-		"__ADMIN_PORT__": "8318",
+		"__ADMIN_PORT__": platform.DefaultAdminPort,
 	})
 	// 占位符残留 = 模板/渲染器不一致，nginx 会带着字面量上线并静默失去
 	// 豁免（或更糟，把占位符当 token 匹配）。fail-fast。

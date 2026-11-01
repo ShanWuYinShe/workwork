@@ -21,37 +21,34 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26.10'
           cache: true
           cache-dependency-path: services/admin/go.sum
 
-      - name: gofmt
-        run: |
-          test -z "$(gofmt -l services/admin/)"
-          test -z "$(gofmt -l services/docker_proxy/)"
-      - name: go vet
-        run: |
-          go vet -C services/admin ./...
-          go vet -C services/docker_proxy ./...
-      - name: go test
-        run: |
-          go test -C services/admin -race ./...
-          go test -C services/docker_proxy -race ./...
-      - name: shell syntax + shellcheck（覆盖全部 .sh）
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          find scripts setup-networks.sh services/nginx services/xray \
-            -name '*.sh' -type f 2>/dev/null | while read -r sh; do
-            echo "== bash -n + shellcheck: $sh"
-            bash -n "$sh"
-            shellcheck -S warning "$sh"
-          done
-      - name: compose config 校验（无 .env，仅验结构与插值合法性）
-        run: docker compose config -q
+      - name: 安装 shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.14'
+
+      # v6 起 action 运行在 node24,v4 会在 runner 上触发 Node.js 20 弃用警告
+      - name: cache bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('services/admin/ui/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      # 本地门禁与 CI 共用同一个入口，避免两处命令列表各写一份后漂移。
+      # make check = gofmt/vet/test -race + shellcheck + compose config +
+      # versions.env 一致性 + env schema + 前端 format/lint/check/test/build。
+      - name: make check
+        run: make check
 
       # 建网脚本的地址推导必须落在 /64 内（历史 bug：/64 前缀后加 ":1" 推出
       # :1::/80，docker network create 直接失败）。DRY_RUN 不碰宿主网络。
@@ -78,32 +75,6 @@ jobs:
             exit 1
           }
 
-      # make check 的组成部分（versions.env 主本 ↔ Dockerfile/compose/CI），
-      # 此前 CI 未跑:版本漂移只在本地门禁或部署时暴露,补齐后 PR 即拦截。
-      - name: 基础镜像版本一致性（versions.env 主本）
-        run: bash scripts/sync-versions.sh check
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.14'
-
-      # v6 起 action 运行在 node24,v4 会在 runner 上触发 Node.js 20 弃用警告
-      - name: cache bun install
-        uses: actions/cache@v6
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('services/admin/ui/bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
-
-      - name: ui lint + check + format + build（与 make check 对齐）
-        run: |
-          bun install --cwd services/admin/ui --frozen-lockfile
-          bun run --cwd services/admin/ui format:check
-          bun run --cwd services/admin/ui lint
-          bun run --cwd services/admin/ui check
-          bun run --cwd services/admin/ui test
-          bun run --cwd services/admin/ui build
-
   # gosec 静态安全扫描（报告模式）：-no-fail 不阻塞合并，输出进 CI 日志供
   # 巡检。存量 96 项发现已逐类甄别为扫描器误报或刻意设计（G101=路径常量、
   # G301/302=nginx 组读取的刻意权限、G304/G703=正则约束后的路径、G104=idiomatic
@@ -115,8 +86,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26.10'
           cache: true
@@ -143,8 +114,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26.10'
           cache: true
@@ -195,10 +166,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # 全量历史扫描
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: '1.26.10'
           cache: true
@@ -219,7 +190,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # compose 内 ${NGINX_IPV6} 等变量无 .env 时为空串告警但不阻断 build
       # （本地实测 exit 0）。media/music 已拆分至独立站，各自仓库的 CI 覆盖。
       - name: docker compose build

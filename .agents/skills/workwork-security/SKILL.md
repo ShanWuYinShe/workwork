@@ -26,10 +26,10 @@ description: workwork 安全与网络：多层防御（CF Origin Pulls mTLS / CS
 三层链：nginx basic auth → Go middleware chain → 前端路由守卫。
 
 ```
-auth.CSRFMiddleware → auth.RateLimitMiddleware → auth.IPBlockMiddleware → auth.RequireRole → handler
+auth.CSRFMiddleware → mw.IPBlockMiddleware → mw.RateLimitMiddleware → mw.RequireRole → handler
 ```
 
-- `requireRole("admin")`：users.json 中 role=admin；`requireRole("viewer")`：任何已认证用户。
+- `mw.RequireRole("admin")`：users.json 中 role=admin；`mw.RequireRole("viewer")`：任何已认证用户。
 - `X-Internal-Token` / `Authorization: Bearer <INTERNAL_TOKEN>`：全权限共享 token（nginx 透传，外部自动化经公网可用），持合法 token 四层全豁免（nginx 限速+封禁、admin 限流+封禁）；配 `INTERNAL_TOKEN_ALLOWED_PREFIXES` 后只豁免白名单路径前缀，其余路径退回正常认证；伪造 token 在 admin 校验失败后照常受罚。
 - `X-Fail2Ban-Token`：scoped bypass，只允许 fail2ban 调 `POST /api/admin/security/block|unblock`；nginx 始终清空，仅限内部。
 - 页面/API 访问矩阵见 [`docs/architecture.md`](../../../docs/architecture.md#rbac-访问矩阵)；新增端点按最小角色选 `viewer`/`admin`。

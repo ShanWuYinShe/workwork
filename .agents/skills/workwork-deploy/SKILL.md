@@ -13,10 +13,10 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 
 根目录 `Makefile` 把本节命令与部署映射封装为规则，AI 与人工优先用 make，避免每次凭记忆拼写：
 
-- `make check` — 本地门禁：gofmt / go vet / go test / 前端格式与构建（admin 改动的最低验证项）
+- `make check` — 本地门禁：gofmt / go vet / go test -race / shellcheck / compose config / versions.env 一致性 / 环境变量 schema 正负例测试 / 前端 format+lint+check+bun test+build（admin 改动的最低验证项）
 - `make build <svc...>` / `make up <svc...>` / `make restart <svc...>` / `make logs <svc...>` — compose 薄封装
 - `make ps` — 查看服务状态
-- `make deploy-changed` — 只在服务器执行的一键部署（逻辑在 `scripts/deploy-changed.sh`）：工作区校验 → `git pull --ff-only` → 按变更推导受影响服务 → 最小 build/up → 部署后自校验（等 healthy + 核对版本指纹，**不通过即自动回滚并外发通知**）；支持 `scripts/deploy-changed.sh <old-commit>` 复跑模式
+- `make deploy-changed` — 只在服务器执行的一键部署（逻辑在 `scripts/deploy-changed.sh`）：工作区校验 → `git pull --ff-only` → 按变更推导受影响服务 → 最小 build/up → 部署后自校验（等 healthy + 核对版本指纹，**不通过即自动回滚并外发通知**）；除模板路径变更外，还会比较 `.wework/generated/` 渲染产物哈希，渲染代码/相关 env 导致内容变化时同样校验并重启 xray/nginx；支持 `scripts/deploy-changed.sh <old-commit>` 复跑模式
 
 当前 compose 服务：`nginx`、`admin`、`xray`、`docker-proxy`。
 
@@ -25,7 +25,7 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 ### 版本与构建约定
 
 - 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各服务的 `git describe`，compose 经 build args 传入。**直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make。**
-- **健康端点（以脚本为准，不要凭记忆假设）**：目前只有 `admin` 暴露带版本的健康端点 `/api/admin/health`（`services/admin/main.go:121`，返回 JSON 含 `version`）；`deploy-changed.sh` 的 `health_version()` **也只对 admin 做版本指纹核对**，其余服务直接 `return 0`。nginx 用 `/nginx-health`（返回 204，仅存活探测，不含版本）。查版本优先用健康端点，不要依赖镜像 OCI 标签（并非所有镜像都有）。
+- **健康端点（以脚本为准，不要凭记忆假设）**：目前只有 `admin` 暴露带版本的健康端点 `/api/admin/health`（`services/admin/routes.go` 的 `healthHandler`，返回 JSON 含 `version`）；`deploy-changed.sh` 的 `health_version()` **也只对 admin 做版本指纹核对**，其余服务直接 `return 0`。nginx 用 `/nginx-health`（返回 204，仅存活探测，不含版本）。查版本优先用健康端点，不要依赖镜像 OCI 标签（并非所有镜像都有）。
 - 版本指纹核对期望值的来源同样在 `scripts/deploy-changed.sh`，改版本烙印逻辑时两边要一起看。
 
 ### 权限注意（首次部署或权限异常时）

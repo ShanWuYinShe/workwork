@@ -31,10 +31,7 @@ var version = "dev"
 var dataDir = "/app/data"
 
 func main() {
-	port := platform.GetEnv("ADMIN_PORT")
-	if port == "" {
-		port = "8318"
-	}
+	port := platform.AdminPort()
 
 	layout := runtime.DefaultLayout()
 	notifier := runtime.NotifyFunc(platform.NotifyWebhook)

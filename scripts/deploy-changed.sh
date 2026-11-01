@@ -150,11 +150,17 @@ fi
 # 不能与 admin 同批 up——那是 write-then-read 竞态,xray 可能在 admin 渲染
 # 完成前先启动。因此只登记,待下方 admin healthy(渲染完成)后单独 restart。
 config_reload=""
+add_config_reload() {
+  case " $config_reload " in
+    *" $1 "*) ;;
+    *) config_reload="$config_reload $1" ;;
+  esac
+}
 if printf '%s\n' "$changed" | grep -q '^services/admin/configs/xray\.json\.tmpl$'; then
-  config_reload="$config_reload xray"
+  add_config_reload xray
 fi
 if printf '%s\n' "$changed" | grep -q '^services/admin/configs/nginx\.conf\.tmpl$'; then
-  config_reload="$config_reload nginx"
+  add_config_reload nginx
 fi
 
 # 编排层变更无法按服务精确推导：compose 里的 env/卷/资源/健康检查可能影响
@@ -254,6 +260,23 @@ for svc in $services; do
   done
   if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
 done
+
+# ---------- 渲染产物变化检测 ----------
+# 只按模板路径判断会漏掉“模板没变但渲染结果变了”的部署：改渲染代码
+# （services/admin 里的 xray/nginx 生成逻辑）、XHTTP_DOMAIN/ADMIN_PORT 等
+# 环境变量、或 admin 生成客户端台账的顺序，都会让 generated 内容变化，
+# 但 xray/nginx 仍跑旧配置。这里用部署前快照做内容比对，变了才校验+重启。
+if [ -n "${generated_backup:-}" ] && [ -d "$generated_backup" ]; then
+  for svc in nginx xray; do
+    before="$generated_backup/$svc"
+    after="$generated_dir/$svc"
+    [ -d "$before" ] || continue
+    if [ ! -d "$after" ] || ! diff -rq "$before" "$after" >/dev/null 2>&1; then
+      echo "  检测到 $svc 渲染产物变化（模板/渲染代码/env 之一）"
+      add_config_reload "$svc"
+    fi
+  done
+fi
 
 # ---------- 配置消费者重启前的语法校验 ----------
 # admin healthy 即渲染产物已落盘(bind mount 实时可见),此时在容器内跑
@@ -370,13 +393,16 @@ if [ -n "$fail" ]; then
   for svc in $fail; do
     # 配置消费者只做了 restart(镜像未变),没有可回滚的镜像;若按镜像回滚处理,
     # 会误报"旧镜像已被覆盖,无法自动回滚",把人引向错误的人工操作。
-    case " $config_reload " in
-      *" $svc "*)
-        echo "  $svc: 配置消费者仅重启未换镜像，无镜像可回滚（人工: docker compose restart $svc）"
-        rolled_back=""
-        continue
-        ;;
-    esac
+    # 但同一次部署里它也可能因 compose/版本文件变更被重建,那种情况仍要回滚镜像。
+    if ! printf '%s\n' "$services" | grep -qw "$svc"; then
+      case " $config_reload " in
+        *" $svc "*)
+          echo "  $svc: 配置消费者仅重启未换镜像，无镜像可回滚（人工: docker compose restart $svc）"
+          rolled_back=""
+          continue
+          ;;
+      esac
+    fi
     prev_image="$(awk -v s="$svc" '$1==s{print $2}' "$prev_file")"
     if [ -z "$prev_image" ]; then
       echo "  $svc: 部署前未运行，无回滚目标（人工处理: docker compose up -d --no-deps $svc 或 down）"
