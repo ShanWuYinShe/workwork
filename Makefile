@@ -70,6 +70,7 @@ check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
 	bun run --cwd services/admin/ui format:check
 	bun run --cwd services/admin/ui lint
 	bun run --cwd services/admin/ui check
+	bun run --cwd services/admin/ui test
 	bun run --cwd services/admin/ui build
 
 backup: ## 备份运行时数据: scripts/backup.sh（BACKUP_DIR/BACKUP_RSYNC_TARGET 见脚本头）

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0",
     "check": "svelte-check --fail-on-warnings",
+    "test": "bun test",
     "format": "prettier --write 'src/**/*.{svelte,js,ts}'",
     "format:check": "prettier --check 'src/**/*.{svelte,js,ts}'"
   },

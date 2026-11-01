@@ -101,6 +101,7 @@ jobs:
           bun run --cwd services/admin/ui format:check
           bun run --cwd services/admin/ui lint
           bun run --cwd services/admin/ui check
+          bun run --cwd services/admin/ui test
           bun run --cwd services/admin/ui build
 
   # gosec 静态安全扫描（报告模式）：-no-fail 不阻塞合并，输出进 CI 日志供

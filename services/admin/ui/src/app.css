@@ -1,1 +1,1 @@
-/* Reset only — all component styles live in App.svelte global scope */
+/* Reset/entry stylesheet: component system lives in styles/app.css. */
