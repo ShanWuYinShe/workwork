@@ -1,10 +1,10 @@
 package infra
 
 import (
-	"admin/internal/accounts"
 	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/platform"
+	"admin/internal/xray"
 	"context"
 	"fmt"
 	"github.com/docker/docker/client"
@@ -13,21 +13,21 @@ import (
 	"time"
 )
 
-func ApiDashboard(users *identity.Store, cli *client.Client) http.HandlerFunc {
+func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
 		// For non-admin users, return personalized dashboard
 		if userInfo != nil && userInfo.Role != "admin" {
-			allClients, err := accounts.ReadXrayClientMaps()
+			allClients, err := svc.Clients()
 			if err != nil {
 				log.Printf("Failed to read clients for dashboard: %v", err)
 				platform.WriteInternalError(w, err)
 				return
 			}
-			var myClients []map[string]string
+			var myClients []xray.Client
 			for _, c := range allClients {
-				if c["owner"] == username {
+				if c.Owner == username {
 					myClients = append(myClients, c)
 				}
 			}
@@ -39,7 +39,7 @@ func ApiDashboard(users *identity.Store, cli *client.Client) http.HandlerFunc {
 				// 客户端首次添加 Xray 客户端时再懒创建,与那两个读端点一致。
 				proxyAuth = users.ProxyAuthForUserRead(username)
 			}
-			genJSON := accounts.GenerateClientConfig(myClients, accounts.ClientConfig{
+			genJSON := xray.GenerateClientConfig(myClients, xray.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
 				XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),

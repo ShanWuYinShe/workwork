@@ -4,6 +4,7 @@ import (
 	"admin/internal/auth"
 	"admin/internal/platform"
 	"admin/internal/proxy"
+	"admin/internal/runtime"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -86,7 +87,7 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiConfig(cli *client.Client) http.HandlerFunc {
+func ApiConfig(layout runtime.Layout) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		result := map[string]any{
 			"xrayInbounds": 0, "xrayClients": 0,
@@ -94,7 +95,7 @@ func ApiConfig(cli *client.Client) http.HandlerFunc {
 		}
 		var raw []byte
 		// 单路径直读(此前是单元素循环的"多路径回退"残骸)。
-		if fileData, err := os.ReadFile(proxy.XrayConfigPath); err == nil {
+		if fileData, err := os.ReadFile(layout.XrayConfigPath()); err == nil {
 			raw = fileData
 		}
 		if len(raw) > 0 {

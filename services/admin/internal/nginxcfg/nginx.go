@@ -1,7 +1,7 @@
 package nginxcfg
 
-// nginx 配置生成:读模板(proxy.NginxConfigTemplatePath),替换占位符后写
-// 运行时配置(proxy.NginxConfigPath)。media/music 拆分至独立站后,模板不再
+// nginx 配置生成:读模板(layout.NginxConfigTemplatePath()),替换占位符后写
+// 运行时配置(layout.NginxConfigPath())。media/music 拆分至独立站后,模板不再
 // 含媒体占位符,本包只剩与媒体无关的通用渲染(此前内嵌于 internal/media)。
 
 import (
@@ -14,18 +14,18 @@ import (
 
 	"admin/internal/identity"
 	"admin/internal/platform"
-	"admin/internal/proxy"
+	"admin/internal/runtime"
 )
 
 // EnsureNginxConfig 渲染并（仅在内容变化时）写 nginx 配置。
 // internalToken 用于 map 的**真实值**匹配：此前 nginx 只看
 // X-Internal-Token/Authorization 头是否存在就豁免限流与 IP 封禁，任意
 // 伪造头即可绕过（实测伪造头 10 次全 200，不带头第 3 次 429）。
-func EnsureNginxConfig(internalToken string) error {
+func EnsureNginxConfig(internalToken string, layout runtime.Layout) error {
 	if !identity.ValidInternalToken(internalToken) {
 		return fmt.Errorf("internal token is empty or contains unsafe characters for nginx config")
 	}
-	tmpl, err := os.ReadFile(proxy.NginxConfigTemplatePath)
+	tmpl, err := os.ReadFile(layout.NginxConfigTemplatePath())
 	if err != nil {
 		return err
 	}
@@ -51,14 +51,14 @@ func EnsureNginxConfig(internalToken string) error {
 	if strings.Contains(out, "__INTERNAL_TOKEN") {
 		return fmt.Errorf("nginx template still contains __INTERNAL_TOKEN placeholders after rendering")
 	}
-	if err := os.MkdirAll(filepath.Dir(proxy.NginxConfigPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(layout.NginxConfigPath()), 0755); err != nil {
 		return err
 	}
-	if existing, err := os.ReadFile(proxy.NginxConfigPath); err == nil && string(existing) == out {
-		return platform.EnsurePerm(proxy.NginxConfigPath, 0640)
+	if existing, err := os.ReadFile(layout.NginxConfigPath()); err == nil && string(existing) == out {
+		return platform.EnsurePerm(layout.NginxConfigPath(), 0640)
 	}
 	// 配置现在含 internal token，收紧到 0640（nginx master 以 root 读取）。
-	return platform.AtomicWriteFile(proxy.NginxConfigPath, []byte(out), 0640)
+	return platform.AtomicWriteFile(layout.NginxConfigPath(), []byte(out), 0640)
 }
 
 func replaceEnv(s string, vars map[string]string, defaults ...map[string]string) string {

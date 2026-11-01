@@ -9,6 +9,7 @@ import (
 	"admin/internal/proxy"
 	"admin/internal/runtime"
 	"admin/internal/transfer"
+	"admin/internal/xray"
 	"context"
 	"log"
 	"net/http"
@@ -40,29 +41,26 @@ func main() {
 	users := identity.NewStore(layout, notifier)
 	secrets := identity.NewSecrets(layout)
 
-	// Auto-generate configs from templates before dependent services start.
-	if err := generateConfigs(users, secrets, layout); err != nil {
-		log.Fatalf("Config generation failed: %v", err)
-	}
-
-	// 台账规范化可能把客户端 email 从登录用户名改写为客户端 UUID；把
-	// 旧键→新键映射交给流量统计，续接历史累计值（否则旧流量会挂在
-	// 不存在于客户端列表里的键上）。
-	proxy.SetTrafficEmailAliases(accounts.XrayEmailAliases())
-
 	// 不要用 client.WithTimeout:它设置的是 http.Client.Timeout,即整个
 	// 请求-响应周期(含 body 读取)的硬墙,会把无 deadline 的长连接流掐断——
 	// 服务日志 SSE(/api/admin/services 的 logs/stream,Follow:true)会在
 	// 60s 后被硬切,proxy.IPWatcher 的 Events 流也会每 60s 断开重连。
-	// 需要超时兜底的自愈调用改为在调用点显式包 context deadline(见
-	// XhttpHealthChecker 的 RestartXray、IPWatcher 的 RestoreServiceRotatingIP)。
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
-	// 优雅关闭路径释放 docker.sock 连接(进程退出也会兜底,显式 Close 让
-	// 生命周期完整,测试内嵌运行时不留悬空连接)。
 	defer cli.Close()
+
+	xraySvc := xray.NewService(layout, notifier, proxy.NewXrayRestarter(cli))
+
+	// Auto-generate configs from templates before dependent services start.
+	if err := generateConfigs(users, secrets, layout, xraySvc); err != nil {
+		log.Fatalf("Config generation failed: %v", err)
+	}
+
+	// 台账规范化可能把客户端 email 从登录用户名改写为客户端 UUID；把
+	// 旧键→新键映射交给流量统计，续接历史累计值。
+	proxy.SetTrafficEmailAliases(xraySvc.EmailAliases())
 	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
 	auth.SetBlocklistClient(cli)
@@ -96,7 +94,7 @@ func main() {
 	mw := auth.NewMiddleware(users, secrets)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli, users, layout)
+	routes := apiRoutes(cli, users, xraySvc, layout)
 	registerBodyLimitExemptions(routes)
 	registerRoutes(mux, routes, mw)
 

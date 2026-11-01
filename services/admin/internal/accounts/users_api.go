@@ -4,14 +4,12 @@ import (
 	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/platform"
-	"admin/internal/proxy"
+	"admin/internal/xray"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
-
-	"github.com/docker/docker/client"
 )
 
 // CascadeDeleteUploads 在删除用户时级联清理其名下资源,由 main 装配注入
@@ -22,10 +20,10 @@ var CascadeDeleteUploads func(uploader string) (int, error)
 
 // -- User management APIs --
 
-func ApiUsers(users *identity.Store) http.HandlerFunc {
+func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
-		allClients, err := ReadXrayClientMaps()
+		allClients, err := svc.Clients()
 		if err != nil {
 			log.Printf("Failed to read clients: %v", err)
 			platform.WriteInternalError(w, err)
@@ -33,12 +31,12 @@ func ApiUsers(users *identity.Store) http.HandlerFunc {
 		}
 
 		// Filter by owner: admin sees all, viewer sees only own
-		var filtered []map[string]string
+		var filtered []xray.Client
 		if userInfo != nil && userInfo.Role == "admin" {
 			filtered = allClients
 		} else {
 			for _, c := range allClients {
-				if c["owner"] == username {
+				if c.Owner == username {
 					filtered = append(filtered, c)
 				}
 			}
@@ -49,7 +47,7 @@ func ApiUsers(users *identity.Store) http.HandlerFunc {
 		// 嵌进返回配置。
 		allOwned := len(filtered) > 0
 		for _, c := range filtered {
-			if c["owner"] != username {
+			if c.Owner != username {
 				allOwned = false
 				break
 			}
@@ -58,7 +56,7 @@ func ApiUsers(users *identity.Store) http.HandlerFunc {
 		genJSON := ""
 		if allOwned {
 			proxyAuth = users.ProxyAuthForUserRead(username)
-			genJSON = GenerateClientConfig(filtered, ClientConfig{
+			genJSON = xray.GenerateClientConfig(filtered, xray.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
 				XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
@@ -224,7 +222,7 @@ func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 	}
 }
 
-func ApiDeleteAdmin(users *identity.Store, cli *client.Client) http.HandlerFunc {
+func ApiDeleteAdmin(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
@@ -268,28 +266,21 @@ func ApiDeleteAdmin(users *identity.Store, cli *client.Client) http.HandlerFunc 
 		// 台账条目，也要重新生成并重启——上一次可能已删台账但没来得及让
 		// xray 加载。
 		const xrayCascadeFailMsg = "用户已删除，但联动更新 Xray 配置失败，其代理 UUID 在配置生效前仍然有效，请重启 Xray 或重试删除"
-		removed, err := deleteXrayClientsByOwner(body.Username)
+		xrayCtx, xrayCancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
+		defer xrayCancel()
+		removed, err := svc.DeleteByOwner(xrayCtx, body.Username)
 		if err != nil {
 			log.Printf("ERROR: delete xray clients for %s: %v", body.Username, err)
 			platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 			return
 		}
-		if removed > 0 || !deleted {
-			changed, err := GenXrayConfig()
-			if err != nil {
-				log.Printf("ERROR: regenerate xray config after user delete: %v", err)
+		// 重试路径（!deleted）：上一次可能已删台账但没来得及让 xray 加载，
+		// 强制重新渲染并重启。
+		if !deleted {
+			if err := svc.Reload(xrayCtx); err != nil {
+				log.Printf("ERROR: reload xray after user delete retry: %v", err)
 				platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
 				return
-			}
-			if changed || !deleted {
-				restartCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
-				err := proxy.RestartXray(restartCtx, cli)
-				cancel()
-				if err != nil {
-					log.Printf("ERROR: restart xray after user delete: %v", err)
-					platform.WriteError(w, xrayCascadeFailMsg, http.StatusInternalServerError)
-					return
-				}
 			}
 		}
 		// 级联清理其名下的 transfer 上传：用户已删，文件既无法自助管理，

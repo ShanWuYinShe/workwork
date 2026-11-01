@@ -3,6 +3,7 @@ package accounts
 import (
 	"admin/internal/identity"
 	"admin/internal/runtime"
+	"admin/internal/xray"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,7 +13,7 @@ import (
 
 // newUsersStore 构造隔离的 identity store；fixture 直接写 users.json。
 // 策略显式指定 protected=root，不依赖进程 env。
-func newUsersStore(t *testing.T, fixture string) *identity.Store {
+func newUsersStore(t *testing.T, fixture string) (*identity.Store, *xray.Service) {
 	t.Helper()
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
 	if fixture != "" {
@@ -20,11 +21,12 @@ func newUsersStore(t *testing.T, fixture string) *identity.Store {
 			t.Fatalf("write users fixture: %v", err)
 		}
 	}
-	return identity.NewStoreWithPolicy(layout, nil, identity.Policy{ProtectedUser: "root"})
+	return identity.NewStoreWithPolicy(layout, nil, identity.Policy{ProtectedUser: "root"}),
+		xray.NewService(layout, nil, nil)
 }
 
 func TestLastAdminGuard(t *testing.T) {
-	users := newUsersStore(t, `{
+	users, svc := newUsersStore(t, `{
   "users": {
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
     "bob":   {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
@@ -46,7 +48,7 @@ func TestLastAdminGuard(t *testing.T) {
 		body := strings.NewReader(`{"username":"` + username + `"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/delete", body)
 		rec := httptest.NewRecorder()
-		ApiDeleteAdmin(users, nil)(rec, req)
+		ApiDeleteAdmin(users, svc)(rec, req)
 		return rec.Code
 	}
 
@@ -80,7 +82,7 @@ func TestLastAdminGuard(t *testing.T) {
 }
 
 func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
-	users := newUsersStore(t, `{
+	users, _ := newUsersStore(t, `{
   "users": {
     "root": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}

@@ -1,4 +1,4 @@
-package accounts
+package xray
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
-	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+	cfgJSON := GenerateClientConfig([]Client{{ID: "uuid-1"}}, ClientConfig{
 		XHTTPDomain:    "example.com",
 		XHTTPProxyAuth: "viewer:secret",
 	})
@@ -133,10 +133,10 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 }
 
 func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
-	clients := []xrayClientEntry{{ID: "uuid-1", Owner: "viewer", Email: "uuid-1"}}
-	got, err := encodeXrayClients(clients)
+	clients := []Client{{ID: "uuid-1", Owner: "viewer", Email: "uuid-1"}}
+	got, err := encodeClients(clients)
 	if err != nil {
-		t.Fatalf("encodeXrayClients: %v", err)
+		t.Fatalf("encodeClients: %v", err)
 	}
 	if strings.Contains(got, "owner") {
 		t.Fatalf("generated xray clients must not contain owner, got %s", got)
@@ -149,15 +149,11 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 		t.Fatalf("expected 1 client, got %s", got)
 	}
 	for key := range arr[0] {
-		if key != "id" && key != "email" && key != "flow" {
+		if key != "id" && key != "email" {
 			t.Fatalf("unexpected client key %q in %s", key, got)
 		}
 	}
-	// XHTTP 入站不使用 flow（vision flow 属 Reality，已移除）。
-	if arr[0]["flow"] != "" {
-		t.Fatalf("expected empty flow, got %s", got)
-	}
-	if got, err := encodeXrayClients(nil); err != nil || got != "[]" {
+	if got, err := encodeClients(nil); err != nil || got != "[]" {
 		t.Fatalf("expected empty clients to encode as [], got %q, err %v", got, err)
 	}
 }
@@ -165,7 +161,7 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 // TestValidateXrayClientsEmailGuard 锁定配置写盘前的门禁：Xray 的 vless
 // validator 拒绝重复（大小写不敏感）email，生成器必须在落盘前拦截。
 func TestValidateXrayClientsEmailGuard(t *testing.T) {
-	bad := map[string][]xrayClientEntry{
+	bad := map[string][]Client{
 		"duplicate (case-insensitive)": {
 			{ID: "a", Email: "same"},
 			{ID: "b", Email: "SAME"},
@@ -173,11 +169,11 @@ func TestValidateXrayClientsEmailGuard(t *testing.T) {
 		"empty": {{ID: "a", Email: ""}},
 	}
 	for name, clients := range bad {
-		if err := validateXrayClients(clients); err == nil {
+		if err := validateClients(clients); err == nil {
 			t.Fatalf("%s: expected validation error, got nil", name)
 		}
 	}
-	if err := validateXrayClients([]xrayClientEntry{
+	if err := validateClients([]Client{
 		{ID: "a", Email: "a"},
 		{ID: "b", Email: "b"},
 	}); err != nil {
@@ -294,7 +290,7 @@ func TestGenerateClientConfigPreferredAddress(t *testing.T) {
 	// XHTTP_ADDRESS 指向 Cloudflare 优选入口:出站地址换成优选域名,SNI/证书名
 	// 必须仍是 XHTTP_DOMAIN——优选入口是 DNS-only 记录,没有边缘证书,当 SNI
 	// 用会握手失败。
-	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+	cfgJSON := GenerateClientConfig([]Client{{ID: "uuid-1"}}, ClientConfig{
 		XHTTPDomain:  "example.com",
 		XHTTPAddress: "opt.example.com",
 	})
@@ -320,7 +316,7 @@ func TestGenerateClientConfigPreferredAddress(t *testing.T) {
 	}
 
 	// 纯空白地址视为未配置(避免 .env 里的尾随空格把出站地址清空)。
-	blank := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+	blank := GenerateClientConfig([]Client{{ID: "uuid-1"}}, ClientConfig{
 		XHTTPDomain:  "example.com",
 		XHTTPAddress: "  ",
 	})
@@ -338,7 +334,7 @@ func TestGenerateClientConfigPreferredAddress(t *testing.T) {
 func TestGenerateClientConfigALPNH3(t *testing.T) {
 	// XHTTP_ALPN=h3:ALPN 换成 h3(QUIC),TCP 专属 sockopt 必须整体剔除——
 	// 它们对 QUIC 出站不生效,留着只会让配置携带死参数。
-	cfgJSON := GenerateClientConfig([]map[string]string{{"id": "uuid-1"}}, ClientConfig{
+	cfgJSON := GenerateClientConfig([]Client{{ID: "uuid-1"}}, ClientConfig{
 		XHTTPDomain: "example.com",
 		XHTTPALPN:   "h3",
 	})

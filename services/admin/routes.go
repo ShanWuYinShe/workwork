@@ -10,6 +10,7 @@ import (
 	"admin/internal/proxy"
 	"admin/internal/runtime"
 	"admin/internal/transfer"
+	"admin/internal/xray"
 	"log"
 	"net/http"
 
@@ -46,30 +47,30 @@ func (r apiRoute) PatternWithMethod() string {
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client, users *identity.Store, layout runtime.Layout) []apiRoute {
+func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, layout runtime.Layout) []apiRoute {
 	return []apiRoute{
 		// ── 认证 / 账户 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
-		{Method: http.MethodGet, Pattern: "/api/admin/users", Handler: accounts.ApiUsers(users), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/users", Handler: accounts.ApiUsers(users, xraySvc), Role: roleViewer},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/password", Handler: accounts.ApiChangePassword(users), Role: roleViewer, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/add", Handler: accounts.ApiAddAdmin(users), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(users, cli), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(users, xraySvc), Role: roleAdmin, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/roles/set", Handler: accounts.ApiSetRole(users), Role: roleAdmin, Audit: true},
 
 		// ── Xray 客户端 ──
-		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/add", Handler: accounts.ApiAddXray(users, cli), Role: roleViewer, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/delete", Handler: accounts.ApiDeleteXray(cli), Role: roleViewer, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/users/xray/config/{uuid}", Handler: accounts.ApiXrayClientConfig(users), Role: roleViewer},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/add", Handler: accounts.ApiAddXray(users, xraySvc), Role: roleViewer, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/delete", Handler: accounts.ApiDeleteXray(xraySvc), Role: roleViewer, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/users/xray/config/{uuid}", Handler: accounts.ApiXrayClientConfig(users, xraySvc), Role: roleViewer},
 
 		// ── 面板 / 服务 / 日志 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/dashboard", Handler: infra.ApiDashboard(users, cli), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/dashboard", Handler: infra.ApiDashboard(users, xraySvc, cli), Role: roleViewer},
 		{Method: http.MethodGet, Pattern: "/api/admin/services", Handler: infra.ApiServices(cli), Role: roleAdmin},
 		// 兼容旧 nginx 301：/api/admin/services/ 直接返回列表。
 		{Method: http.MethodGet, Pattern: "/api/admin/services/", Handler: infra.ApiServices(cli), Role: roleAdmin},
 		{Method: http.MethodPost, Pattern: "/api/admin/services/{name}/{action}", Handler: infra.ApiServiceAction(cli), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/services/{name}/logs", Handler: infra.ApiServiceLogs(cli), Role: roleAdmin},
 		{Method: http.MethodGet, Pattern: "/api/admin/services/{name}/logs/stream", Handler: infra.ApiServiceLogStream(cli), Role: roleAdmin},
-		{Method: http.MethodGet, Pattern: "/api/admin/config", Handler: infra.ApiConfig(cli), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/config", Handler: infra.ApiConfig(layout), Role: roleViewer},
 
 		// ── 网络 / 安全 / 流量 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/network/status", Handler: proxy.ApiNetworkStatus(cli), Role: roleAdmin},
