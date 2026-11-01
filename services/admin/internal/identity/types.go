@@ -7,6 +7,12 @@ import (
 	"admin/internal/platform"
 )
 
+// 角色取值唯一来源；HTTP 路由、策略与展示层都引用这里。
+const (
+	RoleAdmin  = "admin"
+	RoleViewer = "viewer"
+)
+
 // UserInfo 是 users.json 的单条记录。ProxyPassword 是 nginx /proxy/query 的
 // Basic Auth 明文口令（懒创建，仅用于生成客户端配置）。
 type UserInfo struct {
@@ -66,7 +72,7 @@ func (p Policy) IsProtected(username string) bool {
 // CheckRoleChange 在把 username 改成 newRole 之前调用（用户不存在时跳过）。
 func (p Policy) CheckRoleChange(doc UsersDoc, username, newRole string) error {
 	prev, ok := doc.Users[username]
-	if !ok || prev.Role != "admin" || newRole == "admin" {
+	if !ok || prev.Role != RoleAdmin || newRole == RoleAdmin {
 		return nil
 	}
 	if p.IsProtected(username) {
@@ -86,7 +92,7 @@ func (p Policy) CheckDelete(doc UsersDoc, username string) error {
 	if p.IsProtected(username) {
 		return ErrProtectedAccount
 	}
-	if doc.Users[username].Role == "admin" && countAdmins(doc) <= 1 {
+	if doc.Users[username].Role == RoleAdmin && countAdmins(doc) <= 1 {
 		return ErrLastAdmin
 	}
 	return nil
@@ -95,7 +101,7 @@ func (p Policy) CheckDelete(doc UsersDoc, username string) error {
 func countAdmins(doc UsersDoc) int {
 	n := 0
 	for _, info := range doc.Users {
-		if info.Role == "admin" {
+		if info.Role == RoleAdmin {
 			n++
 		}
 	}

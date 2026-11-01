@@ -21,8 +21,8 @@ import (
 // 认识的角色，契约测试会锁死取值集合，防止拼写错误悄悄把端点变成公开。
 const (
 	rolePublic = ""
-	roleViewer = "viewer"
-	roleAdmin  = "admin"
+	roleViewer = identity.RoleViewer
+	roleAdmin  = identity.RoleAdmin
 )
 
 // apiRoute 是管理 API 的唯一事实来源：注册、RBAC、body-limit 豁免、审计

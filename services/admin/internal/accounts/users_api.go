@@ -26,7 +26,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 
 		// Filter by owner: admin sees all, viewer sees only own
 		var filtered []xray.Client
-		if actor.Role == "admin" {
+		if actor.Role == identity.RoleAdmin {
 			filtered = allClients
 		} else {
 			for _, c := range allClients {
@@ -65,9 +65,9 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 			CreatedAt string `json:"created_at"`
 		}
 		var adminUsers []adminUserJSON
-		if actor.Role == "admin" {
+		if actor.Role == identity.RoleAdmin {
 			for _, u := range htpasswdUsers {
-				au := adminUserJSON{Username: u, Role: "viewer"}
+				au := adminUserJSON{Username: u, Role: identity.RoleViewer}
 				if info, ok := doc.Users[u]; ok {
 					au.Role = info.Role
 					au.CreatedAt = info.CreatedAt
@@ -77,7 +77,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		} else if curInfo, ok := doc.Users[actor.Username]; ok {
 			adminUsers = []adminUserJSON{{Username: actor.Username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
 		} else {
-			adminUsers = []adminUserJSON{{Username: actor.Username, Role: "viewer"}}
+			adminUsers = []adminUserJSON{{Username: actor.Username, Role: identity.RoleViewer}}
 		}
 
 		platform.WriteJSON(w, map[string]any{
@@ -111,7 +111,7 @@ func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 			return
 		}
 		// Non-admin can only change their own password.
-		if actor.Role != "admin" && body.Username != actor.Username {
+		if actor.Role != identity.RoleAdmin && body.Username != actor.Username {
 			platform.WriteError(w, "无权操作：只能修改自己的密码", 403)
 			return
 		}
@@ -120,7 +120,7 @@ func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 			platform.WriteError(w, "内置管理员账号密码请经修改密码功能变更", 403)
 			return
 		}
-		requireOld := actor.Role != "admin"
+		requireOld := actor.Role != identity.RoleAdmin
 		if requireOld && body.OldPassword == "" {
 			platform.WriteError(w, "旧密码必填", 400)
 			return
@@ -174,12 +174,12 @@ func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 			platform.WriteError(w, "该用户名为保留名", 400)
 			return
 		}
-		if body.Role != "" && body.Role != "admin" && body.Role != "viewer" {
+		if body.Role != "" && body.Role != identity.RoleAdmin && body.Role != identity.RoleViewer {
 			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
 		actor, _ := requestctx.ActorFrom(r.Context())
-		if body.Role == "admin" && actor.Role != "admin" {
+		if body.Role == identity.RoleAdmin && actor.Role != identity.RoleAdmin {
 			platform.WriteError(w, "无权限", 403)
 			return
 		}
@@ -306,7 +306,7 @@ func ApiSetRole(users *identity.Store) http.HandlerFunc {
 			platform.WriteError(w, "用户名与角色必填", 400)
 			return
 		}
-		if body.Role != "admin" && body.Role != "viewer" {
+		if body.Role != identity.RoleAdmin && body.Role != identity.RoleViewer {
 			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}

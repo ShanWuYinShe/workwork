@@ -58,6 +58,9 @@ func (rl *rateLimiter) start() {
 // stop 幂等地关闭 cleanupLoop goroutine。sync.Once 保证多次调用（如 shutdown
 // 与正常退出）不会触发 close of closed channel panic。
 func (rl *rateLimiter) stop() {
+	if rl.stopChan == nil {
+		return
+	}
 	rl.stopOnce.Do(func() { close(rl.stopChan) })
 }
 

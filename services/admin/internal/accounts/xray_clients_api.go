@@ -42,7 +42,7 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		if strings.TrimSpace(body.Owner) != "" {
 			owner = strings.TrimSpace(body.Owner)
 		}
-		isAdmin := actor.Role == "admin"
+		isAdmin := actor.Role == identity.RoleAdmin
 		if !isAdmin && owner != actor.Username {
 			platform.WriteError(w, "无权操作：只能为自己创建客户端", 403)
 			return
@@ -116,7 +116,7 @@ func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 		}
 		body.UUID = strings.ToLower(body.UUID)
 
-		isAdmin := actor.Role == "admin"
+		isAdmin := actor.Role == identity.RoleAdmin
 		ownerFilter := ""
 		if !isAdmin {
 			ownerFilter = actor.Username
@@ -170,7 +170,7 @@ func ApiXrayClientConfig(users *identity.Store, svc *xray.Service) http.HandlerF
 			platform.WriteError(w, "客户端不存在", 404)
 			return
 		}
-		if actor.Role != "admin" && client.Owner != actor.Username {
+		if actor.Role != identity.RoleAdmin && client.Owner != actor.Username {
 			platform.WriteError(w, "无权限", 403)
 			return
 		}

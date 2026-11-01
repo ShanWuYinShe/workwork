@@ -5,6 +5,7 @@ import (
 	"admin/internal/proxy"
 	"admin/internal/requestctx"
 	"admin/internal/runtime"
+	"admin/internal/xray"
 	"context"
 	"encoding/json"
 	"errors"
@@ -104,7 +105,7 @@ func ApiConfig(layout runtime.Layout) http.HandlerFunc {
 			}
 			if json.Unmarshal(raw, &cfg) == nil {
 				for _, ib := range cfg.Inbounds {
-					if ib.Tag == "xhttp-in" {
+					if ib.Tag == xray.InboundTagXHTTP {
 						result["xrayClients"] = len(ib.Settings.Clients)
 					}
 				}

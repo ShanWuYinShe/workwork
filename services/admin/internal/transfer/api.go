@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"admin/internal/requestctx"
 	"fmt"
@@ -24,7 +25,7 @@ func ApiTransferList(s *Store) http.HandlerFunc {
 
 		// 权限过滤
 		var files []transferFile
-		if actor.Role == "admin" {
+		if actor.Role == identity.RoleAdmin {
 			files = m.Files
 		} else {
 			for _, f := range m.Files {
@@ -79,7 +80,7 @@ func ApiTransferDelete(s *Store) http.HandlerFunc {
 		for _, f := range m.Files {
 			if f.Code == code {
 				// 权限检查：admin 可删任意文件，普通用户只能删自己的
-				if actor.Role != "admin" && f.Uploader != actor.Username {
+				if actor.Role != identity.RoleAdmin && f.Uploader != actor.Username {
 					platform.WriteError(w, "无权操作：不是你上传的文件", 403)
 					return
 				}

@@ -11,6 +11,7 @@ import (
 	"admin/internal/transfer"
 	"admin/internal/xray"
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -152,10 +153,11 @@ func main() {
 	// 专项清理，它们各自处理自己的前缀)。
 	transferStore.CleanupOrphanTempFiles()
 
+	serverErr := make(chan error, 1)
 	go func() {
 		log.Printf("admin %s listening on %s", version, srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
 		}
 	}()
 
@@ -177,7 +179,14 @@ func main() {
 		proxy.StartupRotateIPv6(ctx, cli, ipv6State)
 	}()
 
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case err := <-serverErr:
+		// 监听失败不能在 goroutine 里 log.Fatalf：那会跳过所有 defer
+		// （含最后一次封禁落盘）；回到主 goroutine 统一走关闭流程。
+		log.Printf("Server failed: %v", err)
+		stop()
+	}
 	log.Println("Shutting down server...")
 	// 先停监听再等守护:正常路径 srv.Shutdown 最多 10s(SSE/大上传会吃满,
 	// compose stop_grace_period 前 docker 会 SIGKILL),守护随 ctx 退出后
@@ -186,6 +195,10 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
+		// Shutdown 超时后强制断开 SSE/大上传连接，避免它们与进程退出竞争。
+		if closeErr := srv.Close(); closeErr != nil {
+			log.Printf("Server force close error: %v", closeErr)
+		}
 	}
 	waitDone := make(chan struct{})
 	go func() { daemonWG.Wait(); close(waitDone) }()

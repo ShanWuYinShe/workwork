@@ -289,7 +289,7 @@ func (m *Middleware) isPrivilegedServiceRequest(r *http.Request) bool {
 }
 
 func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
-	roleLevel := map[string]int{"admin": 2, "viewer": 1}
+	roleLevel := map[string]int{identity.RoleAdmin: 2, identity.RoleViewer: 1}
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -297,9 +297,9 @@ func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.Han
 
 			// Internal automation uses scoped shared secrets.
 			if m.isInternalRequest(r) {
-				actor = requestctx.Actor{Username: "internal", Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
+				actor = requestctx.Actor{Username: "internal", Role: identity.RoleAdmin, CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
 			} else if m.isFail2BanRequest(r) {
-				actor = requestctx.Actor{Username: "fail2ban", Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
+				actor = requestctx.Actor{Username: "fail2ban", Role: identity.RoleAdmin, CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
 			} else {
 				// External requests must come through a trusted reverse proxy
 				// (nginx on the docker bridge), and the proxy must have set

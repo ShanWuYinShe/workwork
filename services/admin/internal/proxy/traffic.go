@@ -11,6 +11,7 @@ package proxy
 import (
 	"admin/internal/platform"
 	"admin/internal/runtime"
+	"admin/internal/xray"
 	"context"
 	"encoding/json"
 	"errors"
@@ -270,7 +271,7 @@ func (t *TrafficTracker) Start(ctx context.Context, cli *client.Client) {
 			return
 		}
 		out, err := platform.ContainerExecOutput(pollCtx, cli, xrayID,
-			"xray", "api", "statsquery", "--server=127.0.0.1:10085")
+			"xray", "api", "statsquery", "--server="+xray.StatsAPIListen)
 		if err != nil {
 			t.logFailure("statsquery", err)
 			return

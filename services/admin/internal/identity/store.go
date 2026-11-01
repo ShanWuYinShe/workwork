@@ -143,7 +143,7 @@ func (s *Store) UpsertUser(username, password, role string) (UpsertResult, error
 	if len(password) < MinPasswordLen {
 		return UpsertResult{}, ErrPasswordTooShort
 	}
-	if role != "" && role != "admin" && role != "viewer" {
+	if role != "" && role != RoleAdmin && role != RoleViewer {
 		return UpsertResult{}, ErrInvalidRole
 	}
 
@@ -162,7 +162,7 @@ func (s *Store) UpsertUser(username, password, role string) (UpsertResult, error
 		if exists && prev.Role != "" {
 			role = prev.Role
 		} else {
-			role = "viewer"
+			role = RoleViewer
 		}
 	}
 	if err := s.policy.CheckRoleChange(doc, username, role); err != nil {
@@ -230,7 +230,7 @@ func (s *Store) SetRole(username, role string) error {
 	if !IsValidUsername(username) {
 		return ErrInvalidUsername
 	}
-	if role != "admin" && role != "viewer" {
+	if role != RoleAdmin && role != RoleViewer {
 		return ErrInvalidRole
 	}
 	s.mu.Lock()
@@ -429,7 +429,7 @@ func (s *Store) SeedAdminUser() error {
 	if _, exists := doc.Users[adminUser]; exists {
 		return nil
 	}
-	doc.Users[adminUser] = UserInfo{Role: "admin", CreatedAt: s.clock.Now().UTC().Format(time.RFC3339)}
+	doc.Users[adminUser] = UserInfo{Role: RoleAdmin, CreatedAt: s.clock.Now().UTC().Format(time.RFC3339)}
 	return s.saveLocked(doc)
 }
 

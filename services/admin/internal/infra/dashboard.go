@@ -18,7 +18,7 @@ func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) 
 		actor, _ := requestctx.ActorFrom(r.Context())
 
 		// For non-admin users, return personalized dashboard
-		if actor.Role != "admin" {
+		if actor.Role != identity.RoleAdmin {
 			allClients, err := svc.Clients()
 			if err != nil {
 				log.Printf("Failed to read clients for dashboard: %v", err)
