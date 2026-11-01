@@ -44,7 +44,7 @@ ALPINE_VERSION="${ALPINE_VERSION:-3.24.1}"
 
 # WEBHOOK_URL:优先取调用方环境,否则从 .env 单独提取(同 deploy-changed.sh)。
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f "$ROOT/.env" ]; then
-  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' "$ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' "$ROOT/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
 # 目标为 ops-portal webhook 网关(POST /api/hooks/{slug})时须持登记证书:
 # 默认取 ~/.webhook-caller/{cert,key}.pem(与 hotspot 脚本同名变量,

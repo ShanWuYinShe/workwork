@@ -1,7 +1,12 @@
 <script>
   import { getToasts, dismiss } from './toast.svelte.js';
+  import { t } from './i18n.svelte.js';
 
   let toasts = $derived(getToasts());
+  // 错误走 assertive 容器，其余 polite。两个容器必须常驻 DOM：live region
+  // 与首条内容同帧出现时读屏器可能漏报。
+  let alertToasts = $derived(toasts.filter((item) => item.type === 'error'));
+  let noticeToasts = $derived(toasts.filter((item) => item.type !== 'error'));
 
   function handleAnimationEnd(e, id) {
     // Svelte 会把组件样式块里的 @keyframes 重命名为带作用域前缀的名字
@@ -22,19 +27,16 @@
   };
 </script>
 
-<!-- live region 常驻挂载：包在 {#if} 里会让容器与首条内容同帧出现，读屏器可能漏报零→一变化。
-     error 走 role=alert（assertive），其余 status（polite）。 -->
-<div class="toast-container">
-  {#if toasts.length}
-    {#each toasts as t (t.id)}
-      <button
-        class="toast toast-{t.type}"
-        class:toast-timed={t.duration > 0}
-        type="button"
-        role={t.type === 'error' ? 'alert' : 'status'}
-        onclick={() => dismiss(t.id)}
-        onanimationend={(e) => handleAnimationEnd(e, t.id)}
-        style="--toast-out-delay: {Math.max(0, t.duration - 300)}ms;"
+<!-- 两个 live region 常驻挂载：包在 {#if} 里会让容器与首条内容同帧出现，
+     读屏器可能漏报零→一变化。错误 assertive，其余 polite。 -->
+<div class="toast-stack">
+  <div class="toast-container" role="alert" aria-live="assertive" aria-atomic="false">
+    {#each alertToasts as item (item.id)}
+      <div
+        class="toast toast-{item.type}"
+        class:toast-timed={item.duration > 0}
+        onanimationend={(e) => handleAnimationEnd(e, item.id)}
+        style="--toast-out-delay: {Math.max(0, item.duration - 300)}ms;"
       >
         <svg
           class="toast-icon"
@@ -44,17 +46,56 @@
           stroke-width="1.5"
         >
           <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(图标 SVG 路径表),非用户输入 -->
-          {@html typeIcons[t.type] || typeIcons.info}
+          {@html typeIcons[item.type] || typeIcons.info}
         </svg>
-        <span class="toast-msg">{t.message}</span>
-        <span class="toast-close" aria-hidden="true">&times;</span>
-      </button>
+        <span class="toast-msg">{item.message}</span>
+        <button
+          class="toast-close"
+          type="button"
+          aria-label={t('close')}
+          onclick={(e) => {
+            e.stopPropagation();
+            dismiss(item.id);
+          }}>&times;</button
+        >
+      </div>
     {/each}
-  {/if}
+  </div>
+  <div class="toast-container" aria-live="polite" aria-atomic="false">
+    {#each noticeToasts as item (item.id)}
+      <div
+        class="toast toast-{item.type}"
+        class:toast-timed={item.duration > 0}
+        onanimationend={(e) => handleAnimationEnd(e, item.id)}
+        style="--toast-out-delay: {Math.max(0, item.duration - 300)}ms;"
+      >
+        <svg
+          class="toast-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+        >
+          <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(图标 SVG 路径表),非用户输入 -->
+          {@html typeIcons[item.type] || typeIcons.info}
+        </svg>
+        <span class="toast-msg">{item.message}</span>
+        <button
+          class="toast-close"
+          type="button"
+          aria-label={t('close')}
+          onclick={(e) => {
+            e.stopPropagation();
+            dismiss(item.id);
+          }}>&times;</button
+        >
+      </div>
+    {/each}
+  </div>
 </div>
 
 <style>
-  .toast-container {
+  .toast-stack {
     position: fixed;
     top: 1rem;
     right: 1rem;
@@ -65,6 +106,11 @@
     max-width: 420px;
     width: calc(100% - 2rem);
     pointer-events: none;
+  }
+  .toast-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
   .toast {
     display: flex;
@@ -77,7 +123,6 @@
     text-align: left;
     pointer-events: auto;
     box-shadow: var(--shadow-lg);
-    cursor: pointer;
     line-height: 1.4;
     backdrop-filter: blur(8px);
     animation: toastIn 0.25s ease;

@@ -26,6 +26,7 @@ export const en = {
   menu: 'Menu',
   expandSidebar: 'Expand sidebar',
   collapseSidebar: 'Collapse sidebar',
+  close: 'Close',
   closeMenu: 'Close menu',
   // Clients
   generateClient: 'Generate Client',

@@ -70,8 +70,6 @@ func validTransferFilename(name string) bool {
 	return true
 }
 
-// loadLocked 读取 manifest。调用方必须持有 s.mu 并处理 error：读失败时
-
 func (s *Store) loadLocked() (transferManifest, error) {
 	var m transferManifest
 	if err := platform.LoadJSONFile(s.manifestPath(), &m); err != nil {
@@ -117,8 +115,6 @@ func generateUniqueTransferCode(m transferManifest) (string, error) {
 	return "", fmt.Errorf("failed to generate unique code after 50 attempts")
 }
 
-// CleanupOrphanTempFiles 清理进程崩溃遗留的 multipart 上传临时文件
-
 func formatBytes(b int64) string {
 	if b >= 1<<30 {
 		return fmt.Sprintf("%.1f GB", float64(b)/float64(1<<30))
@@ -128,7 +124,3 @@ func formatBytes(b int64) string {
 	}
 	return fmt.Sprintf("%d B", b)
 }
-
-// DeleteUploadsByUploader 删除某用户的全部上传(文件 + manifest 条目),供
-// 删除用户时的级联清理。被删用户无法再自助管理其文件(transfer 列表按
-// Uploader 过滤),其配额在删除前永久占用,只能等过期清理——但那期间全局

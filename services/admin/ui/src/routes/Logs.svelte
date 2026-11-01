@@ -19,6 +19,10 @@
   let reconnectDelay = 1000;
   let reconnected = $state(false);
   let logContainer = $state(null);
+  // 组件卸载后 refresh() 的 await 仍可能返回；若此时才建 EventSource，
+  // cleanup 已经跑过，连接会永久泄漏。disposed 必须在异步边界后检查。
+  let disposed = false;
+  let nextLogId = 0;
 
   onMount(() => {
     // Services 页「日志」直达入口带 ?service=<name>，优先选中该服务
@@ -26,6 +30,7 @@
     if (qs) selectedService = qs;
     refresh();
     return () => {
+      disposed = true;
       closeStream();
       clearReconnect();
     };
@@ -35,6 +40,7 @@
     loading = true;
     try {
       const s = await getServices();
+      if (disposed) return;
       services = s.services || [];
       if (
         services.length &&
@@ -51,6 +57,7 @@
   }
 
   function startStream(clear = true) {
+    if (disposed) return;
     closeStream();
     if (!selectedService) return;
     if (clear) logLines = [];
@@ -65,7 +72,9 @@
       }
     };
     es.onmessage = (e) => {
-      logLines.push(e.data);
+      // 用稳定自增 id 作 key：按下标 key 时裁剪首行会让 5000 个节点全部
+      // 更新；id 稳定后只移除首项。level 在入队时算一次，避免每帧重复正则。
+      logLines.push({ id: nextLogId++, text: e.data, level: levelClass(e.data) });
       if (logLines.length > 5000) logLines.splice(0, logLines.length - 5000);
     };
     es.onerror = () => {
@@ -117,7 +126,7 @@
   }
 
   async function copyLogs() {
-    const text = logLines.join('\n');
+    const text = logLines.map((l) => l.text).join('\n');
     if (await copyToClipboard(text)) {
       toast(t('copied'), 'success', 2000);
     } else {
@@ -126,7 +135,7 @@
   }
 
   function downloadLogs() {
-    const text = logLines.join('\n');
+    const text = logLines.map((l) => l.text).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -238,8 +247,8 @@
             {search ? t('noMatchingLogs') : t('noLogEntries')}
           </span>
         {:else}
-          {#each filtered as line, i (i)}
-            <div class="log-line {levelClass(line)}">{line}</div>
+          {#each filtered as line (line.id)}
+            <div class="log-line {line.level}">{line.text}</div>
           {/each}
         {/if}
         {#if !es && logLines.length > 0}

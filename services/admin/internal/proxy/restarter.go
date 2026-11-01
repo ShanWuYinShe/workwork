@@ -25,6 +25,9 @@ func (r *XrayRestarter) RestartXray(ctx context.Context) error {
 	return RestartXray(ctx, r.cli)
 }
 
+// restartXraySem 串行化 xray 容器重启。并发的客户端增删/用户删除各自
+// GenXrayConfig + RestartXray；不串行化会出现两个 ContainerRestart 交错，
+// 后一次重启可能抢在另一次配置渲染前完成。
 var restartXraySem = make(chan struct{}, 1)
 
 func RestartXray(ctx context.Context, cli *client.Client) error {

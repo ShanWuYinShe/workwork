@@ -28,13 +28,14 @@ import (
 // git describe),经 /api/admin/health 与启动日志暴露,未注入时为 "dev"。
 var version = "dev"
 
-// dataDir 是运行时数据根(compose 把宿主 .wework 挂载于此)。var 供测试替换。
-var dataDir = "/app/data"
-
 func main() {
 	port := platform.AdminPort()
 
 	layout := runtime.DefaultLayout()
+	// 必须在构造任何 store/启动任何 goroutine 之前清理：rate limiter 与
+	// blocklist 同步会在运行期创建 .tmp-*，边清理边写盘可能删掉正在写的
+	// 临时文件，使 rename 失败、写入丢失。
+	platform.CleanupStaleTempFiles(layout.DataDir)
 	notifier := runtime.NotifyFunc(platform.NotifyWebhook)
 	users := identity.NewStore(layout, notifier)
 	secrets := identity.NewSecrets(layout)
@@ -182,9 +183,8 @@ func main() {
 	defer securitySvc.StopRateLimiter()
 
 	// SIGKILL(磁盘满 OOM/宿主重启/部署 stop 超时)会让 defer 删除失效,残留
-	// 的 .tmp-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
-	platform.CleanupStaleTempFiles(dataDir)
-
+	// 的 .tmp-* 等临时文件已在启动最前面统一回收(此时仍可能有下载/上传的
+	// 专项清理，它们各自处理自己的前缀)。
 	transferStore.CleanupOrphanTempFiles()
 	daemonWG.Add(1)
 	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transferStore.StartCleanupLoop(ctx) })

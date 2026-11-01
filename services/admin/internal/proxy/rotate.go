@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+// StartupRotateIPv6 在启动时恢复 DNS 已发布的轮换 IPv6 地址。
+// 仅当 DNS/容器当前状态没有可用地址时才分配新地址；无 CF token 时 no-op。
 func StartupRotateIPv6(cli *client.Client) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return

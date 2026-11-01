@@ -29,6 +29,9 @@
   let refreshing = $state(false);
   let downloading = $state(false);
   let downloadKey = $state('');
+  // 进度条按版本精确匹配：downloadKey.startsWith(version) 会让 2.0.1 命中
+  // 2.0.10 的行，进度条显示在错误版本上。
+  let downloadVersion = $state('');
   let downloadProgress = $state(null);
   let deletingFile = $state('');
   let versionPlatforms = $state({});
@@ -128,6 +131,7 @@
   async function doDownload(version, plat) {
     const key = version + '-' + plat;
     downloadKey = key;
+    downloadVersion = version;
     downloading = true;
     downloadProgress = null;
     try {
@@ -157,6 +161,7 @@
     } finally {
       downloading = false;
       downloadKey = '';
+      downloadVersion = '';
       downloadProgress = null;
     }
   }
@@ -377,7 +382,7 @@
                     {/if}
                   </td>
                   <td>
-                    {#if downloadKey.startsWith(rel.version) && downloadProgress}
+                    {#if downloadVersion === rel.version && downloadProgress}
                       <div class="progress-bar progress-bar-sm">
                         <div
                           class="progress-fill"

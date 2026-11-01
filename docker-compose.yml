@@ -39,6 +39,8 @@ services:
       args:
         <<: *build-args
         NGINX_VERSION: ${NGINX_VERSION:-1.30.4}
+        # 注意：nginx 官方镜像自带 Alpine 版本，*build-args 里的
+        # ALPINE_VERSION 对本服务不生效；保留共享锚点是为了统一 GIT_VERSION。
     environment:
       - TZ=Asia/Shanghai
       # fail2ban 的 admin-api action 端口由入口脚本按此值渲染（必须与

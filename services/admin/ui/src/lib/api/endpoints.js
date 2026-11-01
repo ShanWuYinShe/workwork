@@ -2,7 +2,7 @@
 /**
  * 管理 API 的全部端点。页面只调用这些函数/URL 构造器，不关心传输层细节。
  */
-import { apiURL, req, streamDownload } from './transport.js';
+import { apiURL, LONG_OPERATION_TIMEOUT, req, streamDownload } from './transport.js';
 
 // ── 认证 / 健康 ──
 
@@ -31,7 +31,10 @@ export async function getServices() {
 }
 
 export async function serviceAction(name, action) {
-  return req(`/services/${name}/${action}`, { method: 'POST' });
+  return req(`/services/${name}/${action}`, {
+    method: 'POST',
+    timeout: LONG_OPERATION_TIMEOUT,
+  });
 }
 
 /** 日志 SSE 地址(EventSource 不能带自定义头,认证依赖同源 Cookie/Basic Auth)。 */
@@ -88,11 +91,11 @@ export async function getNetworkStatus() {
 }
 
 export async function rotateIPv6() {
-  return req('/network/rotate-ipv6', { method: 'POST' });
+  return req('/network/rotate-ipv6', { method: 'POST', timeout: LONG_OPERATION_TIMEOUT });
 }
 
 export async function syncDNS() {
-  return req('/network/sync-dns', { method: 'POST' });
+  return req('/network/sync-dns', { method: 'POST', timeout: LONG_OPERATION_TIMEOUT });
 }
 
 export async function getBlockedIPs() {
@@ -110,7 +113,7 @@ export async function unblockIP(ip) {
 // ── Claude Code 版本下载 ──
 
 export async function refreshClaudeVersions() {
-  return req('/claude-code/refresh', { method: 'POST' });
+  return req('/claude-code/refresh', { method: 'POST', timeout: 60000 });
 }
 
 export async function getClaudeReleases() {
@@ -139,7 +142,7 @@ export async function deleteClaudeDownload(filename) {
 // ── Xray 版本下载 ──
 
 export async function refreshXrayVersions() {
-  return req('/xray/refresh', { method: 'POST' });
+  return req('/xray/refresh', { method: 'POST', timeout: 60000 });
 }
 
 export async function getXrayReleases() {

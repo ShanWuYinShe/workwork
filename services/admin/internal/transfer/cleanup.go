@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// CleanupOrphanTempFiles 清理进程崩溃遗留的 multipart 上传临时文件。
+// 正常路径由 upload 的 defer 删除；SIGKILL/容器重建时 defer 不执行。
 func (s *Store) CleanupOrphanTempFiles() {
 	entries, err := os.ReadDir(s.dir())
 	if err != nil {
@@ -92,6 +94,9 @@ func (s *Store) StartCleanupLoop(ctx context.Context) {
 	}
 }
 
+// DeleteUploadsByUploader 删除某用户的全部上传（文件 + manifest 条目），
+// 供删除用户时级联清理。被删用户无法再自助管理其文件（transfer 列表按
+// Uploader 过滤），若不清理，其配额会一直占用到过期清理。
 func (s *Store) DeleteUploadsByUploader(uploader string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

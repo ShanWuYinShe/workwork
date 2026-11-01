@@ -119,7 +119,8 @@ workwork/
 ├── Makefile                  # 构建/部署入口（make check / build / up / deploy-changed）
 ├── scripts/
 │   ├── backup.sh
-│   ├── deploy-changed.sh     # 服务器部署：pull + 按变更最小 build/up + 渲染产物哈希检测
+│   ├── compose-services.sh   # compose 服务清单唯一来源（Makefile/部署脚本共用）
+│   ├── deploy-changed.sh     # 服务器部署：pull + 最小 build/up + 渲染产物内容比对
 │   ├── env-schema.tsv        # 环境变量单一事实源（默认值/必填/校验/消费方）
 │   ├── env-schema.sh         # 校验代码/compose/.env.example 与 schema 一致
 │   ├── test-env-schema.sh    # 上述门禁的正/负例行为测试
@@ -193,7 +194,7 @@ docker compose logs admin docker-proxy | head
 必须定期备份且异机存放：
 
 ```bash
-make backup                    # 打包 .wework/ + cert/ + .env
+make backup                    # 打包 .wework/ + cert/ + .env + fail2ban-data
 BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 rsync（推荐，cron 配置见 docs/operations.md）
 ```
 
@@ -233,7 +234,7 @@ make build admin nginx      # 构建镜像
 make up admin               # 重建容器（--no-deps）
 make restart admin          # 重启容器
 make logs nginx             # 跟踪日志
-make check                  # 本地门禁：gofmt/vet/test + 前端构建
+make check                  # 本地门禁：Go/脚本/编排/版本/env schema/前端全量校验
 
 # 等价的原始命令
 docker compose build admin
@@ -261,7 +262,7 @@ bash scripts/sync-versions.sh sync   # 把主本值刷写到各仓全部点位
 
 ```bash
 # 0. 本地验证（硬性前置，未通过禁止 push 与上线；完整门禁见 AGENTS.md「发布门禁」）
-make check                  # 本地门禁：gofmt/vet/test + 前端构建
+make check                  # 本地门禁：Go/脚本/编排/版本/env schema/前端全量校验
 make build <受影响服务...>   # 受影响服务本地构建通过（版本号自动烙入）
 # 本地能独立启动的服务：make up <svc...> 后等 healthy 并核对版本指纹（见「版本排查」）
 # nginx / xray 全链路本地不具备启动条件（需 cert/ 与外部 ipvlan 网络），以构建通过为准
@@ -305,4 +306,4 @@ compose 的 `${KEY:-...}` 兜底、`.env.example` 三处一致，漂移即失败
 | `XHTTP_ADDRESS` | 可选：客户端出站连接地址（优选入口域名/IP）。SNI 恒为 `XHTTP_DOMAIN`，留空 = 直连 `XHTTP_DOMAIN` | `opt.yinghuoren.com` |
 | `XHTTP_ALPN` | 可选：客户端 ALPN。`h2`（默认，TCP 稳妥）/`h3`（QUIC/UDP，UDP 质量好的网络更快，生成配置会剔除 TCP 专属 sockopt） | `h2` |
 | `TRANSFER_USER_QUOTA` | 文件中转每用户上传配额（字节，0 = 不限；默认 5GB） | `5368709120` |
-| `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败），POST JSON `{event, summary, details, time}`，失败只记日志。目标为 ops-portal 网关时配 `ALERT_MTLS_CERT/KEY` 持证推送（默认 `/webhook-caller/{cert,key}.pem`） | `https://notify.example.com/hook` |
+| `WEBHOOK_URL` | 可选：关键事件通知（封禁/解封、限流自动封禁、xhttp 自愈达上限、部署校验失败、备份失败），POST JSON `{event, summary, details, time}`，失败只记日志。目标为 ops-portal 网关时配 `ALERT_MTLS_CERT/KEY` 持证推送（默认 `/webhook-caller/{cert,key}.pem`） | `https://notify.example.com/hook` |

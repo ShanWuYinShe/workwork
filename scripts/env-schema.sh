@@ -124,6 +124,9 @@ while IFS=$'\x1f' read -r key default; do
   validation="$(schema_field "$key" 4)"
   if [ "$validation" = "secret" ]; then continue; fi
   want="$(schema_field "$key" 2)"
+  # `-` 表示默认值由 versions.env 主本管理（sync-versions.sh 校验），
+  # env-schema 只负责登记与格式校验，避免成为第三个版本事实源。
+  [ "$want" = "-" ] && want=""
   if [ -n "$want" ] && [ "$default" != "$want" ]; then
     fail "compose 默认值漂移: $key=${default}（schema=${want}）"
   fi
@@ -163,7 +166,7 @@ while IFS=$'\x1f' read -r key default required validation _consumers; do
     value="${value%\'}"
     value="${value#\'}"
     validate "$key" "$validation" "$value" ".env.example"
-    if [ -n "$default" ] && [ "$validation" != "secret" ] && [ "$value" != "$default" ]; then
+    if [ -n "$default" ] && [ "$default" != "-" ] && [ "$validation" != "secret" ] && [ "$value" != "$default" ]; then
       fail ".env.example 默认值漂移: $key=$value（schema=$default）"
     fi
   elif [ "$required" = "yes" ] || [ "$required" = "first-boot" ]; then

@@ -25,6 +25,7 @@ export const zh = {
   menu: '菜单',
   expandSidebar: '展开侧边栏',
   collapseSidebar: '收起侧边栏',
+  close: '关闭',
   closeMenu: '关闭菜单',
   // Clients
   generateClient: '生成客户端',

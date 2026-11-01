@@ -1,5 +1,13 @@
 #!/bin/bash
 set -eu
+cd "$(dirname "$0")"
+
+# 非 dry-run 必须有 .env：没有它只会拿到 RFC3849 文档前缀，建出的网络
+# 容器全绿但公网不可达；同时避免 compose 单文件挂载把缺失 .env 建成目录。
+if [ -z "${DRY_RUN:-}" ] && { [ ! -f .env ] || [ -d .env ]; }; then
+  echo "ERROR: .env 缺失或不是普通文件；先 cp .env.example .env 并填写 IPV6_SUBNET。" >&2
+  exit 1
+fi
 
 # Auto-detect default network interface, fallback to eth0
 DEFAULT_IFACE=$(ip -o -4 route show default | awk '{print $5}' | head -1)
@@ -9,9 +17,9 @@ if [ -z "${IPV6_SUBNET:-}" ] && [ -f .env ]; then
   IPV6_SUBNET=$(grep -E '^IPV6_SUBNET=' .env | tail -1 | cut -d= -f2- | tr -d "\"'" || true)
 fi
 IPV6_SUBNET="${IPV6_SUBNET:-2001:db8:2623::/64}"
-# 本脚本按 /64 规划：静态地址范围取该 /64 的第一个 /80。此前在 /64 前缀后
-# 再加 ":1"，推导出 2001:db8:2623:1::/80——不在 2001:db8:2623::/64 内，
-# docker network create 会直接报 "ip-range not a subnet"。
+# 本脚本按 /64 规划：静态地址范围取该 /64 的第一个 /80（{prefix}::/80）。
+# 不要在 /64 前缀后再加 ":1"：那会得到 {prefix}:1::/80（同 /64 内的另一个
+# /80），与 NGINX_IPV6/XRAY_IPV6 的静态地址规划不一致。
 case "${IPV6_SUBNET}" in
   */64) ;;
   *)

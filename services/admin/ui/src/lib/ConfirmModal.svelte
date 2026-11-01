@@ -3,6 +3,7 @@
   import { t } from './i18n.svelte.js';
 
   let dialog = $state(null);
+  let returnFocus = null;
 
   function onKeydown(e) {
     if (e.key === 'Escape') confirmResponse(false);
@@ -23,8 +24,23 @@
 
   $effect(() => {
     if (confirmState.show) {
+      returnFocus = document.activeElement;
       requestAnimationFrame(() => dialog?.querySelector('button')?.focus());
+    } else if (returnFocus) {
+      const target = returnFocus;
+      returnFocus = null;
+      target.focus?.();
     }
+  });
+
+  // 模态打开时锁背景滚动；关闭/卸载时恢复原值。
+  $effect(() => {
+    if (!confirmState.show) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
   });
 </script>
 

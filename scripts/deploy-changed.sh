@@ -12,8 +12,10 @@ cd "$(git rev-parse --show-toplevel)"
 # .env 但 shell 不会,部署失败通知需要它;只提取单变量,避免 source 整个 .env
 # 踩到非 shell 安全的行）。
 if [ -z "${WEBHOOK_URL:-}" ] && [ -f .env ]; then
-  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+  WEBHOOK_URL="$(grep -E '^WEBHOOK_URL=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
+# tail -1: 与 Docker Compose 的 dotenv 语义一致（后行覆盖），否则 .env 里重复
+# 定义时脚本读第一行、compose 读最后一行，版本核对会连错端口并误回滚。
 # 目标为 ops-portal webhook 网关时须持登记证书(默认 ~/.webhook-caller/,
 # ALERT_MTLS_CERT/KEY 可覆盖;证书缺失且目标为普通机器人时照常无证推送)。
 ALERT_MTLS_CERT="${ALERT_MTLS_CERT:-$HOME/.webhook-caller/cert.pem}"
@@ -22,7 +24,7 @@ ALERT_MTLS_KEY="${ALERT_MTLS_KEY:-$HOME/.webhook-caller/key.pem}"
 # ADMIN_PORT 同理:部署后版本指纹核对直连容器端口,docker compose 能读到 .env
 # 但 shell 不会;不提取则改端口后此处仍硬连旧值导致版本核对误报。
 if [ -z "${ADMIN_PORT:-}" ] && [ -f .env ]; then
-  ADMIN_PORT="$(grep -E '^ADMIN_PORT=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d "\"'" || true)"
+  ADMIN_PORT="$(grep -E '^ADMIN_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)"
 fi
 ADMIN_PORT="${ADMIN_PORT:-8318}"
 
@@ -82,6 +84,14 @@ fi
 # 不带 --force：本地 tag 与远端冲突时让部署失败，而不是静默改写发布标记。
 git fetch --tags origin
 old=${1:-}
+# .env 必须是普通文件：compose 用 `./.env:/app/.env:ro` 单文件挂载，缺失时
+# Docker 会把 source 建成目录，之后 `cp .env.example .env` 报 "Is a directory"，
+# 首次部署/灾备恢复直接死锁。此处提前失败并给出可执行修复。
+if [ ! -f .env ] || [ -d .env ]; then
+  echo "错误: .env 缺失或不是普通文件（当前: $(test -d .env && echo 目录 || echo 不存在)）。" >&2
+  echo "      先执行: cp .env.example .env && chmod 600 .env，并填写 AUTH_PASS/IPV6_SUBNET 等必填项。" >&2
+  exit 1
+fi
 if [ -n "$old" ]; then
   echo "复跑模式: 从 $old 推导变更（跳过 pull）"
 else
@@ -122,7 +132,13 @@ echo
 
 # ---------- 路径 → 服务映射 ----------
 services=""
-ALL_SERVICES="admin docker-proxy xray nginx"
+# 服务清单唯一来源是 compose；硬编码会在新增服务时静默漏部署、删除服务时
+# 让 `docker compose build <已删除服务>` 永久失败。
+ALL_SERVICES="$(./scripts/compose-services.sh)"
+if [ -z "${ALL_SERVICES// /}" ]; then
+  echo "错误: 无法从 docker-compose.yml 解析服务列表" >&2
+  exit 1
+fi
 add_svc() {
   if ! printf '%s\n' $services | grep -qx "$1"; then
     services="$services $1"
@@ -204,6 +220,11 @@ echo "版本: workwork=$GIT_VERSION (IMAGE_TAG=$IMAGE_TAG)"
 # ---------- 执行最小部署 ----------
 if [ -z "${services// /}" ]; then
   echo "无受影响容器服务"
+  # 没有容器要动，但基线仍要推进：否则下一次 diff 会从更早的基线重复列出
+  # 这批纯文档/脚本变更，且运维无法从 deployed-commit 判断部署进度。
+  if ! mkdir -p "$(dirname "$deployed_marker")" || ! printf '%s\n' "$new" >"$deployed_marker"; then
+    echo "⚠ 无法写入部署基线 $deployed_marker" >&2
+  fi
   exit 0
 fi
 
@@ -242,6 +263,44 @@ restore_generated_configs() {
     echo "  已恢复，避免下次重启加载未通过校验的配置"
   fi
 }
+
+# wait_healthy 返回 0=healthy，1=超时。调用方决定如何记录失败。
+wait_healthy() {
+  local svc="$1" tries="${2:-30}" state
+  for _ in $(seq 1 "$tries"); do
+    state="$(docker inspect "$(docker compose ps -q "$svc")" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
+    if [ "$state" = "healthy" ]; then
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+# 失败路径专用：把 .wework/generated 恢复成部署前快照后，用旧配置重启
+# xray/nginx 并等 healthy。只恢复文件不重启，盘上仍是坏配置的"定时炸弹"
+# ——下一次任意 restart/宿主重启就会加载它。返回 1 表示有消费者没能恢复，
+# 调用方只告警、不掩盖原始失败。
+restart_config_consumers_with_restored() {
+  [ -n "${generated_backup:-}" ] || return 0
+  [ -n "${config_reload// /}" ] || return 0
+  echo "=== 用部署前配置恢复运行时消费者:$config_reload ==="
+  # shellcheck disable=SC2086
+  if ! docker compose restart $config_reload; then
+    echo "!! 用部署前配置重启$config_reload 失败，需人工处理" >&2
+    return 1
+  fi
+  local rc=0
+  for svc in $config_reload; do
+    if wait_healthy "$svc"; then
+      echo "  $svc 已加载部署前配置并 healthy"
+    else
+      echo "!! $svc 用部署前配置重启后 150s 内未 healthy" >&2
+      rc=1
+    fi
+  done
+  return "$rc"
+}
 for svc in $services $config_reload; do
   cid="$(docker compose ps -q "$svc" 2>/dev/null || true)"
   if [ -n "$cid" ]; then
@@ -266,13 +325,10 @@ echo
 echo "=== 健康校验 ==="
 fail=""
 for svc in $services; do
-  ok=""
-  for _ in $(seq 1 30); do
-    state="$(docker inspect "$(docker compose ps -q "$svc")" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
-    if [ "$state" = "healthy" ]; then ok=1; break; fi
-    sleep 5
-  done
-  if [ -z "$ok" ]; then echo "!! $svc 150s 内未 healthy"; fail="$fail $svc"; fi
+  if ! wait_healthy "$svc"; then
+    echo "!! $svc 150s 内未 healthy"
+    fail="$fail $svc"
+  fi
 done
 
 # ---------- 渲染产物变化检测 ----------
@@ -331,8 +387,9 @@ if [ -n "${validate_failed// /}" ]; then
     fi
   fi
   restore_generated_configs
-  notify_deploy_failure "配置校验失败($validate_failed),未重启对应服务,线上仍跑旧配置"
-  echo "错误:$validate_failed 新配置校验未通过,已跳过重启并恢复部署前配置。修复模板后重新跑 deploy-changed。" >&2
+  restart_config_consumers_with_restored || true
+  notify_deploy_failure "配置校验失败($validate_failed),已恢复部署前配置"
+  echo "错误:$validate_failed 新配置校验未通过,已恢复部署前配置。修复模板后重新跑 deploy-changed。" >&2
   exit 1
 fi
 
@@ -348,18 +405,12 @@ if [ -n "${config_reload// /}" ]; then
     exit 1
   fi
   for svc in $config_reload; do
-    ok=""
-    for _ in $(seq 1 30); do
-      state="$(docker inspect "$(docker compose ps -q "$svc")" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
-      if [ "$state" = "healthy" ]; then ok=1; break; fi
-      sleep 5
-    done
-    if [ -z "$ok" ]; then
-      echo "!! $svc 重启后 150s 内未 healthy"
-      fail="$fail $svc"
-    else
+    if wait_healthy "$svc"; then
       # 显式确认，否则"重启了但没生效"在日志里与成功无法区分。
       echo "  $svc 已加载新配置并 healthy"
+    else
+      echo "!! $svc 重启后 150s 内未 healthy"
+      fail="$fail $svc"
     fi
   done
 fi
@@ -396,11 +447,6 @@ for svc in $services; do
 done
 
 if [ -n "$fail" ]; then
-  # admin 未 healthy/版本不符：它可能只渲染了一半配置，恢复部署前快照，
-  # 避免下一次重启加载半成品。
-  if printf '%s\n' "$fail" | grep -qw admin; then
-    restore_generated_configs
-  fi
   echo "!! 部署校验未通过:$fail"
   echo "=== 自动回滚（到部署前镜像） ==="
   rolled_back=1
@@ -438,6 +484,10 @@ if [ -n "$fail" ]; then
       rolled_back=""
     fi
   done
+  # 任何失败都可能留下"语法合法但语义错误"的新配置；admin 半途渲染更是直接
+  # 留下半成品。快照语义是部署前状态，与哪个服务失败无关，因此始终恢复。
+  restore_generated_configs
+  restart_config_consumers_with_restored || true
   if [ -n "$rolled_back" ]; then
     echo "全部失败服务已回滚到部署前版本"
   else

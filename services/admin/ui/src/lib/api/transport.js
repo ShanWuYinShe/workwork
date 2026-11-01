@@ -9,6 +9,9 @@
 
 const BASE = '/api/admin';
 const FETCH_TIMEOUT = 30000;
+// 重启/轮换/DNS 同步在后端最长 2 分钟；请求超时必须覆盖完整操作，否则前端
+// 先 abort 后用户看到失败，后端其实已成功，轮询又显示"已重启"。
+export const LONG_OPERATION_TIMEOUT = 180000;
 
 /**
  * 拼接管理 API 的绝对路径。页面不得自行拼 `/api/admin`，统一从这里取。
@@ -69,6 +72,15 @@ export async function req(path, opts = {}) {
       });
     }
     return json.data;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    if (e instanceof Error && e.name === 'AbortError') {
+      if (opts.signal?.aborted) {
+        throw new ApiError('请求已取消', { code: 'ABORTED' });
+      }
+      throw new ApiError('请求超时，请稍后重试', { code: 'TIMEOUT' });
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }

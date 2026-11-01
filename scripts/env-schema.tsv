@@ -2,7 +2,7 @@
 #
 # 列（TAB 分隔）：
 #   KEY        变量名
-#   DEFAULT    代码/compose 兜底值（空串表示无默认、由使用者填写）
+#   DEFAULT    代码/compose 兜底值（空串=无默认；`-`=由 versions.env 管理）
 #   REQUIRED   yes=启动/部署必需；first-boot=仅首次引导必需；no=可选
 #   VALIDATION 校验类型（见 scripts/env-schema.sh）
 #   CONSUMERS  消费方说明（只作文档，不参与校验）
@@ -36,11 +36,11 @@ TRANSFER_USER_QUOTA	5368709120	no	int	单用户中转配额（字节，0=不限�
 CERT_DIR	/app/certs	no	path	证书到期监控目录
 IMAGE_TAG	latest	no	string	镜像 tag（deploy 导出；回滚用）
 GIT_VERSION	dev	no	string	构建期版本烙印
-GO_VERSION	1.26.10	no	version	Go 基础镜像
-ALPINE_VERSION	3.24.1	no	version	Alpine 基础镜像
-BUN_VERSION	1.3.14	no	version	Bun 构建工具
-NGINX_VERSION	1.30.4	no	version	Nginx 基础镜像
-XRAY_VERSION	26.6.27	no	version	Xray 版本
+GO_VERSION	-	no	version	Go 基础镜像
+ALPINE_VERSION	-	no	version	Alpine 基础镜像
+BUN_VERSION	-	no	version	Bun 构建工具
+NGINX_VERSION	-	no	version	Nginx 基础镜像
+XRAY_VERSION	-	no	version	Xray 版本
 APK_MIRROR	mirrors.aliyun.com	no	host	apk 镜像源
 DOCKER_SOCKET	/var/run/docker.sock	no	path	docker-proxy 上游 socket（容器内路径）
 LISTEN	:2375	no	string	docker-proxy 监听地址（仅容器内网）

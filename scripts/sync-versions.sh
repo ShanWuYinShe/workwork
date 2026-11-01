@@ -70,9 +70,11 @@ spot_value() {
     envex)      { grep -E "^(# )?$key=" "$p" || true; } | head -1 | sed -E "s/^(# )?$key=//" ;;
     dockerfile) { grep -E "^ARG $key=" "$p" || true; } | head -1 | sed "s/^ARG $key=//" ;;
     ci)
+      # 同一 workflow 可能有多个 job（当前 4 个 go-version）。只看第一处会
+      # 让改坏第 2/3/4 处仍然门禁全绿；聚合全部唯一值，任一漂移即不等。
       case "$key" in
-        GO_VERSION)  { grep -E "go-version:" "$p" || true; } | head -1 | sed "s/.*go-version:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}.*/\1/" ;;
-        BUN_VERSION) { grep -E "bun-version:" "$p" || true; } | head -1 | sed "s/.*bun-version:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}.*/\1/" ;;
+        GO_VERSION)  { grep -oE "go-version:[[:space:]]*['\"]?[^'\"]*" "$p" || true; } | sed "s/.*go-version:[[:space:]]*['\"]*//" | sort -u | paste -sd, - ;;
+        BUN_VERSION) { grep -oE "bun-version:[[:space:]]*['\"]?[^'\"]*" "$p" || true; } | sed "s/.*bun-version:[[:space:]]*['\"]*//" | sort -u | paste -sd, - ;;
       esac ;;
     compose) : ;; # compose 同一 key 可能出现多次，由主循环全量校验（见下）
   esac

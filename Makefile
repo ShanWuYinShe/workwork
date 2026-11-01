@@ -8,7 +8,7 @@ COMPOSE := docker compose
 -include versions.env
 export
 
-SERVICES := admin docker-proxy xray nginx
+SERVICES := $(shell ./scripts/compose-services.sh)
 
 # 版本号自动导出,compose build args 读取后烙进各服务二进制/镜像并经
 # 健康端点暴露;调用方显式传入时以传入值为准。
@@ -49,9 +49,8 @@ logs: ## 跟踪指定服务日志: make logs nginx
 ps: ## 查看服务状态
 	$(COMPOSE) ps
 
-check: ## 本地门禁: gofmt / go vet / go test / 前端格式与构建
-	@test -z "$$(gofmt -l services/admin/)" || { echo 'gofmt 未通过:'; gofmt -l services/admin/; exit 1; }
-	@test -z "$$(gofmt -l services/docker_proxy/)" || { echo 'gofmt 未通过:'; gofmt -l services/docker_proxy/; exit 1; }
+check: ## 本地门禁: Go/脚本/编排/版本/env/前端
+	@test -z "$$(gofmt -l services/)" || { echo 'gofmt 未通过:'; gofmt -l services/; exit 1; }
 	go vet -C services/admin ./...
 	go test -C services/admin -race ./...
 	go vet -C services/docker_proxy ./...

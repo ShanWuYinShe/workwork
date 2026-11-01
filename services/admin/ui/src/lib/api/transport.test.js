@@ -113,3 +113,36 @@ test('streamDownload 缺少 done 终态时失败，避免静默返回残缺结�
   const error = await streamDownload('/download', {}).catch((e) => e);
   expect(error.message).toContain('no result received');
 });
+
+test('req 把超时 AbortError 归一化为 ApiError(TIMEOUT)', async () => {
+  mockFetch(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      }),
+  );
+
+  const error = await req('/slow', { timeout: 5 }).catch((e) => e);
+  expect(error).toBeInstanceOf(ApiError);
+  expect(error.code).toBe('TIMEOUT');
+});
+
+test('req 把外部取消归一化为 ApiError(ABORTED)', async () => {
+  const abort = new AbortController();
+  mockFetch(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        );
+      }),
+  );
+
+  const pending = req('/slow', { signal: abort.signal }).catch((e) => e);
+  abort.abort();
+  const error = await pending;
+  expect(error).toBeInstanceOf(ApiError);
+  expect(error.code).toBe('ABORTED');
+});

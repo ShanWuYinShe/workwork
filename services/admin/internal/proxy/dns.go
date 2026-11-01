@@ -95,9 +95,6 @@ func rollbackDomainAAAARecords(ctx context.Context, entries []dnsRollbackEntry) 
 	return true, nil
 }
 
-// StartupRotateIPv6 restores the DNS-published rotating IPv6 addresses on startup.
-// It only allocates fresh addresses when DNS/current container state has no usable
-
 func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, staticIP, currentDNSIP string) string {
 	ips := platform.GetContainerIPs(ctx, cli, containerID)
 	if len(ips) == 0 {
@@ -129,6 +126,3 @@ func selectContainerDNSIP(ctx context.Context, cli *client.Client, containerID, 
 	}
 	return staticIP
 }
-
-// restartXraySem 串行化 xray 容器重启。并发的客户端增删/用户删除各自
-// GenXrayConfig + RestartXray，如果不串行化，会出现两个 ContainerRestart
