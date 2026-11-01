@@ -1,5 +1,5 @@
 // @ts-check
-const ADMIN_PREFIX = '/admin';
+import { ADMIN_PREFIX } from './constants.js';
 
 function readPath() {
   if (typeof window === 'undefined') return '/';

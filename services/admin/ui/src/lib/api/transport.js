@@ -119,10 +119,15 @@ async function responseErrorMessage(response) {
  * @param {string} path
  * @param {any} body
  * @param {(event: any) => void} [onProgress]
+ * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<{ status: string, filename?: string, size?: number, checksum?: string }>}
  */
-export async function streamDownload(path, body, onProgress) {
+export async function streamDownload(path, body, onProgress, opts = {}) {
   const ctrl = new AbortController();
+  const signal =
+    typeof AbortSignal.any === 'function' && opts.signal
+      ? AbortSignal.any([opts.signal, ctrl.signal])
+      : opts.signal || ctrl.signal;
   let timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT);
   const bumpIdleTimeout = () => {
     clearTimeout(timer);
@@ -135,7 +140,7 @@ export async function streamDownload(path, body, onProgress) {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify(body),
-      signal: ctrl.signal,
+      signal,
     });
     if (!r.ok) throw new Error(await responseErrorMessage(r));
     if (!r.body) throw new Error('Empty response body');
@@ -198,6 +203,14 @@ export async function streamDownload(path, body, onProgress) {
       size: result.size,
       checksum: result.checksum,
     };
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      if (opts.signal?.aborted) {
+        throw new ApiError('请求已取消', { code: 'ABORTED' });
+      }
+      throw new ApiError('下载超时，请重试', { code: 'TIMEOUT' });
+    }
+    throw e;
   } finally {
     clearTimeout(timer);
   }

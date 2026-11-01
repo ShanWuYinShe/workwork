@@ -19,7 +19,6 @@ export const zh = {
   // Generic UI
   cancel: '取消',
   ok: '确认',
-  remove: '移除',
   retry: '重试',
   authFailedTitle: '认证失败',
   menu: '菜单',

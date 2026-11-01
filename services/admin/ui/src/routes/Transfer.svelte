@@ -12,9 +12,9 @@
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { formatDateTime, formatSize } from '../lib/format.js';
+  import { createAsyncTask } from '../lib/async.svelte.js';
 
   let files = $state([]);
-  let loading = $state(true);
   let uploading = $state(false);
   let uploadProgress = $state(null);
   let deletingCode = $state('');
@@ -30,26 +30,25 @@
   let lastUploadedLink = $state('');
   let uploadXhr = $state(null);
 
-  onMount(async () => {
-    try {
-      await loadFiles();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
-  });
-
-  async function loadFiles() {
-    try {
+  const loadTask = createAsyncTask(
+    async () => {
       const d = await getTransferFiles();
       files = d.files || [];
       totalSize = d.total_size || 0;
       maxTotal = d.max_total || maxTotal;
-    } catch (e) {
-      toast(e.message, 'error');
-    }
-  }
+    },
+    { onError: (e) => toast(e.message, 'error') },
+  );
+  let loading = $derived(loadTask.loading);
+
+  onMount(() => {
+    loadTask.run();
+    return () => {
+      loadTask.cancel();
+      // 离开页面即中止在途上传；否则用户以为已取消，文件仍会在后台传完。
+      uploadXhr?.abort();
+    };
+  });
 
   function onFileChange(e) {
     selectedFile = e.target.files[0] || null;
@@ -129,7 +128,7 @@
       }
       selectedFile = null;
       if (fileInput) fileInput.value = '';
-      await loadFiles();
+      await loadTask.run({ silent: true });
     } catch (e) {
       if (e?.name === 'AbortError') {
         toast(t('uploadCancelled'), 'info');
@@ -159,7 +158,7 @@
     try {
       await deleteTransferFile(code);
       toast(t('fileDeleted'), 'success');
-      await loadFiles();
+      await loadTask.run({ silent: true });
     } catch (e) {
       toast(e.message, 'error');
     } finally {

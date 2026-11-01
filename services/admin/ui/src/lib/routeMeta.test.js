@@ -1,5 +1,7 @@
 import { test, expect } from 'bun:test';
 import { routeMeta, navSections, routeTitles } from './routeMeta.js';
+import { icons } from './icons.js';
+import { zh } from './i18n.zh.js';
 
 test('paths are unique and titled', () => {
   const paths = routeMeta.map((r) => r.path);
@@ -24,5 +26,12 @@ test('nav adminOnly mirrors route metadata', () => {
     for (const item of section.items) {
       expect(!!item.adminOnly).toBe(byPath[item.path]);
     }
+  }
+});
+
+test('every route icon and title is defined', () => {
+  for (const r of routeMeta) {
+    expect(Object.hasOwn(icons, r.icon)).toBe(true);
+    expect(Object.hasOwn(zh, r.title)).toBe(true);
   }
 });

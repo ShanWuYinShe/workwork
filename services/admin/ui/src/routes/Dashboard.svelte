@@ -7,6 +7,7 @@
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
   import { navigate } from '../lib/nav.svelte.js';
+  import { adminHref } from '../lib/constants.js';
 
   let stats = $state({
     services: '-',
@@ -155,7 +156,7 @@
           <a
             class="quick-action"
             class:primary={action.primary}
-            href={'/admin' + action.path}
+            href={adminHref(action.path)}
             onclick={(e) => {
               // 修饰键点击(ctrl/cmd/shift)保留浏览器原生行为(新标签打开)
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -224,7 +225,7 @@
           <a
             class="quick-action"
             class:primary={action.primary}
-            href={'/admin' + action.path}
+            href={adminHref(action.path)}
             onclick={(e) => {
               // 修饰键点击(ctrl/cmd/shift)保留浏览器原生行为(新标签打开)
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

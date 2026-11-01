@@ -13,9 +13,9 @@
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import PasswordInput from '../lib/ui/PasswordInput.svelte';
+  import { createAsyncTask } from '../lib/async.svelte.js';
 
   let adminUsers = $state([]);
-  let loading = $state(true);
   let isAdmin = $derived(auth.isAdmin);
   let currentUsername = $derived(auth.user?.username || '');
   let newUser = $state(''),
@@ -28,38 +28,26 @@
     pwPass = $state('');
   let addUserError = $state('');
   let pwError = $state('');
-  let loadFailed = $state(false);
+  const loadTask = createAsyncTask(
+    async () => {
+      const d = await getUsers();
+      adminUsers = d.adminUsers || [];
+      pwUser = currentUsername;
+    },
+    { onError: (e) => toast(e.message, 'error') },
+  );
+  let loading = $derived(loadTask.loading);
+  // 加载失败必须显式可见:静默吞掉会让 admin 看到只剩改密码的
+  // "非管理员视图",误以为权限丢失。
+  let loadFailed = $derived(loadTask.error !== null);
 
-  async function loadUsers() {
-    const d = await getUsers();
-    adminUsers = d.adminUsers || [];
-    pwUser = currentUsername;
-  }
-
-  onMount(async () => {
-    try {
-      await loadUsers();
-    } catch (e) {
-      // 加载失败必须显式可见:静默吞掉会让 admin 看到只剩改密码的
-      // "非管理员视图",误以为权限丢失。
-      loadFailed = true;
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
+  onMount(() => {
+    loadTask.run();
+    return () => loadTask.cancel();
   });
 
-  async function retryLoad() {
-    loading = true;
-    loadFailed = false;
-    try {
-      await loadUsers();
-    } catch (e) {
-      loadFailed = true;
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
+  function retryLoad() {
+    loadTask.run();
   }
 
   // 字段级校验：与后端 IsValidUsername（^[a-zA-Z0-9_-]+$，≤64）和

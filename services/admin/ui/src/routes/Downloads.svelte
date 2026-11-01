@@ -35,15 +35,19 @@
   let downloadProgress = $state(null);
   let deletingFile = $state('');
   let versionPlatforms = $state({});
+  let downloadAbort = null;
 
-  onMount(async () => {
-    try {
-      await loadTabData();
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
+  onMount(() => {
+    (async () => {
+      try {
+        await loadTabData();
+      } catch (e) {
+        toast(e.message, 'error');
+      } finally {
+        loading = false;
+      }
+    })();
+    return () => downloadAbort?.abort();
   });
 
   // 竞态守卫：快速切换 tab 时，旧 tab 的响应后到会覆盖新 tab 数据
@@ -134,11 +138,18 @@
     downloadVersion = version;
     downloading = true;
     downloadProgress = null;
+    const ctrl = new AbortController();
+    downloadAbort = ctrl;
     try {
       const fn = tab === 'claude' ? downloadClaudeVersion : downloadXrayVersion;
-      const d = await fn(version, plat, (p) => {
-        downloadProgress = p;
-      });
+      const d = await fn(
+        version,
+        plat,
+        (p) => {
+          downloadProgress = p;
+        },
+        { signal: ctrl.signal },
+      );
       if (d.status === 'already_exists') {
         const msg =
           tab === 'claude'
@@ -157,8 +168,10 @@
       }
       await loadTabData();
     } catch (e) {
-      toast(e.message, 'error');
+      // 离开页面触发的 abort 不需要再弹错误。
+      if (e.code !== 'ABORTED') toast(e.message, 'error');
     } finally {
+      downloadAbort = null;
       downloading = false;
       downloadKey = '';
       downloadVersion = '';

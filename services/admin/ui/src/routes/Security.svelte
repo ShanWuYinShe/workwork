@@ -5,8 +5,8 @@
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { formatDateTime } from '../lib/format.js';
+  import { createAsyncTask } from '../lib/async.svelte.js';
   let entries = $state([]);
-  let loading = $state(true);
   let newIP = $state(''),
     newReason = $state(''),
     newDuration = $state('86400');
@@ -20,19 +20,19 @@
     return '';
   }
 
-  onMount(refresh);
-
-  async function refresh() {
-    loading = true;
-    try {
+  const loadTask = createAsyncTask(
+    async () => {
       const d = await getBlockedIPs();
       entries = d.entries || [];
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
-  }
+    },
+    { onError: (e) => toast(e.message, 'error') },
+  );
+  let loading = $derived(loadTask.loading);
+
+  onMount(() => {
+    loadTask.run();
+    return () => loadTask.cancel();
+  });
 
   async function doBlock() {
     ipError = validateIP(newIP);
@@ -56,7 +56,7 @@
       }
       newIP = '';
       newReason = '';
-      await refresh();
+      await loadTask.run();
     } catch (e) {
       // 按机器可读错误码分支提示；未知错误回退展示原始 message（含服务端文案）
       if (e.code === 'INVALID_DURATION') {
@@ -76,12 +76,12 @@
     try {
       await unblockIP(ip);
       toast(t('ipUnblocked', { ip }), 'success');
-      await refresh();
+      await loadTask.run();
     } catch (e) {
       if (e.code === 'BLOCK_NOT_FOUND') {
         // 幂等场景（如 fail2ban 已自动解封 / 条目被清理）：提示而非报错，并刷新列表
         toast(t('errNotBlocked', { ip }), 'info');
-        await refresh();
+        await loadTask.run();
       } else {
         toast(e.message, 'error');
       }
@@ -146,7 +146,7 @@
         {#if entries.length}<span class="card-title-count">{entries.length}</span>{/if}
       </div>
       <div class="card-actions">
-        <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
+        <button class="btn btn-sm btn-ghost" onclick={() => loadTask.run()}>{t('refresh')}</button>
       </div>
     </div>
     {#if loading}

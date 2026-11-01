@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { auth } from './lib/auth.svelte.js';
+  import { LOGOUT_PENDING_KEY } from './lib/constants.js';
   import { t } from './lib/i18n.svelte.js';
   import { toast } from './lib/toast.svelte.js';
   import { routes, routeTitles } from './lib/routes.js';
@@ -21,13 +22,13 @@
       await auth.load(true);
       // 登出标记仍在且 /me 成功 = 浏览器没有清除凭证（覆盖失败），如实告知
       // 而不是假装已登出；认证失败的分支会清掉标记（用户即将重新登录）。
-      if (sessionStorage.getItem('ww_logout_pending')) {
-        sessionStorage.removeItem('ww_logout_pending');
+      if (sessionStorage.getItem(LOGOUT_PENDING_KEY)) {
+        sessionStorage.removeItem(LOGOUT_PENDING_KEY);
         toast(t('logoutBlockedWarning'), 'error', 10000);
       }
     } catch {
       // auth.error 已带失败原因，模板的认证失败横幅负责展示与重试。
-      sessionStorage.removeItem('ww_logout_pending');
+      sessionStorage.removeItem(LOGOUT_PENDING_KEY);
     }
   }
 
@@ -49,8 +50,6 @@
   let isAdmin = $derived(auth.isAdmin);
 
   let currentRoute = $derived(routes.find((r) => r.path === nav.path));
-
-  import './styles/app.css';
 </script>
 
 <div class="layout {sidebarCollapsed ? 'collapsed' : ''}">

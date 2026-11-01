@@ -128,8 +128,8 @@ export async function getClaudePlatforms(version) {
   return req(`/claude-code/platforms/${version}`);
 }
 
-export async function downloadClaudeVersion(version, plat, onProgress) {
-  return streamDownload('/claude-code/download', { version, plat }, onProgress);
+export async function downloadClaudeVersion(version, plat, onProgress, opts = {}) {
+  return streamDownload('/claude-code/download', { version, plat }, onProgress, opts);
 }
 
 export async function deleteClaudeDownload(filename) {
@@ -157,8 +157,8 @@ export async function getXrayPlatforms(version) {
   return req(`/xray/platforms/${version}`);
 }
 
-export async function downloadXrayVersion(version, plat, onProgress) {
-  return streamDownload('/xray/download', { version, plat }, onProgress);
+export async function downloadXrayVersion(version, plat, onProgress, opts = {}) {
+  return streamDownload('/xray/download', { version, plat }, onProgress, opts);
 }
 
 export async function deleteXrayDownload(filename) {

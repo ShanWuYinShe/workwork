@@ -19,7 +19,6 @@ export const en = {
   // Generic UI
   cancel: 'Cancel',
   ok: 'OK',
-  remove: 'Remove',
   delete: 'Delete',
   retry: 'Retry',
   authFailedTitle: 'Authentication failed',

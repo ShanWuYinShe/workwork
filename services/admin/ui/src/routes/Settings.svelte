@@ -4,6 +4,7 @@
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { createAsyncTask } from '../lib/async.svelte.js';
 
   let net = $state({
     admin_port: '',
@@ -16,34 +17,33 @@
     cf_configured: false,
     dns_records: [],
   });
-  let loading = $state(true);
   let rotating = $state(false);
   let syncing = $state(false);
   let syncMsg = $state('');
 
-  onMount(refresh);
-
-  async function refresh() {
-    loading = true;
-    syncMsg = '';
-    try {
+  const loadTask = createAsyncTask(
+    async () => {
+      syncMsg = '';
       const ns = await getNetworkStatus();
       net = { ...net, ...ns };
-    } catch (e) {
-      toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
-  }
+    },
+    { onError: (e) => toast(e.message, 'error') },
+  );
+  let loading = $derived(loadTask.loading);
+
+  onMount(() => {
+    loadTask.run();
+    return () => loadTask.cancel();
+  });
 
   async function doSyncDNS() {
     syncing = true;
     syncMsg = t('syncing');
     try {
       const d = await syncDNS();
-      // refresh() 会清空 syncMsg，必须先暂存结果、刷新后再写回。
+      // loadTask.run() 会清空 syncMsg，必须先暂存结果、刷新后再写回。
       const results = d.results.join('; ');
-      await refresh();
+      await loadTask.run();
       syncMsg = results;
     } catch (e) {
       toast(t('syncFailed', { error: e.message }), 'error');
@@ -58,7 +58,7 @@
     try {
       const d = await rotateIPv6();
       toast(t('rotateResult', { xray: d.xray_ip, nginx: d.nginx_ip }), 'success');
-      await refresh();
+      await loadTask.run();
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -71,7 +71,7 @@
   <div class="page-header">
     <h1 class="page-title">{t('settings')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={refresh}>{t('refresh')}</button>
+      <button class="btn btn-sm btn-ghost" onclick={() => loadTask.run()}>{t('refresh')}</button>
     </div>
   </div>
 

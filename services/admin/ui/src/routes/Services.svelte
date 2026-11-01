@@ -7,38 +7,36 @@
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { createAsyncTask } from '../lib/async.svelte.js';
 
   let services = $state([]);
-  let loading = $state(true);
   let isAdmin = $derived(auth.isAdmin);
   let actingService = $state('');
-
-  onMount(() => {
-    refresh();
-    // 服务状态轮询：页面隐藏时跳过请求，避免后台标签页持续打 API。
-    const timer = setInterval(() => {
-      if (!document.hidden && !actingService) poll();
-    }, 15000);
-    return () => clearInterval(timer);
-  });
-
-  async function refresh(silent = false) {
-    if (!silent) loading = true;
-    try {
+  const loadTask = createAsyncTask(
+    async () => {
       const d = await getServices();
       services = d.services || [];
-    } catch (e) {
-      // 轮询失败不弹 toast：15s 一次会把其他提示刷掉；首次加载失败仍提示。
-      if (!silent) toast(e.message, 'error');
-    } finally {
-      loading = false;
-    }
-  }
+    },
+    {
+      onError: (e, { silent }) => {
+        if (!silent) toast(e.message, 'error');
+      },
+    },
+  );
+  let loading = $derived(loadTask.loading);
 
-  // 轮询用的静默刷新：不闪骨架屏，仅更新数据。
-  async function poll() {
-    await refresh(true);
-  }
+  onMount(() => {
+    loadTask.run();
+    // 服务状态轮询：页面隐藏时跳过请求，避免后台标签页持续打 API。
+    // silent 刷新不闪骨架，且 task 内部序号守卫避免旧响应覆盖新响应。
+    const timer = setInterval(() => {
+      if (!document.hidden && !actingService) loadTask.run({ silent: true });
+    }, 15000);
+    return () => {
+      clearInterval(timer);
+      loadTask.cancel();
+    };
+  });
 
   function confirmKey(act) {
     const map = {
@@ -74,7 +72,7 @@
   <div class="page-header">
     <h1 class="page-title">{t('services')}</h1>
     <div class="page-actions">
-      <button class="btn btn-sm btn-ghost" onclick={() => refresh()} disabled={loading}
+      <button class="btn btn-sm btn-ghost" onclick={() => loadTask.run()} disabled={loading}
         >{t('refresh')}</button
       >
     </div>
