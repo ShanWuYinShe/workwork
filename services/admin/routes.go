@@ -47,7 +47,7 @@ func (r apiRoute) PatternWithMethod() string {
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, securitySvc *auth.Security, layout runtime.Layout) []apiRoute {
+func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, securitySvc *auth.Security, downloadsMgr *downloads.Manager, layout runtime.Layout) []apiRoute {
 	return []apiRoute{
 		// ── 认证 / 账户 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
@@ -87,22 +87,22 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodGet, Pattern: "/api/transfer/{code}", Handler: transfer.ApiTransferPublicDownload(transferStore), Role: rolePublic},
 
 		// ── Claude Code 下载 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/releases", Handler: downloads.ApiClaudeCodeReleases(), Role: roleAdmin},
-		{Method: http.MethodPost, Pattern: "/api/admin/claude-code/refresh", Handler: downloads.ApiClaudeCodeRefresh(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/platforms/{version}", Handler: downloads.ApiClaudeCodePlatforms(), Role: roleAdmin},
-		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/stored", Handler: downloads.ApiClaudeCodeStored(), Role: roleViewer},
-		{Method: http.MethodPost, Pattern: "/api/admin/claude-code/download", Handler: downloads.ApiClaudeCodeDownload(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/downloads/{filename}", Handler: downloads.ApiClaudeCodeServeDownload(), Role: roleViewer},
-		{Method: http.MethodDelete, Pattern: "/api/admin/claude-code/downloads", Handler: downloads.ApiClaudeCodeDeleteDownload(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/releases", Handler: downloadsMgr.ClaudeCodeReleases(), Role: roleAdmin},
+		{Method: http.MethodPost, Pattern: "/api/admin/claude-code/refresh", Handler: downloadsMgr.ClaudeCodeRefresh(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/platforms/{version}", Handler: downloadsMgr.ClaudeCodePlatforms(), Role: roleAdmin},
+		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/stored", Handler: downloadsMgr.ClaudeCodeStored(), Role: roleViewer},
+		{Method: http.MethodPost, Pattern: "/api/admin/claude-code/download", Handler: downloadsMgr.ClaudeCodeDownload(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/downloads/{filename}", Handler: downloadsMgr.ClaudeCodeServeDownload(), Role: roleViewer},
+		{Method: http.MethodDelete, Pattern: "/api/admin/claude-code/downloads", Handler: downloadsMgr.ClaudeCodeDeleteDownload(), Role: roleAdmin, Audit: true},
 
 		// ── Xray 下载 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/xray/releases", Handler: downloads.ApiXrayReleases(), Role: roleAdmin},
-		{Method: http.MethodPost, Pattern: "/api/admin/xray/refresh", Handler: downloads.ApiXrayRefresh(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/xray/platforms/{version}", Handler: downloads.ApiXrayPlatforms(), Role: roleAdmin},
-		{Method: http.MethodGet, Pattern: "/api/admin/xray/stored", Handler: downloads.ApiXrayStored(), Role: roleViewer},
-		{Method: http.MethodPost, Pattern: "/api/admin/xray/download", Handler: downloads.ApiXrayDownload(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/xray/downloads/{filename}", Handler: downloads.ApiXrayServeDownload(), Role: roleViewer},
-		{Method: http.MethodDelete, Pattern: "/api/admin/xray/downloads", Handler: downloads.ApiXrayDeleteDownload(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/xray/releases", Handler: downloadsMgr.XrayReleases(), Role: roleAdmin},
+		{Method: http.MethodPost, Pattern: "/api/admin/xray/refresh", Handler: downloadsMgr.XrayRefresh(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/xray/platforms/{version}", Handler: downloadsMgr.XrayPlatforms(), Role: roleAdmin},
+		{Method: http.MethodGet, Pattern: "/api/admin/xray/stored", Handler: downloadsMgr.XrayStored(), Role: roleViewer},
+		{Method: http.MethodPost, Pattern: "/api/admin/xray/download", Handler: downloadsMgr.XrayDownload(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/xray/downloads/{filename}", Handler: downloadsMgr.XrayServeDownload(), Role: roleViewer},
+		{Method: http.MethodDelete, Pattern: "/api/admin/xray/downloads", Handler: downloadsMgr.XrayDeleteDownload(), Role: roleAdmin, Audit: true},
 
 		// ── 文件中转 ──
 		{Method: http.MethodPost, Pattern: "/api/admin/transfer/upload", Handler: transfer.ApiTransferUpload(transferStore), Role: roleViewer, BodyLimitExempt: true, Audit: true},

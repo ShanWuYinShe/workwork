@@ -2,6 +2,7 @@ package main
 
 import (
 	"admin/internal/auth"
+	"admin/internal/downloads"
 	"admin/internal/identity"
 	"admin/internal/runtime"
 	"admin/internal/transfer"
@@ -18,7 +19,7 @@ import (
 // 只能靠源码正则扫描；现在路由表就是契约本身。
 func TestRouteTableContract(t *testing.T) {
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
-	routes := apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), layout)
+	routes := apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), downloads.NewManager(layout), layout)
 	seen := map[string]bool{}
 	var exempt []string
 
@@ -98,7 +99,7 @@ func TestRouteTableCriticalRoles(t *testing.T) {
 	}
 	got := map[string]string{}
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
-	for _, rt := range apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), layout) {
+	for _, rt := range apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), downloads.NewManager(layout), layout) {
 		got[rt.PatternWithMethod()] = rt.Role
 	}
 	for key, role := range want {

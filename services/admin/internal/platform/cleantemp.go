@@ -13,7 +13,7 @@ import (
 // 前删除"的 defer 失效,残留 .<name>.tmp-* 无人回收。music/media 专属前缀已
 // 随服务拆分移除:现存临时文件写入路径只有 AtomicWriteFile 模式;transfer 的
 // .upload-*.tmp 与 downloads 的 .download-* 各有专门的启动清理
-// (transfer.CleanupOrphanTempFiles / downloads.PurgeStaleDownloadTemps),
+// (transfer.CleanupOrphanTempFiles / downloads.Manager.PurgeStaleDownloadTemps),
 // 且分别以 "." 开头和不以 "." 开头,不匹配本函数的扫描模式。
 // 尽力而为:删除失败只记日志,不影响启动。返回清理的文件数。
 func CleanupStaleTempFiles(root string) int {

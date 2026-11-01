@@ -12,11 +12,13 @@ package downloads
 //   - 存储目录 / manifest 路径 / 锁 / 保留份数
 //   - 是否保留 SHASUMS256 资产（claude 用于校验）、是否丢弃无资产的 release
 //
-// HTTP handler 仍留在各自文件中（API 路由、文件名前缀语义、Content-Type 等
-// 是各页面接口契约），机制函数统一走本文件。
+// 下载机制（manifest/下载循环/校验/清理）在本文件；HTTP handler 全部在
+// handlers.go 按描述符统一实现。claude.go / xray.go 只剩平台表、资产解析、
+// 文件名规则与构造参数。
 
 import (
 	"admin/internal/platform"
+	"admin/internal/runtime"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -216,6 +218,20 @@ type storedDownload struct {
 
 type storedManifest struct {
 	Downloads []storedDownload `json:"downloads"`
+}
+
+// Manager 持有两个工具实例。目录与 manifest 路径全部来自 Layout，下载包
+// 不再写死 /app/data；路由表与启动清理通过同一个实例访问。
+type Manager struct {
+	claude *downloadService
+	xray   *downloadService
+}
+
+func NewManager(layout runtime.Layout) *Manager {
+	return &Manager{
+		claude: newClaudeDownloads(layout),
+		xray:   newXrayDownloads(layout),
+	}
 }
 
 // downloadService 聚合一个工具（claude / xray）的全部下载管理机制。
@@ -656,22 +672,20 @@ func joinDownloadPath(dir, filename string) string {
 	return filepath.Join(dir, filename)
 }
 
-// downloadDirs 返回全部工具下载目录（PurgeStaleDownloadTemps 启动清理用）。
-func downloadDirs() []string {
-	return []string{claudeDownloads.dir, xrayDownloads.dir}
+// downloadDirs 返回全部工具下载目录（PurgeStaleDownloadTemps 用）。
+func (m *Manager) downloadDirs() []string {
+	return []string{m.claude.dir, m.xray.dir}
 }
 
-// 迁自主包 deploy.go:启动时清理中断下载残留。
 // PurgeStaleDownloadTemps 清理上次运行残留的 ".download-*" 临时文件。
 //
 // download{Claude,Xray}Archive 用 defer os.Remove 清理正常/失败路径,但容器在
 // 下载中途被 kill 或重建(如 docker compose up -d admin)时 defer 不执行,临时
 // 文件会永久留在下载目录:既占磁盘(claude/Xray 包可达数百 MB),又会被
-// downloads.ApiClaudeCodeServeDownload / downloads.ApiXrayServeDownload 的路径校验拒之门外——
-// 永远不可下载也不可删除的僵尸文件。启动是唯一可靠的清理时机(此刻不可能有
-// 正在进行的下载)。
-func PurgeStaleDownloadTemps() {
-	for _, dir := range downloadDirs() {
+// downloads 的路径校验拒之门外——永远不可下载也不可删除的僵尸文件。启动是
+// 唯一可靠的清理时机(此刻不可能有正在进行的下载)。
+func (m *Manager) PurgeStaleDownloadTemps() {
+	for _, dir := range m.downloadDirs() {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue // 目录不存在:尚未下载过任何文件

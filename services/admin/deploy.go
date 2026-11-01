@@ -2,7 +2,6 @@ package main
 
 import (
 	"admin/internal/auth"
-	"admin/internal/downloads"
 	"admin/internal/identity"
 	"admin/internal/nginxcfg"
 	"admin/internal/runtime"
@@ -20,7 +19,8 @@ func generateConfigs(users *identity.Store, secrets *identity.Secrets, layout ru
 	}
 	// 清理上次运行被中断下载残留的临时文件(不返回错误:清理失败只影响
 	// 磁盘占用,不应阻断启动)。
-	downloads.PurgeStaleDownloadTemps()
+	// 注：下载清理现在由 main 通过 downloads.Manager 在构造后调用，本函数
+	// 只负责配置/凭证渲染。
 	if err := xray.ValidateProxyConfigEnv(); err != nil {
 		return fmt.Errorf("proxy env: %w", err)
 	}

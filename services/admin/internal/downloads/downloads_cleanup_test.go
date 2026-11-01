@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"admin/internal/runtime"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,51 +12,56 @@ import (
 // 临时文件命名约定（CreateTemp 的 filename+".download-*"）与清理逻辑必须
 // 保持一致——改名会导致残留文件既不可下载也不可删除。
 func TestPurgeStaleDownloadTemps(t *testing.T) {
-	dir := t.TempDir()
-	origC, origX := claudeDownloads.dir, xrayDownloads.dir
-	claudeDownloads.dir, xrayDownloads.dir = dir, dir
-	defer func() { claudeDownloads.dir, xrayDownloads.dir = origC, origX }()
+	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
+	m := NewManager(layout)
+	dirs := []string{layout.ClaudeDownloadsDir(), layout.XrayDownloadsDir()}
 
 	keep := []string{"claude-1.0.0-linux-x64.tar.gz", "Xray-1.2.3-linux-64.zip"}
 	drop := []string{
 		"claude-1.0.0-linux-x64.tar.gz.download-123456",
 		"Xray-9.9.9-linux-64.zip.download-987",
 	}
-	for _, n := range append(keep, drop...) {
-		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0644); err != nil {
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range append(keep, drop...) {
+			if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// 名称含 ".download-" 的子目录不应被删除（本函数只清文件）
+		if err := os.Mkdir(filepath.Join(dir, "sub.download-dir"), 0755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// 名称含 ".download-" 的子目录不应被删除（本函数只清文件）
-	sub := filepath.Join(dir, "sub.download-dir")
-	if err := os.Mkdir(sub, 0755); err != nil {
-		t.Fatal(err)
-	}
 
-	PurgeStaleDownloadTemps()
+	m.PurgeStaleDownloadTemps()
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]bool{}
-	for _, e := range entries {
-		got[e.Name()] = true
-	}
-	for _, n := range keep {
-		if !got[n] {
-			t.Errorf("正常文件被误删: %s", n)
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, n := range drop {
-		if got[n] {
-			t.Errorf("残留临时文件未被清理: %s", n)
+		got := map[string]bool{}
+		for _, e := range entries {
+			got[e.Name()] = true
 		}
-	}
-	if !got["sub.download-dir"] {
-		t.Error("子目录被误删")
-	}
-	if len(entries) != len(keep)+1 {
-		t.Errorf("剩余条目数 = %d, 期望 %d (正常文件 + 子目录)", len(entries), len(keep)+1)
+		for _, n := range keep {
+			if !got[n] {
+				t.Errorf("%s: 正常文件被误删: %s", dir, n)
+			}
+		}
+		for _, n := range drop {
+			if got[n] {
+				t.Errorf("%s: 残留临时文件未被清理: %s", dir, n)
+			}
+		}
+		if !got["sub.download-dir"] {
+			t.Errorf("%s: 子目录被误删", dir)
+		}
+		if len(entries) != len(keep)+1 {
+			t.Errorf("%s: 剩余条目数 = %d, 期望 %d (正常文件 + 子目录)", dir, len(entries), len(keep)+1)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
+	"admin/internal/downloads"
 	"admin/internal/identity"
 	"admin/internal/infra"
 	"admin/internal/platform"
@@ -51,6 +52,9 @@ func main() {
 
 	xraySvc := xray.NewService(layout, notifier, proxy.NewXrayRestarter(cli))
 	transferStore := transfer.NewStore(layout)
+	downloadsMgr := downloads.NewManager(layout)
+	// 清理上次运行中断下载残留（不阻断启动，失败只影响磁盘占用）。
+	downloadsMgr.PurgeStaleDownloadTemps()
 
 	// Auto-generate configs from templates before dependent services start.
 	if err := generateConfigs(users, secrets, layout, xraySvc, securitySvc); err != nil {
@@ -93,7 +97,7 @@ func main() {
 	mw := auth.NewMiddleware(users, secrets, securitySvc)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli, users, xraySvc, transferStore, securitySvc, layout)
+	routes := apiRoutes(cli, users, xraySvc, transferStore, securitySvc, downloadsMgr, layout)
 	registerBodyLimitExemptions(routes)
 	registerRoutes(mux, routes, mw)
 

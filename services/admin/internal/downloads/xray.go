@@ -4,9 +4,7 @@ package downloads
 // 机制（manifest/下载/清理/校验/版本比较）在 downloads.go。
 
 import (
-	"admin/internal/platform"
-	"admin/internal/requestctx"
-	"log"
+	"admin/internal/runtime"
 	"net/http"
 	"strings"
 )
@@ -40,124 +38,54 @@ func buildXrayFilename(version, plat, assetName string) string {
 	return "Xray-" + version + "-" + plat + ".zip"
 }
 
-var xrayDownloads = &downloadService{
-	repoURL:           "https://api.github.com/repos/XTLS/Xray-core/releases",
-	perPage:           20,
-	platforms:         xrayPlatforms,
-	parseAssetPlat:    parseAssetPlatXray,
-	keepChecksumsFile: false,
-	dropEmptyReleases: true, // 无资产的 release 跳过（与原行为一致）
-	buildFilename:     buildXrayFilename,
-	// serve/delete 额外接受历史小写 "xray-" 前缀（旧文件名兼容）
-	filenamePrefixes: []string{"Xray-", "xray-"},
-	dir:              "/app/data/xray",
-	manifestPath:     "/app/data/xray/downloads.json",
-	maxKeep:          5,
+func newXrayDownloads(layout runtime.Layout) *downloadService {
+	return &downloadService{
+		repoURL:           "https://api.github.com/repos/XTLS/Xray-core/releases",
+		perPage:           20,
+		platforms:         xrayPlatforms,
+		parseAssetPlat:    parseAssetPlatXray,
+		keepChecksumsFile: false,
+		dropEmptyReleases: true, // 无资产的 release 跳过（与原行为一致）
+		buildFilename:     buildXrayFilename,
+		// serve/delete 额外接受历史小写 "xray-" 前缀（旧文件名兼容）
+		filenamePrefixes: []string{"Xray-", "xray-"},
+		dir:              layout.XrayDownloadsDir(),
+		manifestPath:     layout.XrayManifestPath(),
+		maxKeep:          5,
+	}
 }
 
 // GET /api/admin/xray/releases
-func ApiXrayReleases() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		releases, err := xrayDownloads.fetchVersions()
-		if err != nil {
-			log.Printf("Failed to fetch versions: %v", err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		type releaseOutput struct {
-			Version string `json:"version"`
-			Date    string `json:"date"`
-		}
-		out := make([]releaseOutput, len(releases))
-		for i, r := range releases {
-			out[i] = releaseOutput{Version: r.Version, Date: r.Date}
-		}
-		stored, err := xrayDownloads.listStored()
-		if err != nil {
-			log.Printf("Failed to load download manifest: %v", err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		platform.WriteJSON(w, map[string]any{
-			"releases":  out,
-			"platforms": xrayPlatforms,
-			"stored":    stored,
-		})
-	}
+func (m *Manager) XrayReleases() http.HandlerFunc {
+	return releasesHandler(m.xray)
 }
 
 // GET /api/admin/xray/platforms/{version}
-func ApiXrayPlatforms() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		version := r.PathValue("version")
-		if version == "" {
-			platform.WriteError(w, "版本号必填", 400)
-			return
-		}
-		release := xrayDownloads.findCachedRelease(version)
-		if release == nil {
-			platform.WriteJSON(w, map[string]any{"version": version, "platforms": []string{}})
-			return
-		}
-		assetPlats := map[string]bool{}
-		for _, a := range release.Assets {
-			if plat := parseAssetPlatXray(a.Name); plat != "" {
-				assetPlats[plat] = true
-			}
-		}
-		var available []map[string]string
-		for _, p := range xrayPlatforms {
-			if assetPlats[p.Plat] {
-				available = append(available, map[string]string{"label": p.Label, "plat": p.Plat})
-			}
-		}
-		platform.WriteJSON(w, map[string]any{"version": version, "platforms": available})
-	}
+func (m *Manager) XrayPlatforms() http.HandlerFunc {
+	return platformsHandler(m.xray)
 }
 
 // GET /api/admin/xray/stored
-func ApiXrayStored() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		stored, err := xrayDownloads.listStored()
-		if err != nil {
-			log.Printf("Failed to load download manifest: %v", err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		if stored == nil {
-			stored = []storedDownload{}
-		}
-		platform.WriteJSON(w, map[string]any{"stored": stored})
-	}
+func (m *Manager) XrayStored() http.HandlerFunc {
+	return storedHandler(m.xray)
 }
 
 // POST /api/admin/xray/refresh
-func ApiXrayRefresh() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		xrayDownloads.invalidateCache()
-		releases, err := xrayDownloads.fetchVersions()
-		if err != nil {
-			log.Printf("Failed to refresh: %v", err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		actor, _ := requestctx.ActorFrom(r.Context())
-		log.Printf("[security] tool refresh tool=xray count=%d by=%s", len(releases), actor.Username)
-		platform.WriteJSON(w, map[string]any{"status": "ok", "count": len(releases)})
-	}
+func (m *Manager) XrayRefresh() http.HandlerFunc {
+	return refreshHandler(m.xray, "xray")
 }
 
 // POST /api/admin/xray/download
-func ApiXrayDownload() http.HandlerFunc {
-	return handleToolDownload(xrayDownloads)
+func (m *Manager) XrayDownload() http.HandlerFunc {
+	return handleToolDownload(m.xray)
 }
 
 // GET /api/admin/xray/downloads/{filename}
-func ApiXrayServeDownload() http.HandlerFunc {
-	return serveToolDownload(xrayDownloads, "application/zip")
+func (m *Manager) XrayServeDownload() http.HandlerFunc {
+	return serveToolDownload(m.xray, "application/zip")
 }
 
 // DELETE /api/admin/xray/downloads
-func ApiXrayDeleteDownload() http.HandlerFunc {
-	return deleteToolDownload(xrayDownloads)
+func (m *Manager) XrayDeleteDownload() http.HandlerFunc {
+	return deleteToolDownload(m.xray)
 }
