@@ -27,6 +27,12 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 - 版本号烙进镜像：Makefile 与 `deploy-changed.sh` 自动导出各服务的 `git describe`，compose 经 build args 传入。**直接 `docker compose build` 不经 make/脚本时版本为 "dev"，发布构建必须经 make。**
 - **健康端点（以脚本为准，不要凭记忆假设）**：目前只有 `admin` 暴露带版本的健康端点 `/api/admin/health`（`services/admin/routes.go` 的 `healthHandler`，返回 JSON 含 `version`）；`deploy-changed.sh` 的 `health_version()` **也只对 admin 做版本指纹核对**，其余服务直接 `return 0`。nginx 用 `/nginx-health`（返回 204，仅存活探测，不含版本）。查版本优先用健康端点，不要依赖镜像 OCI 标签（并非所有镜像都有）。
 - 版本指纹核对期望值的来源同样在 `scripts/deploy-changed.sh`，改版本烙印逻辑时两边要一起看。
+- **发布 tag 必须显式拉到服务器**：`deploy-changed.sh` 在 pull 后执行
+  `git fetch --tags origin`；服务器缺 tag 时 `git describe` 会回退成
+  `v1.2.0-11-g<sha>`，健康端点指纹与发布 tag 对不上（v2.0.0
+  部署实测）。最近 tag 变化（v2.0.0 → v2.0.1）会把四个服务都加入重建
+  集合，保证镜像 OCI revision 与版本端点一致；手工部署先 `git fetch --tags`。
+
 
 ### 权限注意（首次部署或权限异常时）
 
