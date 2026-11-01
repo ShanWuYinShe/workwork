@@ -3,7 +3,7 @@
   import { getDashboard } from '../lib/api.js';
   import { auth } from '../lib/auth.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
-  import { copyToClipboard } from '../lib/clipboard.js';
+  import ClientConfigCard from '../lib/ui/ClientConfigCard.svelte';
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
   import { toast } from '../lib/toast.svelte.js';
   import { navigate } from '../lib/nav.svelte.js';
@@ -73,29 +73,6 @@
       loading = false;
     }
   });
-
-  async function copyConfig() {
-    if (await copyToClipboard(generatedJSON)) {
-      toast(t('configCopied'), 'success', 2000);
-    } else {
-      toast(t('copyFailed'), 'error');
-    }
-  }
-
-  function downloadConfig() {
-    const blob = new Blob([generatedJSON], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'xray-config.json';
-    // 合成 click 前必须把 <a> 挂进文档:Firefox 对游离节点的点击不触发下载。
-    // blob URL 也不能同步 revoke——部分浏览器在下载真正开始前就取不到数据,
-    // 表现为"点了没反应"。点击后移除节点,并延迟释放 URL。
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
 </script>
 
 <div class="page">
@@ -303,31 +280,7 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">{t('clientConfig')}</div>
-          <div class="card-actions">
-            <button
-              class="btn btn-sm btn-primary"
-              onclick={copyConfig}
-              aria-label={t('copyConfiguration')}
-            >
-              {t('copy')}
-            </button>
-            <button
-              class="btn btn-sm btn-ghost"
-              onclick={downloadConfig}
-              aria-label={t('downloadConfiguration')}>{t('download')}</button
-            >
-          </div>
-        </div>
-        <div class="badge-list config-badges">
-          <span class="badge badge-gray">{t('socks5')} :10808</span>
-          <span class="badge badge-gray">{t('http')} :10809</span>
-          <span class="badge badge-gray">{t('protocolXhttp')}</span>
-        </div>
-        <textarea rows="16" readonly>{generatedJSON}</textarea>
-      </div>
+      <ClientConfigCard json={generatedJSON} copyLabel={t('copy')} />
     {:else}
       <div class="card">
         <div class="empty-state">

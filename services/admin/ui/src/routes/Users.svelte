@@ -12,7 +12,7 @@
   import { formatDate } from '../lib/format.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
-  import { eyeIcon } from '../lib/eye-icon.js';
+  import PasswordInput from '../lib/ui/PasswordInput.svelte';
 
   let adminUsers = $state([]);
   let loading = $state(true);
@@ -26,9 +26,6 @@
   let pwUser = $state(''),
     oldPass = $state(''),
     pwPass = $state('');
-  let showNewPass = $state(false);
-  let showOldPass = $state(false);
-  let showPwPass = $state(false);
   let addUserError = $state('');
   let pwError = $state('');
   let loadFailed = $state(false);
@@ -258,26 +255,14 @@
             aria-describedby={addUserError ? 'add-user-error' : undefined}
           />
         </div>
-        <div class="form-group password-field">
-          <label for="add-pass">{t('newPassword')}</label>
-          <div class="password-input">
-            <input
-              id="add-pass"
-              type={showNewPass ? 'text' : 'password'}
-              bind:value={newPass}
-              class="input-w-sm"
-              aria-invalid={addUserError ? 'true' : undefined}
-            />
-            <button
-              class="eye-btn"
-              onclick={() => (showNewPass = !showNewPass)}
-              aria-label={showNewPass ? t('hidePassword') : t('showPassword')}
-            >
-              <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
-              {@html eyeIcon(showNewPass)}
-            </button>
-          </div>
-        </div>
+        <PasswordInput
+          id="add-pass"
+          label={t('newPassword')}
+          bind:value={newPass}
+          inputClass="input-w-sm"
+          invalid={!!addUserError}
+          describedby={addUserError ? 'add-user-error' : undefined}
+        />
         <div class="form-group">
           <label for="add-role">{t('role')}</label>
           <select id="add-role" bind:value={newRole}>
@@ -312,45 +297,9 @@
         />
       </div>
       {#if !isAdmin}
-        <div class="form-group">
-          <label for="pw-old">{t('oldPassword')}</label>
-          <div class="password-input">
-            <input
-              id="pw-old"
-              type={showOldPass ? 'text' : 'password'}
-              bind:value={oldPass}
-              class="input-w-md"
-            />
-            <button
-              class="eye-btn"
-              onclick={() => (showOldPass = !showOldPass)}
-              aria-label={showOldPass ? t('hidePassword') : t('showPassword')}
-            >
-              <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
-              {@html eyeIcon(showOldPass)}
-            </button>
-          </div>
-        </div>
+        <PasswordInput id="pw-old" label={t('oldPassword')} bind:value={oldPass} />
       {/if}
-      <div class="form-group">
-        <label for="pw-pass">{t('newPassword')}</label>
-        <div class="password-input">
-          <input
-            id="pw-pass"
-            type={showPwPass ? 'text' : 'password'}
-            bind:value={pwPass}
-            class="input-w-md"
-          />
-          <button
-            class="eye-btn"
-            onclick={() => (showPwPass = !showPwPass)}
-            aria-label={showPwPass ? t('hidePassword') : t('showPassword')}
-          >
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -- 内容为代码内常量(eyeIcon 布尔映射的 SVG),非用户输入 -->
-            {@html eyeIcon(showPwPass)}
-          </button>
-        </div>
-      </div>
+      <PasswordInput id="pw-pass" label={t('newPassword')} bind:value={pwPass} />
       <button class="btn btn-primary" onclick={changePw} disabled={changingPw}
         >{changingPw ? t('saving') : t('change')}</button
       >
