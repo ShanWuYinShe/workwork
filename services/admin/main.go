@@ -52,6 +52,7 @@ func main() {
 	defer cli.Close()
 
 	xraySvc := xray.NewService(layout, notifier, proxy.NewXrayRestarter(cli))
+	transferStore := transfer.NewStore(layout)
 
 	// Auto-generate configs from templates before dependent services start.
 	if err := generateConfigs(users, secrets, layout, xraySvc); err != nil {
@@ -66,7 +67,7 @@ func main() {
 	auth.SetBlocklistClient(cli)
 	auth.ScheduleBlocklistSync()
 	// 删用户级联清理其 transfer 上传(钩子注入,保持 accounts 不依赖 transfer)。
-	accounts.CascadeDeleteUploads = transfer.DeleteUploadsByUploader
+	accounts.CascadeDeleteUploads = transferStore.DeleteUploadsByUploader
 
 	// 启动 IPv6 恢复完成后关闭此 channel，proxy.IPConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
@@ -94,7 +95,7 @@ func main() {
 	mw := auth.NewMiddleware(users, secrets)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli, users, xraySvc, layout)
+	routes := apiRoutes(cli, users, xraySvc, transferStore, layout)
 	registerBodyLimitExemptions(routes)
 	registerRoutes(mux, routes, mw)
 
@@ -172,9 +173,9 @@ func main() {
 	// 的 .tmp-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
 	platform.CleanupStaleTempFiles(dataDir)
 
-	transfer.CleanupOrphanTempFiles()
+	transferStore.CleanupOrphanTempFiles()
 	daemonWG.Add(1)
-	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transfer.StartCleanupLoop(ctx) })
+	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transferStore.StartCleanupLoop(ctx) })
 
 	go func() {
 		log.Printf("admin %s listening on %s", version, srv.Addr)

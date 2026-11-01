@@ -47,7 +47,7 @@ func (r apiRoute) PatternWithMethod() string {
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, layout runtime.Layout) []apiRoute {
+func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, layout runtime.Layout) []apiRoute {
 	return []apiRoute{
 		// ── 认证 / 账户 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
@@ -86,7 +86,7 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		// ── 公开端点 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/health", Handler: healthHandler(layout), Role: rolePublic},
 		{Method: http.MethodGet, Pattern: "/speedtest/{size}", Handler: infra.ApiSpeedtest(), Role: rolePublic},
-		{Method: http.MethodGet, Pattern: "/api/transfer/{code}", Handler: transfer.ApiTransferPublicDownload(), Role: rolePublic},
+		{Method: http.MethodGet, Pattern: "/api/transfer/{code}", Handler: transfer.ApiTransferPublicDownload(transferStore), Role: rolePublic},
 
 		// ── Claude Code 下载 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/releases", Handler: downloads.ApiClaudeCodeReleases(), Role: roleAdmin},
@@ -109,9 +109,9 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodDelete, Pattern: "/api/admin/xray/downloads/", Handler: downloads.ApiXrayDeleteDownload(), Role: roleAdmin, Audit: true},
 
 		// ── 文件中转 ──
-		{Method: http.MethodPost, Pattern: "/api/admin/transfer/upload", Handler: transfer.ApiTransferUpload(), Role: roleViewer, BodyLimitExempt: true, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/transfer/files", Handler: transfer.ApiTransferList(), Role: roleViewer},
-		{Method: http.MethodDelete, Pattern: "/api/admin/transfer/files", Handler: transfer.ApiTransferDelete(), Role: roleViewer, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/transfer/upload", Handler: transfer.ApiTransferUpload(transferStore), Role: roleViewer, BodyLimitExempt: true, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/transfer/files", Handler: transfer.ApiTransferList(transferStore), Role: roleViewer},
+		{Method: http.MethodDelete, Pattern: "/api/admin/transfer/files", Handler: transfer.ApiTransferDelete(transferStore), Role: roleViewer, Audit: true},
 	}
 }
 
