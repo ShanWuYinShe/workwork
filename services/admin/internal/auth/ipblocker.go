@@ -2,6 +2,7 @@ package auth
 
 import (
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"encoding/json"
 	"errors"
 	"log"
@@ -365,11 +366,11 @@ func ApiBlockIP() http.HandlerFunc {
 				kind = "temporary"
 			}
 		}
-		_, actor := GetUserFromContext(r) // fail2ban 触发时 actor="fail2ban"
+		actor, _ := requestctx.ActorFrom(r.Context()) // fail2ban 触发时 actor="fail2ban"
 		log.Printf("[security] block ip=%s reason=%q duration=%ds kind=%s by=%s",
-			body.IP, body.Reason, body.Duration, kind, actor)
+			body.IP, body.Reason, body.Duration, kind, actor.Username)
 		platform.NotifyWebhook("security.block", "IP 封禁: "+body.IP, map[string]string{
-			"ip": body.IP, "reason": body.Reason, "kind": kind, "by": actor,
+			"ip": body.IP, "reason": body.Reason, "kind": kind, "by": actor.Username,
 		})
 
 		platform.WriteJSON(w, map[string]any{
@@ -411,10 +412,10 @@ func ApiUnblockIP() http.HandlerFunc {
 			return
 		}
 		ipBlocker.save()
-		_, actor := GetUserFromContext(r)
-		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor)
+		actor, _ := requestctx.ActorFrom(r.Context())
+		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor.Username)
 		platform.NotifyWebhook("security.unblock", "IP 解封: "+body.IP, map[string]string{
-			"ip": body.IP, "by": actor,
+			"ip": body.IP, "by": actor.Username,
 		})
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}

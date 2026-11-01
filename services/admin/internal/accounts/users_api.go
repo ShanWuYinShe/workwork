@@ -1,9 +1,9 @@
 package accounts
 
 import (
-	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"admin/internal/xray"
 	"context"
 	"errors"
@@ -22,7 +22,7 @@ var CascadeDeleteUploads func(uploader string) (int, error)
 
 func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 		allClients, err := svc.Clients()
 		if err != nil {
 			log.Printf("Failed to read clients: %v", err)
@@ -32,11 +32,11 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 
 		// Filter by owner: admin sees all, viewer sees only own
 		var filtered []xray.Client
-		if userInfo != nil && userInfo.Role == "admin" {
+		if actor.Role == "admin" {
 			filtered = allClients
 		} else {
 			for _, c := range allClients {
-				if c.Owner == username {
+				if c.Owner == actor.Username {
 					filtered = append(filtered, c)
 				}
 			}
@@ -47,7 +47,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		// 嵌进返回配置。
 		allOwned := len(filtered) > 0
 		for _, c := range filtered {
-			if c.Owner != username {
+			if c.Owner != actor.Username {
 				allOwned = false
 				break
 			}
@@ -55,7 +55,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		proxyAuth := ""
 		genJSON := ""
 		if allOwned {
-			proxyAuth = users.ProxyAuthForUserRead(username)
+			proxyAuth = users.ProxyAuthForUserRead(actor.Username)
 			genJSON = xray.GenerateClientConfig(filtered, xray.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
@@ -76,7 +76,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 			CreatedAt string `json:"created_at"`
 		}
 		var adminUsers []adminUserJSON
-		if userInfo != nil && userInfo.Role == "admin" {
+		if actor.Role == "admin" {
 			for _, u := range htpasswdUsers {
 				au := adminUserJSON{Username: u, Role: "viewer"}
 				if info, ok := doc.Users[u]; ok {
@@ -85,10 +85,10 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 				}
 				adminUsers = append(adminUsers, au)
 			}
-		} else if curInfo, ok := doc.Users[username]; ok {
-			adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
+		} else if curInfo, ok := doc.Users[actor.Username]; ok {
+			adminUsers = []adminUserJSON{{Username: actor.Username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
 		} else {
-			adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
+			adminUsers = []adminUserJSON{{Username: actor.Username, Role: "viewer"}}
 		}
 
 		platform.WriteJSON(w, map[string]any{
@@ -99,7 +99,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 
 func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 		var body struct {
 			Username    string `json:"username"`
 			OldPassword string `json:"old_password"`
@@ -122,16 +122,16 @@ func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 			return
 		}
 		// Non-admin can only change their own password.
-		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
+		if actor.Role != "admin" && body.Username != actor.Username {
 			platform.WriteError(w, "无权操作：只能修改自己的密码", 403)
 			return
 		}
 		// 内置管理员只能改自己的密码，防止任意 admin 重置超管密码接管账号。
-		if users.IsProtected(body.Username) && (userInfo == nil || username != body.Username) {
+		if users.IsProtected(body.Username) && actor.Username != body.Username {
 			platform.WriteError(w, "内置管理员账号密码请经修改密码功能变更", 403)
 			return
 		}
-		requireOld := userInfo == nil || userInfo.Role != "admin"
+		requireOld := actor.Role != "admin"
 		if requireOld && body.OldPassword == "" {
 			platform.WriteError(w, "旧密码必填", 400)
 			return
@@ -153,7 +153,7 @@ func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 			platform.WriteError(w, "旧密码不正确", 401)
 			return
 		}
-		log.Printf("[security] password change user=%s by=%s", body.Username, username)
+		log.Printf("[security] password change user=%s by=%s", body.Username, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -189,8 +189,8 @@ func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
-		userInfo, _ := auth.GetUserFromContext(r)
-		if body.Role == "admin" && userInfo != nil && userInfo.Role != "admin" {
+		actor, _ := requestctx.ActorFrom(r.Context())
+		if body.Role == "admin" && actor.Role != "admin" {
 			platform.WriteError(w, "无权限", 403)
 			return
 		}
@@ -215,9 +215,9 @@ func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 			}
 			return
 		}
-		_, actor := auth.GetUserFromContext(r)
+		actor, _ = requestctx.ActorFrom(r.Context())
 		log.Printf("[security] user upsert user=%s role=%s created=%t by=%s",
-			body.Username, result.Role, result.Created, actor)
+			body.Username, result.Role, result.Created, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -237,8 +237,8 @@ func ApiDeleteAdmin(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 			platform.WriteError(w, "不能删除内置管理员账号", 403)
 			return
 		}
-		_, currentUser := auth.GetUserFromContext(r)
-		if body.Username == currentUser {
+		actor, _ := requestctx.ActorFrom(r.Context())
+		if body.Username == actor.Username {
 			platform.WriteError(w, "不能删除自己", 400)
 			return
 		}
@@ -294,8 +294,8 @@ func ApiDeleteAdmin(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 				uploadsRemoved = n
 			}
 		}
-		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] user delete user=%q deleted=%t xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, deleted, removed, uploadsRemoved, actor)
+		actor, _ = requestctx.ActorFrom(r.Context())
+		log.Printf("[security] user delete user=%q deleted=%t xray_clients_removed=%d uploads_removed=%d by=%s", body.Username, deleted, removed, uploadsRemoved, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -335,23 +335,23 @@ func ApiSetRole(users *identity.Store) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
-		_, actor := auth.GetUserFromContext(r)
-		log.Printf("[security] role set user=%q role=%s by=%s", body.Username, body.Role, actor)
+		actor, _ := requestctx.ActorFrom(r.Context())
+		log.Printf("[security] role set user=%q role=%s by=%s", body.Username, body.Role, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
 func ApiWhoAmI() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		info, username := auth.GetUserFromContext(r)
-		if info == nil {
+		actor, ok := requestctx.ActorFrom(r.Context())
+		if !ok {
 			platform.WriteError(w, "未认证", 401)
 			return
 		}
 		platform.WriteJSON(w, map[string]any{
-			"username":   username,
-			"role":       info.Role,
-			"created_at": info.CreatedAt,
+			"username":   actor.Username,
+			"role":       actor.Role,
+			"created_at": actor.CreatedAt,
 		})
 	}
 }

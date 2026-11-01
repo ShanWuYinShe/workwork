@@ -1,14 +1,14 @@
 package auth
 
 import (
-	"admin/internal/identity"
+	"admin/internal/requestctx"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-// TestRequireRoleTrustedProxy 覆盖此前完全没有测试的认证主链路：
-// 可信代理 + X-Forwarded-User → users.json 查找 → 角色比较 → ctx actor。
+// TestRequireRoleTrustedProxy 覆盖认证主链路：可信代理 + X-Forwarded-User
+// → users.json 查找 → 角色比较 → requestctx actor。
 func TestRequireRoleTrustedProxy(t *testing.T) {
 	useDefaultProxyTrust(t)
 	mw := newTestMiddleware(t)
@@ -19,7 +19,7 @@ func TestRequireRoleTrustedProxy(t *testing.T) {
 		t.Fatalf("seed admin: %v", err)
 	}
 
-	call := func(role, remote, user, internalToken string) (*httptest.ResponseRecorder, *identity.UserInfo, string) {
+	call := func(role, remote, user, internalToken string) (int, requestctx.Actor, bool) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
 		req.RemoteAddr = remote
@@ -30,29 +30,29 @@ func TestRequireRoleTrustedProxy(t *testing.T) {
 			req.Header.Set("X-Internal-Token", internalToken)
 		}
 		rec := httptest.NewRecorder()
-		var info *identity.UserInfo
-		var gotUser string
+		var actor requestctx.Actor
+		var ok bool
 		mw.RequireRole(role)(func(w http.ResponseWriter, r *http.Request) {
-			info, gotUser = GetUserFromContext(r)
+			actor, ok = requestctx.ActorFrom(r.Context())
 			w.WriteHeader(http.StatusOK)
 		})(rec, req)
-		return rec, info, gotUser
+		return rec.Code, actor, ok
 	}
 
-	if rec, info, user := call("viewer", "127.0.0.1:1234", "alice", ""); rec.Code != http.StatusOK || user != "alice" || info == nil || info.Role != "viewer" {
-		t.Fatalf("viewer self: code=%d user=%q info=%+v", rec.Code, user, info)
+	if code, actor, ok := call("viewer", "127.0.0.1:1234", "alice", ""); code != http.StatusOK || !ok || actor.Username != "alice" || actor.Role != "viewer" {
+		t.Fatalf("viewer self: code=%d actor=%+v ok=%v", code, actor, ok)
 	}
-	if rec, _, _ := call("admin", "127.0.0.1:1234", "alice", ""); rec.Code != http.StatusForbidden {
-		t.Fatalf("viewer on admin route: code=%d, want 403", rec.Code)
+	if code, _, _ := call("admin", "127.0.0.1:1234", "alice", ""); code != http.StatusForbidden {
+		t.Fatalf("viewer on admin route: code=%d, want 403", code)
 	}
-	if rec, _, _ := call("admin", "127.0.0.1:1234", "rootadmin", ""); rec.Code != http.StatusOK {
-		t.Fatalf("admin on admin route: code=%d, want 200", rec.Code)
+	if code, actor, ok := call("admin", "127.0.0.1:1234", "rootadmin", ""); code != http.StatusOK || !ok || actor.Role != "admin" {
+		t.Fatalf("admin on admin route: code=%d actor=%+v ok=%v", code, actor, ok)
 	}
-	if rec, _, _ := call("viewer", "127.0.0.1:1234", "nobody", ""); rec.Code != http.StatusForbidden {
-		t.Fatalf("unprovisioned user: code=%d, want 403", rec.Code)
+	if code, _, _ := call("viewer", "127.0.0.1:1234", "nobody", ""); code != http.StatusForbidden {
+		t.Fatalf("unprovisioned user: code=%d, want 403", code)
 	}
-	if rec, _, _ := call("viewer", "203.0.113.10:1234", "alice", ""); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("untrusted peer: code=%d, want 401", rec.Code)
+	if code, _, _ := call("viewer", "203.0.113.10:1234", "alice", ""); code != http.StatusUnauthorized {
+		t.Fatalf("untrusted peer: code=%d, want 401", code)
 	}
 }
 
@@ -61,14 +61,14 @@ func TestRequireRoleInternalToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
 	req.Header.Set("X-Internal-Token", "internal-secret")
 	rec := httptest.NewRecorder()
-	var info *identity.UserInfo
-	var user string
+	var actor requestctx.Actor
+	var ok bool
 	mw.RequireRole("admin")(func(w http.ResponseWriter, r *http.Request) {
-		info, user = GetUserFromContext(r)
+		actor, ok = requestctx.ActorFrom(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})(rec, req)
-	if rec.Code != http.StatusOK || user != "internal" || info == nil || info.Role != "admin" {
-		t.Fatalf("internal token: code=%d user=%q info=%+v", rec.Code, user, info)
+	if rec.Code != http.StatusOK || !ok || actor.Username != "internal" || actor.Role != "admin" || !actor.Internal {
+		t.Fatalf("internal token: code=%d actor=%+v ok=%v", rec.Code, actor, ok)
 	}
 }
 

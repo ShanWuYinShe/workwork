@@ -40,6 +40,7 @@ func TestLastAdminGuard(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/roles/set", body)
 		rec := httptest.NewRecorder()
 		ApiSetRole(users)(rec, req)
+		t.Logf("setrole %s=%s -> %d %s", username, role, rec.Code, rec.Body.String())
 		return rec.Code
 	}
 
@@ -49,6 +50,7 @@ func TestLastAdminGuard(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/delete", body)
 		rec := httptest.NewRecorder()
 		ApiDeleteAdmin(users, svc)(rec, req)
+		t.Logf("delete %s -> %d %s", username, rec.Code, rec.Body.String())
 		return rec.Code
 	}
 
@@ -93,6 +95,7 @@ func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/add", body)
 	rec := httptest.NewRecorder()
 	ApiAddAdmin(users)(rec, req)
+	t.Logf("add root -> %d %s", rec.Code, rec.Body.String())
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("reset AUTH_USER via add: status = %d, want 403", rec.Code)
 	}

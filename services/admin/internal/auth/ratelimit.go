@@ -2,6 +2,7 @@ package auth
 
 import (
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"log"
 	"net"
 	"net/http"
@@ -311,8 +312,8 @@ func ApiRateLimitUnblock() http.HandlerFunc {
 		authRateLimiter.mu.Unlock()
 		ipBlocker.remove(body.IP)
 		ipBlocker.save()
-		_, actor := GetUserFromContext(r)
-		log.Printf("[security] rate-limit unblock ip=%s by=%s", body.IP, actor)
+		actor, _ := requestctx.ActorFrom(r.Context())
+		log.Printf("[security] rate-limit unblock ip=%s by=%s", body.IP, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

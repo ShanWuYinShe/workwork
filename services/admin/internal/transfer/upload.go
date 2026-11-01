@@ -1,8 +1,8 @@
 package transfer
 
 import (
-	"admin/internal/auth"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +17,7 @@ import (
 
 func ApiTransferUpload(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		_, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		// 并发闸门(32MB multipart 内存缓冲,全局限 2 位,防并发上传 OOM)。
 		release, ok := platform.AcquireUploadSlot(r.Context())
@@ -119,7 +119,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 		if quota := transferMaxPerUserBytes(); quota > 0 {
 			var used int64
 			for _, f := range snapshot.Files {
-				if f.Uploader == username {
+				if f.Uploader == actor.Username {
 					used += f.Size
 				}
 			}
@@ -129,7 +129,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 				return
 			}
 		}
-		if countUploaderEntries(snapshot, username) >= maxTransferFilesPerUser {
+		if countUploaderEntries(snapshot, actor.Username) >= maxTransferFilesPerUser {
 			s.mu.Unlock()
 			platform.WriteError(w, fmt.Sprintf("文件数量已达上限（每人最多 %d 个）", maxTransferFilesPerUser), 400)
 			return
@@ -196,7 +196,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 		if quota := transferMaxPerUserBytes(); quota > 0 {
 			var used int64
 			for _, f := range m.Files {
-				if f.Uploader == username {
+				if f.Uploader == actor.Username {
 					used += f.Size
 				}
 			}
@@ -207,7 +207,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 				return
 			}
 		}
-		if countUploaderEntries(m, username) >= maxTransferFilesPerUser {
+		if countUploaderEntries(m, actor.Username) >= maxTransferFilesPerUser {
 			s.mu.Unlock()
 			os.Remove(tmpPath)
 			platform.WriteError(w, fmt.Sprintf("文件数量已达上限（每人最多 %d 个）", maxTransferFilesPerUser), 400)
@@ -237,7 +237,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 			Filename:     name,
 			Size:         written,
 			ContentType:  header.Header.Get("Content-Type"),
-			Uploader:     username,
+			Uploader:     actor.Username,
 			UploadedAt:   now.Format(time.RFC3339),
 			ExpiresAt:    now.Add(duration).Format(time.RFC3339),
 			MaxDownloads: maxDL,
@@ -261,7 +261,7 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 			return
 		}
 
-		log.Printf("[security] transfer upload code=%q file=%q size=%d by=%s", code, entry.Filename, entry.Size, username)
+		log.Printf("[security] transfer upload code=%q file=%q size=%d by=%s", code, entry.Filename, entry.Size, actor.Username)
 		platform.WriteJSON(w, map[string]any{
 			"status": "ok",
 			"code":   code,

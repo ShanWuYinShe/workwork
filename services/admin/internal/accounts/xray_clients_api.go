@@ -1,9 +1,9 @@
 package accounts
 
 import (
-	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"admin/internal/xray"
 	"context"
 	"errors"
@@ -15,7 +15,7 @@ import (
 
 func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		var body struct {
 			UUID  string `json:"uuid"`
@@ -38,12 +38,12 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		// 客户端归属：登录用户是 nginx 认证身份，客户端是它名下的代理身份，
 		// 一个用户可以创建多个。admin 可以代任意存在的用户创建（owner 字段）；
 		// 非 admin 只能为自己创建。
-		owner := username
+		owner := actor.Username
 		if strings.TrimSpace(body.Owner) != "" {
 			owner = strings.TrimSpace(body.Owner)
 		}
-		isAdmin := userInfo != nil && userInfo.Role == "admin"
-		if !isAdmin && owner != username {
+		isAdmin := actor.Role == "admin"
+		if !isAdmin && owner != actor.Username {
 			platform.WriteError(w, "无权操作：只能为自己创建客户端", 403)
 			return
 		}
@@ -94,14 +94,14 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 			}
 			return
 		}
-		log.Printf("[security] xray client add uuid=%s owner=%s by=%s", uuid, owner, username)
+		log.Printf("[security] xray client add uuid=%s owner=%s by=%s", uuid, owner, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok", "uuid": uuid, "owner": owner})
 	}
 }
 
 func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		var body struct {
 			UUID string `json:"uuid"`
@@ -116,10 +116,10 @@ func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 		}
 		body.UUID = strings.ToLower(body.UUID)
 
-		isAdmin := userInfo != nil && userInfo.Role == "admin"
+		isAdmin := actor.Role == "admin"
 		ownerFilter := ""
 		if !isAdmin {
-			ownerFilter = username
+			ownerFilter = actor.Username
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
 		defer cancel()
@@ -139,7 +139,7 @@ func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 			}
 			return
 		}
-		log.Printf("[security] xray client delete uuid=%q owner=%q by=%s", body.UUID, deleted.Owner, username)
+		log.Printf("[security] xray client delete uuid=%q owner=%q by=%s", body.UUID, deleted.Owner, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -147,7 +147,7 @@ func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 // GET /api/admin/users/xray/config/{uuid} — generate config for a specific client
 func ApiXrayClientConfig(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 		uuid := strings.ToLower(r.PathValue("uuid"))
 		if uuid == "" {
 			platform.WriteError(w, "UUID 必填", 400)
@@ -170,7 +170,7 @@ func ApiXrayClientConfig(users *identity.Store, svc *xray.Service) http.HandlerF
 			platform.WriteError(w, "客户端不存在", 404)
 			return
 		}
-		if userInfo != nil && userInfo.Role != "admin" && client.Owner != username {
+		if actor.Role != "admin" && client.Owner != actor.Username {
 			platform.WriteError(w, "无权限", 403)
 			return
 		}

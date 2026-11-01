@@ -1,8 +1,8 @@
 package transfer
 
 import (
-	"admin/internal/auth"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,7 +11,7 @@ import (
 
 func ApiTransferList(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		s.mu.Lock()
 		m, err := s.loadLocked()
@@ -24,11 +24,11 @@ func ApiTransferList(s *Store) http.HandlerFunc {
 
 		// 权限过滤
 		var files []transferFile
-		if userInfo != nil && userInfo.Role == "admin" {
+		if actor.Role == "admin" {
 			files = m.Files
 		} else {
 			for _, f := range m.Files {
-				if f.Uploader == username {
+				if f.Uploader == actor.Username {
 					files = append(files, f)
 				}
 			}
@@ -55,7 +55,7 @@ func ApiTransferList(s *Store) http.HandlerFunc {
 // DELETE /api/admin/transfer/files — viewer+ 删除文件
 func ApiTransferDelete(s *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		// DELETE 不带 body(风格统一,claude/xray downloads 同为 query):目标经 ?code= 定位。
 		code := r.URL.Query().Get("code")
@@ -79,7 +79,7 @@ func ApiTransferDelete(s *Store) http.HandlerFunc {
 		for _, f := range m.Files {
 			if f.Code == code {
 				// 权限检查：admin 可删任意文件，普通用户只能删自己的
-				if userInfo != nil && userInfo.Role != "admin" && f.Uploader != username {
+				if actor.Role != "admin" && f.Uploader != actor.Username {
 					platform.WriteError(w, "无权操作：不是你上传的文件", 403)
 					return
 				}
@@ -115,7 +115,7 @@ func ApiTransferDelete(s *Store) http.HandlerFunc {
 		}
 		// 审计带上命中条目的文件名(服务端可控值,无注入面):事后审计不必
 		// 反查 manifest——那时条目已删。
-		log.Printf("[security] transfer delete code=%q files=%q by=%s", code, removedNames, username)
+		log.Printf("[security] transfer delete code=%q files=%q by=%s", code, removedNames, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }

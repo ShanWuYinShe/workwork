@@ -3,6 +3,7 @@ package auth
 import (
 	"admin/internal/identity"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"context"
 	"crypto/subtle"
 	"log"
@@ -12,11 +13,6 @@ import (
 	"sync"
 	"time"
 )
-
-type ctxKey string
-
-const userInfoCtxKey ctxKey = "userInfo"
-const usernameCtxKey ctxKey = "username"
 
 // Middleware 持有认证所需的身份/密钥依赖。之前这些依赖是 auth 包级全局
 // 变量（usersMetaPath、internalToken atomic.Value），任何 import auth 的
@@ -28,12 +24,6 @@ type Middleware struct {
 
 func NewMiddleware(users *identity.Store, secrets *identity.Secrets) *Middleware {
 	return &Middleware{users: users, secrets: secrets}
-}
-
-func GetUserFromContext(r *http.Request) (*identity.UserInfo, string) {
-	info, _ := r.Context().Value(userInfoCtxKey).(*identity.UserInfo)
-	username, _ := r.Context().Value(usernameCtxKey).(string)
-	return info, username
 }
 
 const (
@@ -302,16 +292,13 @@ func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.Han
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			var info *identity.UserInfo
-			var username string
+			var actor requestctx.Actor
 
 			// Internal automation uses scoped shared secrets.
 			if m.isInternalRequest(r) {
-				info = &identity.UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-				username = "internal"
+				actor = requestctx.Actor{Username: "internal", Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
 			} else if m.isFail2BanRequest(r) {
-				info = &identity.UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
-				username = "fail2ban"
+				actor = requestctx.Actor{Username: "fail2ban", Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339), Internal: true}
 			} else {
 				// External requests must come through a trusted reverse proxy
 				// (nginx on the docker bridge), and the proxy must have set
@@ -323,13 +310,12 @@ func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.Han
 					platform.WriteError(w, "未认证", 401)
 					return
 				}
-				username = r.Header.Get("X-Forwarded-User")
+				username := r.Header.Get("X-Forwarded-User")
 				if username == "" {
 					platform.WriteError(w, "未认证", 401)
 					return
 				}
-				var err error
-				info, err = m.users.Lookup(username)
+				info, err := m.users.Lookup(username)
 				if err != nil {
 					platform.WriteInternalError(w, err)
 					return
@@ -340,6 +326,7 @@ func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.Han
 					platform.WriteError(w, "用户未初始化", 403)
 					return
 				}
+				actor = requestctx.Actor{Username: username, Role: info.Role, CreatedAt: info.CreatedAt}
 			}
 
 			requiredLevel, ok := roleLevel[minRole]
@@ -348,19 +335,18 @@ func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.Han
 				platform.WriteError(w, "内部错误", 500)
 				return
 			}
-			userLevel, ok := roleLevel[info.Role]
+			userLevel, ok := roleLevel[actor.Role]
 			if !ok {
 				userLevel = 0
 			}
 			// 认证成功即落审计身份（含 403 Forbidden 的请求）。
-			markAuditUser(r.Context(), username)
+			markAuditUser(r.Context(), actor.Username)
 			if userLevel < requiredLevel {
 				platform.WriteError(w, "无权限", 403)
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), userInfoCtxKey, info)
-			ctx = context.WithValue(ctx, usernameCtxKey, username)
+			ctx := requestctx.WithActor(r.Context(), actor)
 			next(w, r.WithContext(ctx))
 		}
 	}

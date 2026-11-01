@@ -1,9 +1,9 @@
 package infra
 
 import (
-	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/platform"
+	"admin/internal/requestctx"
 	"admin/internal/xray"
 	"context"
 	"fmt"
@@ -15,10 +15,10 @@ import (
 
 func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userInfo, username := auth.GetUserFromContext(r)
+		actor, _ := requestctx.ActorFrom(r.Context())
 
 		// For non-admin users, return personalized dashboard
-		if userInfo != nil && userInfo.Role != "admin" {
+		if actor.Role != "admin" {
 			allClients, err := svc.Clients()
 			if err != nil {
 				log.Printf("Failed to read clients for dashboard: %v", err)
@@ -27,7 +27,7 @@ func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) 
 			}
 			var myClients []xray.Client
 			for _, c := range allClients {
-				if c.Owner == username {
+				if c.Owner == actor.Username {
 					myClients = append(myClients, c)
 				}
 			}
@@ -37,7 +37,7 @@ func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) 
 				// 生成 proxy 密码并重写 htpasswd(users_api.go / xray_clients_api.go
 				// 两个读端点同此约定改用 Read 变体)。密码尚未生成时返回空串——
 				// 客户端首次添加 Xray 客户端时再懒创建,与那两个读端点一致。
-				proxyAuth = users.ProxyAuthForUserRead(username)
+				proxyAuth = users.ProxyAuthForUserRead(actor.Username)
 			}
 			genJSON := xray.GenerateClientConfig(myClients, xray.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
@@ -46,8 +46,8 @@ func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) 
 				XHTTPProxyAuth: proxyAuth,
 			})
 			platform.WriteJSON(w, map[string]any{
-				"role":          userInfo.Role,
-				"username":      username,
+				"role":          actor.Role,
+				"username":      actor.Username,
 				"myClients":     myClients,
 				"generatedJSON": genJSON,
 			})

@@ -65,8 +65,6 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		// ── 面板 / 服务 / 日志 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/dashboard", Handler: infra.ApiDashboard(users, xraySvc, cli), Role: roleViewer},
 		{Method: http.MethodGet, Pattern: "/api/admin/services", Handler: infra.ApiServices(cli), Role: roleAdmin},
-		// 兼容旧 nginx 301：/api/admin/services/ 直接返回列表。
-		{Method: http.MethodGet, Pattern: "/api/admin/services/", Handler: infra.ApiServices(cli), Role: roleAdmin},
 		{Method: http.MethodPost, Pattern: "/api/admin/services/{name}/{action}", Handler: infra.ApiServiceAction(cli), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/services/{name}/logs", Handler: infra.ApiServiceLogs(cli), Role: roleAdmin},
 		{Method: http.MethodGet, Pattern: "/api/admin/services/{name}/logs/stream", Handler: infra.ApiServiceLogStream(cli), Role: roleAdmin},
@@ -96,7 +94,6 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodPost, Pattern: "/api/admin/claude-code/download", Handler: downloads.ApiClaudeCodeDownload(), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/claude-code/downloads/{filename}", Handler: downloads.ApiClaudeCodeServeDownload(), Role: roleViewer},
 		{Method: http.MethodDelete, Pattern: "/api/admin/claude-code/downloads", Handler: downloads.ApiClaudeCodeDeleteDownload(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodDelete, Pattern: "/api/admin/claude-code/downloads/", Handler: downloads.ApiClaudeCodeDeleteDownload(), Role: roleAdmin, Audit: true},
 
 		// ── Xray 下载 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/xray/releases", Handler: downloads.ApiXrayReleases(), Role: roleAdmin},
@@ -106,7 +103,6 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodPost, Pattern: "/api/admin/xray/download", Handler: downloads.ApiXrayDownload(), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/xray/downloads/{filename}", Handler: downloads.ApiXrayServeDownload(), Role: roleViewer},
 		{Method: http.MethodDelete, Pattern: "/api/admin/xray/downloads", Handler: downloads.ApiXrayDeleteDownload(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodDelete, Pattern: "/api/admin/xray/downloads/", Handler: downloads.ApiXrayDeleteDownload(), Role: roleAdmin, Audit: true},
 
 		// ── 文件中转 ──
 		{Method: http.MethodPost, Pattern: "/api/admin/transfer/upload", Handler: transfer.ApiTransferUpload(transferStore), Role: roleViewer, BodyLimitExempt: true, Audit: true},
