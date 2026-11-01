@@ -10,6 +10,7 @@ package proxy
 
 import (
 	"admin/internal/platform"
+	"admin/internal/runtime"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,94 +43,103 @@ type trafficState struct {
 	Totals   map[string]userTraffic `json:"totals"`
 }
 
-var (
-	trafficMu       sync.Mutex
-	trafficTotals   = map[string]userTraffic{}
-	trafficBaseline map[string]int64
-	trafficLoaded   bool
+// TrafficTracker 是流量统计的唯一状态 owner。路径由 Layout 注入，不再有
+// traffic-state.json 的包级字面量与可变全局。
+type TrafficTracker struct {
+	path string
+	mu   sync.Mutex
+
+	totals   map[string]userTraffic
+	baseline map[string]int64
+	loaded   bool
 	// 连续失败一次性告警:旧 xray 镜像无 stats API 时避免每分钟刷屏。
-	trafficFailLogged bool
-	// trafficEmailAliases 是客户端台账规范化产生的"旧 email → 新 email"
-	// 映射（登录用户名 → 客户端 UUID）。在 loadTrafficState 之后应用一次，
-	// 把历史累计值续接到新键。
-	trafficEmailAliases map[string]string
-)
+	failLogged bool
+	// aliases 是客户端台账规范化产生的"旧 email → 新 email"映射
+	// （登录用户名 → 客户端 UUID）。在状态加载之后应用一次，把历史累计值
+	// 续接到新键。
+	aliases map[string]string
+}
 
-// trafficStatePath var 供测试替换。
-var trafficStatePath = "/app/data/traffic-state.json"
-
-// SetTrafficEmailAliases 注册台账规范化产生的 email 迁移映射。可在流量状态
-// 加载前或加载后调用：未加载时记住，加载时应用；已加载时立即应用。
-func SetTrafficEmailAliases(aliases map[string]string) {
-	trafficMu.Lock()
-	defer trafficMu.Unlock()
-	trafficEmailAliases = aliases
-	if trafficLoaded {
-		applyTrafficEmailAliasesLocked()
+// NewTrafficTracker 基于 Layout 构造流量统计器；首次采集时才读取状态文件。
+func NewTrafficTracker(layout runtime.Layout) *TrafficTracker {
+	return &TrafficTracker{
+		path:   layout.TrafficStatePath(),
+		totals: map[string]userTraffic{},
 	}
 }
 
-// applyTrafficEmailAliasesLocked 把旧 email 键下的累计/基线合并到新键。
-// 调用方必须持有 trafficMu。
-func applyTrafficEmailAliasesLocked() {
-	for oldEmail, newEmail := range trafficEmailAliases {
+// SetEmailAliases 注册台账规范化产生的 email 迁移映射。可在流量状态
+// 加载前或加载后调用：未加载时记住，加载时应用；已加载时立即应用。
+func (t *TrafficTracker) SetEmailAliases(aliases map[string]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.aliases = aliases
+	if t.loaded {
+		t.applyEmailAliasesLocked()
+	}
+}
+
+// applyEmailAliasesLocked 把旧 email 键下的累计/基线合并到新键。
+// 调用方必须持有 t.mu。
+func (t *TrafficTracker) applyEmailAliasesLocked() {
+	for oldEmail, newEmail := range t.aliases {
 		if oldEmail == "" || newEmail == "" || oldEmail == newEmail {
 			continue
 		}
-		if t, ok := trafficTotals[oldEmail]; ok {
-			cur := trafficTotals[newEmail]
-			cur.Up += t.Up
-			cur.Down += t.Down
-			trafficTotals[newEmail] = cur
-			delete(trafficTotals, oldEmail)
+		if v, ok := t.totals[oldEmail]; ok {
+			cur := t.totals[newEmail]
+			cur.Up += v.Up
+			cur.Down += v.Down
+			t.totals[newEmail] = cur
+			delete(t.totals, oldEmail)
 		}
-		if trafficBaseline != nil {
+		if t.baseline != nil {
 			for _, dir := range []string{"uplink", "downlink"} {
 				oldKey := oldEmail + ">>>" + dir
 				newKey := newEmail + ">>>" + dir
-				if v, ok := trafficBaseline[oldKey]; ok {
-					trafficBaseline[newKey] += v
-					delete(trafficBaseline, oldKey)
+				if v, ok := t.baseline[oldKey]; ok {
+					t.baseline[newKey] += v
+					delete(t.baseline, oldKey)
 				}
 			}
 		}
 	}
 }
 
-// loadTrafficState 首次调用时从磁盘恢复(进程内只加载一次)。
+// loadLocked 首次调用时从磁盘恢复(进程内只加载一次)。调用方必须持有 t.mu。
 // 损坏文件已被 LoadJSONFile 隔离（原字节保留在 .corrupt），统计是旁路
 // 数据，可以从零重建；读错误（权限/IO）不能当空表继续，否则下一轮 save
 // 会把原有累计值覆盖掉——返回 error，由采集器重试。
-func loadTrafficState() error {
-	if trafficLoaded {
+func (t *TrafficTracker) loadLocked() error {
+	if t.loaded {
 		return nil
 	}
 	var st trafficState
-	if err := platform.LoadJSONFile(trafficStatePath, &st); err != nil {
+	if err := platform.LoadJSONFile(t.path, &st); err != nil {
 		if !errors.Is(err, platform.ErrCorruptJSON) {
 			return err
 		}
 		log.Printf("WARNING: traffic state corrupt, starting from zero (%v)", err)
 	}
-	trafficLoaded = true
+	t.loaded = true
 	if st.Baseline != nil {
-		trafficBaseline = st.Baseline
+		t.baseline = st.Baseline
 	}
 	if st.Totals != nil {
-		trafficTotals = st.Totals
+		t.totals = st.Totals
 	}
-	applyTrafficEmailAliasesLocked()
+	t.applyEmailAliasesLocked()
 	return nil
 }
 
-// saveTrafficStateLocked 持锁落盘。失败只记日志:丢一轮基线最坏情况是
-// xray 下次重启后少算一个轮询间隔的增量。
-func saveTrafficStateLocked() {
-	if !trafficLoaded {
+// saveLocked 持锁落盘。失败只记日志:丢一轮基线最坏情况是
+// xray 下次重启后少算一个轮询间隔的增量。调用方必须持有 t.mu。
+func (t *TrafficTracker) saveLocked() {
+	if !t.loaded {
 		return
 	}
-	st := trafficState{Baseline: trafficBaseline, Totals: trafficTotals}
-	if err := platform.SaveJSONFile(trafficStatePath, st); err != nil {
+	st := trafficState{Baseline: t.baseline, Totals: t.totals}
+	if err := platform.SaveJSONFile(t.path, st); err != nil {
 		log.Printf("WARNING: persist traffic state: %v", err)
 	}
 }
@@ -172,82 +182,83 @@ func parseStatsQueryOutput(data []byte) (map[string]userTraffic, error) {
 		if err != nil || val < 0 {
 			continue
 		}
-		t := out[email]
+		v := out[email]
 		switch parts[3] {
 		case "uplink":
-			t.Up = val
+			v.Up = val
 		case "downlink":
-			t.Down = val
+			v.Down = val
 		default:
 			continue
 		}
-		out[email] = t
+		out[email] = v
 	}
 	return out, nil
 }
 
 // accumulate 把本轮快照并入 totals:正常 delta = cur-last;xray 重启清零
 // (cur < last)时 delta = cur;新出现的计数器从 0 起算。返回是否发生变化。
-func accumulate(cur map[string]userTraffic) bool {
+// 调用方必须持有 t.mu。
+func (t *TrafficTracker) accumulate(cur map[string]userTraffic) bool {
 	changed := false
-	for email, t := range cur {
-		last := trafficBaselineEntry(email + ">>>uplink")
-		deltaUp := t.Up - last
-		if t.Up < last {
-			deltaUp = t.Up
+	for email, v := range cur {
+		last := t.baselineEntry(email + ">>>uplink")
+		deltaUp := v.Up - last
+		if v.Up < last {
+			deltaUp = v.Up
 		}
-		lastDown := trafficBaselineEntry(email + ">>>downlink")
-		deltaDown := t.Down - lastDown
-		if t.Down < lastDown {
-			deltaDown = t.Down
+		lastDown := t.baselineEntry(email + ">>>downlink")
+		deltaDown := v.Down - lastDown
+		if v.Down < lastDown {
+			deltaDown = v.Down
 		}
 		if deltaUp == 0 && deltaDown == 0 {
 			continue
 		}
-		tot := trafficTotals[email]
+		tot := t.totals[email]
 		tot.Up += deltaUp
 		tot.Down += deltaDown
-		trafficTotals[email] = tot
+		t.totals[email] = tot
 		changed = true
 	}
 	// 基线整体替换(消失的计数器=对应用户已删,基线同步丢弃)。
-	trafficBaseline = map[string]int64{}
-	for email, t := range cur {
-		trafficBaseline[email+">>>uplink"] = t.Up
-		trafficBaseline[email+">>>downlink"] = t.Down
+	t.baseline = map[string]int64{}
+	for email, v := range cur {
+		t.baseline[email+">>>uplink"] = v.Up
+		t.baseline[email+">>>downlink"] = v.Down
 	}
 	return changed
 }
 
-func trafficBaselineEntry(name string) int64 {
-	if trafficBaseline == nil {
+func (t *TrafficTracker) baselineEntry(name string) int64 {
+	if t.baseline == nil {
 		return 0
 	}
-	return trafficBaseline[name]
+	return t.baseline[name]
 }
 
-// TrafficSnapshot 返回当前累计流量的副本(按 email),供 API 展示。
-func TrafficSnapshot() map[string]userTraffic {
-	trafficMu.Lock()
-	defer trafficMu.Unlock()
-	out := make(map[string]userTraffic, len(trafficTotals))
-	for k, v := range trafficTotals {
+// Snapshot 返回当前累计流量的副本(按 email),供 API 展示。
+func (t *TrafficTracker) Snapshot() map[string]userTraffic {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make(map[string]userTraffic, len(t.totals))
+	for k, v := range t.totals {
 		out[k] = v
 	}
 	return out
 }
 
-// StartTrafficCollector 每分钟拉取一次 xray per-user 流量,随 ctx 退出。
-func StartTrafficCollector(ctx context.Context, cli *client.Client) {
+// Start 每分钟拉取一次 xray per-user 流量,随 ctx 退出。
+func (t *TrafficTracker) Start(ctx context.Context, cli *client.Client) {
 	runPoll := func() {
 		// 状态文件读失败时不要继续查询/落盘：下一轮 save 会用空表覆盖。
 		// 每一轮都重试加载，文件恢复后自动继续。
-		trafficMu.Lock()
-		loadErr := loadTrafficState()
-		loaded := trafficLoaded
-		trafficMu.Unlock()
+		t.mu.Lock()
+		loadErr := t.loadLocked()
+		loaded := t.loaded
+		t.mu.Unlock()
 		if !loaded {
-			logTrafficFailure("load state", loadErr)
+			t.logFailure("load state", loadErr)
 			return
 		}
 
@@ -255,29 +266,30 @@ func StartTrafficCollector(ctx context.Context, cli *client.Client) {
 		defer cancel()
 		xrayID, err := platform.FindContainer(pollCtx, cli, "xray")
 		if err != nil {
-			logTrafficFailure("find xray container", err)
+			t.logFailure("find xray container", err)
 			return
 		}
 		out, err := platform.ContainerExecOutput(pollCtx, cli, xrayID,
 			"xray", "api", "statsquery", "--server=127.0.0.1:10085")
 		if err != nil {
-			logTrafficFailure("statsquery", err)
+			t.logFailure("statsquery", err)
 			return
 		}
 		cur, err := parseStatsQueryOutput([]byte(out))
 		if err != nil {
-			logTrafficFailure("parse stats", err)
+			t.logFailure("parse stats", err)
 			return
 		}
-		trafficMu.Lock()
-		changed := accumulate(cur)
+		t.mu.Lock()
+		changed := t.accumulate(cur)
 		if changed {
-			saveTrafficStateLocked()
+			t.saveLocked()
 		}
-		trafficMu.Unlock()
-		if trafficFailLogged {
+		failLogged := t.failLogged
+		t.failLogged = false
+		t.mu.Unlock()
+		if failLogged {
 			log.Printf("traffic collector recovered")
-			trafficFailLogged = false
 		}
 	}
 	runPoll()
@@ -293,19 +305,22 @@ func StartTrafficCollector(ctx context.Context, cli *client.Client) {
 	}
 }
 
-// logTrafficFailure 一次性告警连续失败(恢复后重置);统计是旁路能力,
+// logFailure 一次性告警连续失败(恢复后重置);统计是旁路能力,
 // 失败不影响面板主功能。
-func logTrafficFailure(what string, err error) {
-	if !trafficFailLogged {
+func (t *TrafficTracker) logFailure(what string, err error) {
+	t.mu.Lock()
+	first := !t.failLogged
+	t.failLogged = true
+	t.mu.Unlock()
+	if first {
 		log.Printf("WARNING: traffic collector %s failed (will retry silently): %v", what, err)
-		trafficFailLogged = true
 	}
 }
 
-// ApiTraffic 返回按用户累计的代理流量(admin)。只读端点,无审计。
-func ApiTraffic() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		snapshot := TrafficSnapshot()
+// API 返回按用户累计的代理流量(admin)。只读端点,无审计。
+func (t *TrafficTracker) API() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		snapshot := t.Snapshot()
 		type row struct {
 			// email 现在是客户端 UUID（xray 统计键），不再是登录用户名。
 			Email string `json:"email"`
@@ -313,8 +328,8 @@ func ApiTraffic() http.HandlerFunc {
 			Down  int64  `json:"down"`
 		}
 		rows := make([]row, 0, len(snapshot))
-		for email, t := range snapshot {
-			rows = append(rows, row{Email: email, Up: t.Up, Down: t.Down})
+		for email, v := range snapshot {
+			rows = append(rows, row{Email: email, Up: v.Up, Down: v.Down})
 		}
 		sort.Slice(rows, func(i, j int) bool {
 			return rows[i].Email < rows[j].Email

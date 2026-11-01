@@ -45,9 +45,25 @@ func (r apiRoute) PatternWithMethod() string {
 	return r.Method + " " + r.Pattern
 }
 
+// apiDeps 是路由构造所需的全部依赖。用结构体而非位置参数：新增一个域
+// （如流量统计）不再改调用点顺序，也让契约测试显式声明哪些依赖可为 nil。
+type apiDeps struct {
+	cli       *client.Client
+	users     *identity.Store
+	xraySvc   *xray.Service
+	transfer  *transfer.Store
+	security  *auth.Security
+	downloads *downloads.Manager
+	traffic   *proxy.TrafficTracker
+	layout    runtime.Layout
+}
+
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, securitySvc *auth.Security, downloadsMgr *downloads.Manager, layout runtime.Layout) []apiRoute {
+func apiRoutes(d apiDeps) []apiRoute {
+	cli, users, xraySvc := d.cli, d.users, d.xraySvc
+	transferStore, securitySvc := d.transfer, d.security
+	downloadsMgr, traffic, layout := d.downloads, d.traffic, d.layout
 	return []apiRoute{
 		// ── 认证 / 账户 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
@@ -79,7 +95,7 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodPost, Pattern: "/api/admin/security/unblock", Handler: securitySvc.ApiUnblockIP(), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/security/rate-limit", Handler: securitySvc.ApiRateLimitStatus(), Role: roleAdmin},
 		{Method: http.MethodPost, Pattern: "/api/admin/security/rate-limit/unblock", Handler: securitySvc.ApiRateLimitUnblock(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/traffic", Handler: proxy.ApiTraffic(), Role: roleAdmin},
+		{Method: http.MethodGet, Pattern: "/api/admin/traffic", Handler: traffic.API(), Role: roleAdmin},
 
 		// ── 公开端点 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/health", Handler: healthHandler(layout), Role: rolePublic},

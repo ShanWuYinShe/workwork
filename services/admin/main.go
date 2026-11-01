@@ -55,6 +55,7 @@ func main() {
 	downloadsMgr := downloads.NewManager(layout)
 	// 清理上次运行中断下载残留（不阻断启动，失败只影响磁盘占用）。
 	downloadsMgr.PurgeStaleDownloadTemps()
+	trafficTracker := proxy.NewTrafficTracker(layout)
 
 	// Auto-generate configs from templates before dependent services start.
 	if err := generateConfigs(users, secrets, layout, xraySvc, securitySvc); err != nil {
@@ -63,7 +64,7 @@ func main() {
 
 	// 台账规范化可能把客户端 email 从登录用户名改写为客户端 UUID；把
 	// 旧键→新键映射交给流量统计，续接历史累计值。
-	proxy.SetTrafficEmailAliases(xraySvc.EmailAliases())
+	trafficTracker.SetEmailAliases(xraySvc.EmailAliases())
 	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
 	securitySvc.SetBlocklistClient(cli)
@@ -91,13 +92,22 @@ func main() {
 	// 证书到期监控(CF Origin CA 到期 = 全站 5xx,提前 30 天 webhook 告警)。
 	go daemonGuard(&daemonWG, "cert-expiry", func() { infra.StartCertExpiryWatcher(ctx) })
 	// per-user 流量统计(xray StatsService 经 docker exec 拉取,每分钟)。
-	go daemonGuard(&daemonWG, "traffic-collector", func() { proxy.StartTrafficCollector(ctx, cli) })
+	go daemonGuard(&daemonWG, "traffic-collector", func() { trafficTracker.Start(ctx, cli) })
 
 	mux := http.NewServeMux()
 	mw := auth.NewMiddleware(users, secrets, securitySvc)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli, users, xraySvc, transferStore, securitySvc, downloadsMgr, layout)
+	routes := apiRoutes(apiDeps{
+		cli:       cli,
+		users:     users,
+		xraySvc:   xraySvc,
+		transfer:  transferStore,
+		security:  securitySvc,
+		downloads: downloadsMgr,
+		traffic:   trafficTracker,
+		layout:    layout,
+	})
 	registerBodyLimitExemptions(routes)
 	registerRoutes(mux, routes, mw)
 

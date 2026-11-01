@@ -52,71 +52,59 @@ func TestParseStatsQueryOutput(t *testing.T) {
 // TestAccumulate 正常增量与 xray 重启清零(counter 回退)两种路径;
 // 消失的用户基线同步丢弃。
 func TestAccumulate(t *testing.T) {
-	savedTotals, savedBaseline := trafficTotals, trafficBaseline
-	t.Cleanup(func() { trafficTotals, trafficBaseline = savedTotals, savedBaseline })
-	trafficTotals = map[string]userTraffic{}
-	trafficBaseline = map[string]int64{}
+	tr := &TrafficTracker{totals: map[string]userTraffic{}, baseline: map[string]int64{}}
 
 	// 第一轮:alice up=100(基线从零起,全额入账)。
-	if changed := accumulate(map[string]userTraffic{"alice": {Up: 100, Down: 50}}); !changed {
+	if changed := tr.accumulate(map[string]userTraffic{"alice": {Up: 100, Down: 50}}); !changed {
 		t.Fatal("first poll should record traffic")
 	}
-	if trafficTotals["alice"].Up != 100 || trafficTotals["alice"].Down != 50 {
-		t.Fatalf("totals after first poll: %+v", trafficTotals["alice"])
+	if tr.totals["alice"].Up != 100 || tr.totals["alice"].Down != 50 {
+		t.Fatalf("totals after first poll: %+v", tr.totals["alice"])
 	}
 	// 第二轮:累计值涨到 150/60 → 增量 50/10。
-	accumulate(map[string]userTraffic{"alice": {Up: 150, Down: 60}})
-	if trafficTotals["alice"].Up != 150 || trafficTotals["alice"].Down != 60 {
-		t.Fatalf("totals after second poll: %+v", trafficTotals["alice"])
+	tr.accumulate(map[string]userTraffic{"alice": {Up: 150, Down: 60}})
+	if tr.totals["alice"].Up != 150 || tr.totals["alice"].Down != 60 {
+		t.Fatalf("totals after second poll: %+v", tr.totals["alice"])
 	}
 	// xray 重启清零:cur < last → delta = cur(全额)。
-	accumulate(map[string]userTraffic{"alice": {Up: 30, Down: 0}})
-	if trafficTotals["alice"].Up != 180 || trafficTotals["alice"].Down != 60 {
-		t.Fatalf("totals after restart-reset: %+v", trafficTotals["alice"])
+	tr.accumulate(map[string]userTraffic{"alice": {Up: 30, Down: 0}})
+	if tr.totals["alice"].Up != 180 || tr.totals["alice"].Down != 60 {
+		t.Fatalf("totals after restart-reset: %+v", tr.totals["alice"])
 	}
 	// 用户消失:基线丢弃,totals 保留(历史流量仍可见)。
-	accumulate(map[string]userTraffic{})
-	if _, ok := trafficBaseline["alice>>>uplink"]; ok {
+	tr.accumulate(map[string]userTraffic{})
+	if _, ok := tr.baseline["alice>>>uplink"]; ok {
 		t.Fatal("baseline of removed user should be dropped")
 	}
-	if trafficTotals["alice"].Up != 180 {
+	if tr.totals["alice"].Up != 180 {
 		t.Fatal("totals of removed user should be kept for display")
 	}
 }
 
-// TestSetTrafficEmailAliasesMigratesHistory 锁定台账 email 规范化（登录用户名
+// TestTrafficTrackerEmailAliasesMigrateHistory 锁定台账 email 规范化（登录用户名
 // → 客户端 UUID）时历史流量续接：旧键的累计值与基线必须搬到新键，否则
 // 迁移后流量展示从零开始、旧键变成客户端列表里不存在的幽灵行。
-func TestSetTrafficEmailAliasesMigratesHistory(t *testing.T) {
-	trafficMu.Lock()
-	prevTotals, prevBaseline := trafficTotals, trafficBaseline
-	prevLoaded, prevAliases := trafficLoaded, trafficEmailAliases
-	trafficTotals = map[string]userTraffic{"alice": {Up: 10, Down: 20}}
-	trafficBaseline = map[string]int64{"alice>>>uplink": 10, "alice>>>downlink": 20}
-	trafficLoaded = true
-	trafficEmailAliases = nil
-	trafficMu.Unlock()
-	t.Cleanup(func() {
-		trafficMu.Lock()
-		trafficTotals, trafficBaseline = prevTotals, prevBaseline
-		trafficLoaded, trafficEmailAliases = prevLoaded, prevAliases
-		trafficMu.Unlock()
-	})
+func TestTrafficTrackerEmailAliasesMigrateHistory(t *testing.T) {
+	tr := &TrafficTracker{
+		totals:   map[string]userTraffic{"alice": {Up: 10, Down: 20}},
+		baseline: map[string]int64{"alice>>>uplink": 10, "alice>>>downlink": 20},
+		loaded:   true,
+	}
 
-	SetTrafficEmailAliases(map[string]string{"alice": "uuid-alice"})
-	snap := TrafficSnapshot()
+	tr.SetEmailAliases(map[string]string{"alice": "uuid-alice"})
+	snap := tr.Snapshot()
 	if _, ok := snap["alice"]; ok {
 		t.Fatalf("old email key should be gone: %+v", snap)
 	}
 	if got := snap["uuid-alice"]; got.Up != 10 || got.Down != 20 {
 		t.Fatalf("totals not migrated: %+v", got)
 	}
-	trafficMu.Lock()
-	defer trafficMu.Unlock()
-	if trafficBaseline["uuid-alice>>>uplink"] != 10 || trafficBaseline["uuid-alice>>>downlink"] != 20 {
-		t.Fatalf("baseline not migrated: %+v", trafficBaseline)
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.baseline["uuid-alice>>>uplink"] != 10 || tr.baseline["uuid-alice>>>downlink"] != 20 {
+		t.Fatalf("baseline not migrated: %+v", tr.baseline)
 	}
-	if _, ok := trafficBaseline["alice>>>uplink"]; ok {
-		t.Fatalf("old baseline key should be gone: %+v", trafficBaseline)
+	if _, ok := tr.baseline["alice>>>uplink"]; ok {
+		t.Fatalf("old baseline key should be gone: %+v", tr.baseline)
 	}
 }

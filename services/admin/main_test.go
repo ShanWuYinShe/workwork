@@ -12,14 +12,28 @@ import (
 	"testing"
 
 	"admin/internal/platform"
+	"admin/internal/proxy"
 )
+
+// testRouteDeps 给契约测试构造最小依赖；handler 不会被调用，容器客户端与
+// xray service 允许为 nil。
+func testRouteDeps(layout runtime.Layout) apiDeps {
+	return apiDeps{
+		users:     identity.NewStore(layout, nil),
+		transfer:  transfer.NewStore(layout),
+		security:  auth.NewSecurity(layout),
+		downloads: downloads.NewManager(layout),
+		traffic:   proxy.NewTrafficTracker(layout),
+		layout:    layout,
+	}
+}
 
 // TestRouteTableContract 锁定路由表的全局不变量。此前这些属性分散在
 // main() 的内联 HandleFunc、init() 的 body-limit 清单和各 handler 的日志里，
 // 只能靠源码正则扫描；现在路由表就是契约本身。
 func TestRouteTableContract(t *testing.T) {
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
-	routes := apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), downloads.NewManager(layout), layout)
+	routes := apiRoutes(testRouteDeps(layout))
 	seen := map[string]bool{}
 	var exempt []string
 
@@ -99,7 +113,7 @@ func TestRouteTableCriticalRoles(t *testing.T) {
 	}
 	got := map[string]string{}
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
-	for _, rt := range apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), downloads.NewManager(layout), layout) {
+	for _, rt := range apiRoutes(testRouteDeps(layout)) {
 		got[rt.PatternWithMethod()] = rt.Role
 	}
 	for key, role := range want {
