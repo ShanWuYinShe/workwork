@@ -67,19 +67,19 @@ func TestIPBlockStoreLoadPopulatesEntries(t *testing.T) {
 
 func TestFail2BanTokenOnlyAuthorizesBlockEndpoints(t *testing.T) {
 	mw := newTestMiddleware(t)
-	t.Setenv("FAIL2BAN_TOKEN", "fail2ban-secret")
+	t.Setenv("FAIL2BAN_TOKEN", "test-token-value")
 	if err := mw.secrets.EnsureFail2BanToken(); err != nil {
 		t.Fatalf("ensure fail2ban token: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/security/block", nil)
-	req.Header.Set("X-Fail2Ban-Token", "fail2ban-secret")
+	req.Header.Set("X-Fail2Ban-Token", "test-token-value")
 	if !mw.isFail2BanRequest(req) || !mw.isPrivilegedServiceRequest(req) {
 		t.Fatal("expected fail2ban token to authorize block endpoint")
 	}
 
 	other := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/users/admin/add", nil)
-	other.Header.Set("X-Fail2Ban-Token", "fail2ban-secret")
+	other.Header.Set("X-Fail2Ban-Token", "test-token-value")
 	if mw.isFail2BanRequest(other) || mw.isPrivilegedServiceRequest(other) {
 		t.Fatal("fail2ban token must not authorize unrelated admin endpoints")
 	}

@@ -10,3 +10,9 @@
 4ceca285d70de8dc27dd4db79173963713d1c512:docs/superpowers/plans/2026-04-27-cliproxyapi-integration.md:generic-api-key:184
 8c006c8e6c3e01e77396cd3e8ead8b3ac4273e4a:services/admin/security_test.go:generic-api-key:72
 8c006c8e6c3e01e77396cd3e8ead8b3ac4273e4a:services/admin/security_test.go:generic-api-key:78
+
+# 2026-11-01 Phase 1 拆分 auth 测试时引入的夹具假 token（非真实凭据，
+# fix/gitleaks-fixtures 已把当前值改为低熵占位；历史提交仍含旧值，按指纹豁免）。
+74dc5a1d957a8941ad49af7a065e3726f6054241:services/admin/internal/auth/security_test.go:generic-api-key:70
+74dc5a1d957a8941ad49af7a065e3726f6054241:services/admin/internal/auth/require_role_test.go:generic-api-key:77
+74dc5a1d957a8941ad49af7a065e3726f6054241:services/admin/internal/auth/require_role_test.go:generic-api-key:83

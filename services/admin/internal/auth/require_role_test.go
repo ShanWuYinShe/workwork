@@ -74,13 +74,13 @@ func TestRequireRoleInternalToken(t *testing.T) {
 
 func TestRequireRoleFail2BanTokenOnlyOnBlockEndpoints(t *testing.T) {
 	mw := newTestMiddleware(t)
-	t.Setenv("FAIL2BAN_TOKEN", "fail2ban-secret")
+	t.Setenv("FAIL2BAN_TOKEN", "test-token-value")
 	if err := mw.secrets.EnsureFail2BanToken(); err != nil {
 		t.Fatal(err)
 	}
 	mkReq := func(path string) *http.Request {
 		req := httptest.NewRequest(http.MethodPost, "http://admin"+path, nil)
-		req.Header.Set("X-Fail2Ban-Token", "fail2ban-secret")
+		req.Header.Set("X-Fail2Ban-Token", "test-token-value")
 		return req
 	}
 	rec := httptest.NewRecorder()
