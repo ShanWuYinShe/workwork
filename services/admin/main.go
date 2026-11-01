@@ -3,7 +3,6 @@ package main
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
-	"admin/internal/downloads"
 	"admin/internal/infra"
 	"admin/internal/platform"
 	"admin/internal/proxy"
@@ -88,85 +87,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Auth — available to all authenticated users
-	mux.HandleFunc("GET /api/admin/auth/me", auth.RequireRole("viewer")(accounts.ApiWhoAmI(cli)))
-
-	// Dashboard — viewer+ (returns role-appropriate data)
-	mux.HandleFunc("GET /api/admin/dashboard", auth.RequireRole("viewer")(infra.ApiDashboard(cli)))
-	mux.HandleFunc("GET /api/admin/services", auth.RequireRole("admin")(infra.ApiServices(cli)))
-	// 兜底：nginx 历史上曾把 /api/admin/services 301 到带斜杠路径，直接返回列表
-	// 而不是 404，避免浏览器跟随重定向后页面报错。
-	mux.HandleFunc("GET /api/admin/services/", auth.RequireRole("admin")(infra.ApiServices(cli)))
-	mux.HandleFunc("GET /api/admin/config", auth.RequireRole("viewer")(infra.ApiConfig(cli)))
-
-	// User operations — viewer+ (read own), admin (manage all)
-	mux.HandleFunc("GET /api/admin/users", auth.RequireRole("viewer")(accounts.ApiUsers(cli)))
-	mux.HandleFunc("POST /api/admin/users/password", auth.RequireRole("viewer")(accounts.ApiChangePassword(cli)))
-
-	// Admin-only operations
-	mux.HandleFunc("POST /api/admin/services/{name}/{action}", auth.RequireRole("admin")(infra.ApiServiceAction(cli)))
-	// Xray client management — viewers can manage their own clients
-	mux.HandleFunc("POST /api/admin/users/xray/add", auth.RequireRole("viewer")(accounts.ApiAddXray(cli)))
-	mux.HandleFunc("POST /api/admin/users/xray/delete", auth.RequireRole("viewer")(accounts.ApiDeleteXray(cli)))
-	mux.HandleFunc("GET /api/admin/users/xray/config/{uuid}", auth.RequireRole("viewer")(accounts.ApiXrayClientConfig()))
-	mux.HandleFunc("POST /api/admin/users/admin/add", auth.RequireRole("admin")(accounts.ApiAddAdmin(cli)))
-	mux.HandleFunc("POST /api/admin/users/admin/delete", auth.RequireRole("admin")(accounts.ApiDeleteAdmin(cli)))
-	mux.HandleFunc("POST /api/admin/users/roles/set", auth.RequireRole("admin")(accounts.ApiSetRole(cli)))
-	mux.HandleFunc("GET /api/admin/network/status", auth.RequireRole("admin")(proxy.ApiNetworkStatus(cli)))
-	mux.HandleFunc("POST /api/admin/network/rotate-ipv6", auth.RequireRole("admin")(proxy.ApiRotateIPv6(cli)))
-	mux.HandleFunc("POST /api/admin/network/sync-dns", auth.RequireRole("admin")(proxy.ApiSyncDNS(cli)))
-	// IP block management (Go-level, works behind Cloudflare)
-	mux.HandleFunc("GET /api/admin/security/blocked", auth.RequireRole("admin")(auth.ApiBlockedIPs()))
-	mux.HandleFunc("POST /api/admin/security/block", auth.RequireRole("admin")(auth.ApiBlockIP()))
-	mux.HandleFunc("POST /api/admin/security/unblock", auth.RequireRole("admin")(auth.ApiUnblockIP()))
-	// per-user 流量统计(email = 用户名,xray StatsService 聚合)
-	mux.HandleFunc("GET /api/admin/traffic", auth.RequireRole("admin")(proxy.ApiTraffic()))
-
-	// Health check (no auth required)
-	mux.HandleFunc("GET /api/admin/health", func(w http.ResponseWriter, _ *http.Request) {
-		if err := runtimeFilesReady(); err != nil {
-			log.Printf("health check failed: %v", err)
-			platform.WriteError(w, "服务初始化中，请稍后重试", http.StatusServiceUnavailable)
-			return
-		}
-		platform.WriteJSON(w, map[string]string{"status": "ok", "version": version})
-	})
-
-	// 带宽/延迟测速（无认证，公开）：优选 CF 边缘 IP 的矩阵测试与用户自测入口。
-	// 只读且无业务数据；IP 封禁、全局限流、CSRF 中间件均覆盖本路径，nginx 层
-	// 另有 admin_api 限流（见模板 location /speedtest/）。
-	mux.HandleFunc("GET /speedtest/{size}", infra.ApiSpeedtest())
-
-	// Claude Code downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/claude-code/releases", auth.RequireRole("admin")(downloads.ApiClaudeCodeReleases()))
-	mux.HandleFunc("POST /api/admin/claude-code/refresh", auth.RequireRole("admin")(downloads.ApiClaudeCodeRefresh()))
-	mux.HandleFunc("GET /api/admin/claude-code/platforms/{version}", auth.RequireRole("admin")(downloads.ApiClaudeCodePlatforms()))
-	mux.HandleFunc("GET /api/admin/claude-code/stored", auth.RequireRole("viewer")(downloads.ApiClaudeCodeStored()))
-	mux.HandleFunc("POST /api/admin/claude-code/download", auth.RequireRole("admin")(downloads.ApiClaudeCodeDownload()))
-	mux.HandleFunc("GET /api/admin/claude-code/downloads/{filename}", auth.RequireRole("viewer")(downloads.ApiClaudeCodeServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads", auth.RequireRole("admin")(downloads.ApiClaudeCodeDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/claude-code/downloads/", auth.RequireRole("admin")(downloads.ApiClaudeCodeDeleteDownload()))
-	// Service logs
-	mux.HandleFunc("GET /api/admin/services/{name}/logs", auth.RequireRole("admin")(infra.ApiServiceLogs(cli)))
-	mux.HandleFunc("GET /api/admin/services/{name}/logs/stream", auth.RequireRole("admin")(infra.ApiServiceLogStream(cli)))
-	// Xray downloads — admin manages, viewer can see + download stored
-	mux.HandleFunc("GET /api/admin/xray/releases", auth.RequireRole("admin")(downloads.ApiXrayReleases()))
-	mux.HandleFunc("POST /api/admin/xray/refresh", auth.RequireRole("admin")(downloads.ApiXrayRefresh()))
-	mux.HandleFunc("GET /api/admin/xray/platforms/{version}", auth.RequireRole("admin")(downloads.ApiXrayPlatforms()))
-	mux.HandleFunc("GET /api/admin/xray/stored", auth.RequireRole("viewer")(downloads.ApiXrayStored()))
-	mux.HandleFunc("POST /api/admin/xray/download", auth.RequireRole("admin")(downloads.ApiXrayDownload()))
-	mux.HandleFunc("GET /api/admin/xray/downloads/{filename}", auth.RequireRole("viewer")(downloads.ApiXrayServeDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads", auth.RequireRole("admin")(downloads.ApiXrayDeleteDownload()))
-	mux.HandleFunc("DELETE /api/admin/xray/downloads/", auth.RequireRole("admin")(downloads.ApiXrayDeleteDownload()))
-	// Rate limit management (admin only)
-	mux.HandleFunc("GET /api/admin/security/rate-limit", auth.RequireRole("admin")(auth.ApiRateLimitStatus()))
-	mux.HandleFunc("POST /api/admin/security/rate-limit/unblock", auth.RequireRole("admin")(auth.ApiRateLimitUnblock()))
-	// File transfer station — viewer+ uploads/lists, public download via share code
-	mux.HandleFunc("POST /api/admin/transfer/upload", auth.RequireRole("viewer")(transfer.ApiTransferUpload()))
-	mux.HandleFunc("GET /api/admin/transfer/files", auth.RequireRole("viewer")(transfer.ApiTransferList()))
-	mux.HandleFunc("DELETE /api/admin/transfer/files", auth.RequireRole("viewer")(transfer.ApiTransferDelete()))
-	// Public transfer download — no auth required
-	mux.HandleFunc("GET /api/transfer/{code}", transfer.ApiTransferPublicDownload())
+	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
+	routes := apiRoutes(cli)
+	registerBodyLimitExemptions(routes)
+	registerRoutes(mux, routes)
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("GET /admin/", serveSPA)
@@ -303,12 +227,6 @@ func daemonGuard(wg *sync.WaitGroup, name string, fn func()) {
 		}
 	}()
 	fn()
-}
-
-// 大上传端点豁免全局 1MB 请求体上限。与本文件路由注册一一对应,新增大
-// 上传端点时必须在此同步声明;main_test.go 的契约测试锁住该清单。
-func init() {
-	platform.ExemptBodyLimit("/api/admin/transfer/upload") // handler: 2GB
 }
 
 func serveSPA(w http.ResponseWriter, r *http.Request) {
