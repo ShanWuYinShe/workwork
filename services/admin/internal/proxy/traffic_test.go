@@ -82,7 +82,7 @@ func TestAccumulate(t *testing.T) {
 }
 
 // TestTrafficTrackerEmailAliasesMigrateHistory 锁定台账 email 规范化（登录用户名
-// → 客户端 UUID）时历史流量续接：旧键的累计值与基线必须搬到新键，否则
+// → 客户端用户名）时历史流量续接：旧键的累计值与基线必须搬到新键，否则
 // 迁移后流量展示从零开始、旧键变成客户端列表里不存在的幽灵行。
 func TestTrafficTrackerEmailAliasesMigrateHistory(t *testing.T) {
 	tr := &TrafficTracker{

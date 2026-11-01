@@ -70,30 +70,31 @@ func (s *Service) EmailAliases() map[string]string {
 }
 
 // Add 新增客户端；渲染/重启失败时回滚台账并恢复旧配置。
-func (s *Service) Add(ctx context.Context, entry Client) error {
-	if err := s.ledger.Add(entry); err != nil {
-		return err
+func (s *Service) Add(ctx context.Context, entry Client) (Client, error) {
+	added, err := s.ledger.Add(entry)
+	if err != nil {
+		return Client{}, err
 	}
 	changed, err := s.render()
 	if err != nil {
 		if _, rbErr := s.ledger.Remove(entry.ID); rbErr != nil {
-			return fmt.Errorf("%w (rollback failed: %v)", err, rbErr)
+			return Client{}, fmt.Errorf("%w (rollback failed: %v)", err, rbErr)
 		}
-		return err
+		return Client{}, err
 	}
 	if !changed {
-		return nil
+		return added, nil
 	}
 	if err := s.restart(ctx); err != nil {
 		if _, rbErr := s.ledger.Remove(entry.ID); rbErr != nil {
-			return fmt.Errorf("%w (rollback failed: %v)", ErrRestart, rbErr)
+			return Client{}, fmt.Errorf("%w (rollback failed: %v)", ErrRestart, rbErr)
 		}
 		if _, rbErr := s.render(); rbErr != nil {
-			return fmt.Errorf("%w (restore failed: %v)", ErrRestart, rbErr)
+			return Client{}, fmt.Errorf("%w (restore failed: %v)", ErrRestart, rbErr)
 		}
-		return fmt.Errorf("%w: %v", ErrRestart, err)
+		return Client{}, fmt.Errorf("%w: %v", ErrRestart, err)
 	}
-	return nil
+	return added, nil
 }
 
 // Delete 删除客户端；渲染/重启失败时写回台账并恢复旧配置。
@@ -105,7 +106,7 @@ func (s *Service) Delete(ctx context.Context, id, ownerFilter string) (Client, e
 	}
 	changed, err := s.render()
 	if err != nil {
-		if rbErr := s.ledger.Add(deleted); rbErr != nil {
+		if _, rbErr := s.ledger.Add(deleted); rbErr != nil {
 			return Client{}, fmt.Errorf("%w (rollback failed: %v)", err, rbErr)
 		}
 		return Client{}, err
@@ -114,7 +115,7 @@ func (s *Service) Delete(ctx context.Context, id, ownerFilter string) (Client, e
 		return deleted, nil
 	}
 	if err := s.restart(ctx); err != nil {
-		if rbErr := s.ledger.Add(deleted); rbErr != nil {
+		if _, rbErr := s.ledger.Add(deleted); rbErr != nil {
 			return Client{}, fmt.Errorf("%w (rollback failed: %v)", ErrRestart, rbErr)
 		}
 		if _, rbErr := s.render(); rbErr != nil {

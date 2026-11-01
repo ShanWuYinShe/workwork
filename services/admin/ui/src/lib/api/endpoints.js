@@ -48,9 +48,10 @@ export async function getUsers() {
   return req('/users');
 }
 
-export async function addXrayClient(uuid, owner) {
+export async function addXrayClient(uuid, owner, name) {
   const body = { uuid };
   if (owner) body.owner = owner;
+  if (name) body.name = name;
   return req('/users/xray/add', { method: 'POST', body: JSON.stringify(body) });
 }
 

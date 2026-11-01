@@ -133,7 +133,7 @@ func TestGenerateClientConfigXHTTPOnly(t *testing.T) {
 }
 
 func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
-	clients := []Client{{ID: "uuid-1", Owner: "viewer", Email: "uuid-1"}}
+	clients := []Client{{ID: "uuid-1", Owner: "viewer", Name: "viewer"}}
 	got, err := encodeClients(clients)
 	if err != nil {
 		t.Fatalf("encodeClients: %v", err)
@@ -147,6 +147,9 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 	}
 	if len(arr) != 1 {
 		t.Fatalf("expected 1 client, got %s", got)
+	}
+	if arr[0]["email"] != "viewer" {
+		t.Fatalf("xray email must be the client name, got %s", got)
 	}
 	for key := range arr[0] {
 		if key != "id" && key != "email" {
@@ -163,10 +166,10 @@ func TestEncodeXrayClientsOmitsOwner(t *testing.T) {
 func TestValidateXrayClientsEmailGuard(t *testing.T) {
 	bad := map[string][]Client{
 		"duplicate (case-insensitive)": {
-			{ID: "a", Email: "same"},
-			{ID: "b", Email: "SAME"},
+			{ID: "a", Name: "same"},
+			{ID: "b", Name: "SAME"},
 		},
-		"empty": {{ID: "a", Email: ""}},
+		"empty": {{ID: "a", Name: ""}},
 	}
 	for name, clients := range bad {
 		if err := validateClients(clients); err == nil {
@@ -174,8 +177,8 @@ func TestValidateXrayClientsEmailGuard(t *testing.T) {
 		}
 	}
 	if err := validateClients([]Client{
-		{ID: "a", Email: "a"},
-		{ID: "b", Email: "b"},
+		{ID: "a", Name: "a"},
+		{ID: "b", Name: "b"},
 	}); err != nil {
 		t.Fatalf("distinct emails must pass: %v", err)
 	}

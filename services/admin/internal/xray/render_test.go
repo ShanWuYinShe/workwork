@@ -25,8 +25,8 @@ func newRenderLayout(t *testing.T) runtime.Layout {
 func TestRenderWritesClientsOnly(t *testing.T) {
 	layout := newRenderLayout(t)
 	clients := []Client{
-		{ID: "a", Owner: "alice", Email: "a"},
-		{ID: "b", Owner: "alice", Email: "b"},
+		{ID: "a", Owner: "alice", Name: "alice"},
+		{ID: "b", Owner: "alice", Name: "alice-2"},
 	}
 	changed, err := Render(layout, clients)
 	if err != nil || !changed {
@@ -63,7 +63,7 @@ func TestRenderWritesClientsOnly(t *testing.T) {
 
 func TestRenderRejectsDuplicateEmail(t *testing.T) {
 	layout := newRenderLayout(t)
-	if _, err := Render(layout, []Client{{ID: "a", Email: "same"}, {ID: "b", Email: "SAME"}}); err == nil {
+	if _, err := Render(layout, []Client{{ID: "a", Name: "same"}, {ID: "b", Name: "SAME"}}); err == nil {
 		t.Fatal("duplicate email must be rejected before writing")
 	}
 	if _, err := os.Stat(layout.XrayConfigPath()); !os.IsNotExist(err) {
@@ -76,7 +76,7 @@ func TestServiceAddRollsBackOnRestartFailure(t *testing.T) {
 	svc := NewService(layout, nil, RestarterFunc(func(context.Context) error {
 		return errors.New("boom")
 	}))
-	err := svc.Add(context.Background(), Client{ID: "a", Owner: "alice"})
+	_, err := svc.Add(context.Background(), Client{ID: "a", Owner: "alice"})
 	if !errors.Is(err, ErrRestart) {
 		t.Fatalf("expected ErrRestart, got %v", err)
 	}
@@ -96,7 +96,7 @@ func TestServiceDeleteRollsBackOnRestartFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewService(layout, nil, nil)
-	if err := svc.Add(context.Background(), Client{ID: "a", Owner: "alice"}); err != nil {
+	if _, err := svc.Add(context.Background(), Client{ID: "a", Owner: "alice"}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	svc = NewService(layout, nil, RestarterFunc(func(context.Context) error {

@@ -43,27 +43,26 @@ func Render(layout runtime.Layout, clients []Client) (bool, error) {
 	return true, nil
 }
 
-// validateClients 是写盘前门禁：email 非空且大小写不敏感唯一。
-// Xray vless validator 对 email 做 lower-case 后去重，重复会让整份配置
-// 无法加载。
+// validateClients 是写盘前门禁：客户端用户名（Xray email）合法且大小写
+// 不敏感唯一。Xray vless validator 对 email 做 lower-case 后去重，重复会让
+// 整份配置无法加载。
 func validateClients(clients []Client) error {
 	seen := make(map[string]string, len(clients))
 	for _, c := range clients {
-		email := strings.TrimSpace(c.Email)
-		if email == "" {
-			return fmt.Errorf("xray client %s has empty email", c.ID)
+		name := normalizeClientName(c.Name)
+		if !ValidClientName(name) {
+			return fmt.Errorf("xray client %s has invalid name/email %q", c.ID, c.Name)
 		}
-		key := strings.ToLower(email)
-		if prevID, ok := seen[key]; ok {
-			return fmt.Errorf("duplicate xray client email %q (clients %s and %s)", email, prevID, c.ID)
+		if prevID, ok := seen[name]; ok {
+			return fmt.Errorf("duplicate xray client name/email %q (clients %s and %s)", name, prevID, c.ID)
 		}
-		seen[key] = c.ID
+		seen[name] = c.ID
 	}
 	return nil
 }
 
-// encodeClients 只写 Xray 认识的 id/email；owner 是管理面归属，不属于
-// 运行时配置。flow 字段已彻底移除（XHTTP 不使用）。
+// encodeClients 只写 Xray 认识的 id/email（email=客户端用户名）；owner 是
+// 管理面归属，不属于运行时配置。flow 字段已彻底移除（XHTTP 不使用）。
 func encodeClients(clients []Client) (string, error) {
 	type encoded struct {
 		ID    string `json:"id"`
@@ -71,7 +70,7 @@ func encodeClients(clients []Client) (string, error) {
 	}
 	arr := make([]encoded, 0, len(clients))
 	for _, c := range clients {
-		arr = append(arr, encoded{ID: c.ID, Email: c.Email})
+		arr = append(arr, encoded{ID: c.ID, Email: normalizeClientName(c.Name)})
 	}
 	b, err := json.Marshal(arr)
 	if err != nil {

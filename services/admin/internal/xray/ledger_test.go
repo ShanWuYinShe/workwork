@@ -3,6 +3,7 @@ package xray
 import (
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -20,10 +21,10 @@ func TestLedgerAddMultiplePerOwner(t *testing.T) {
 	if err := l.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Add(Client{ID: "uuid-a1", Owner: "alice", Email: "alice"}); err != nil {
+	if _, err := l.Add(Client{ID: "uuid-a1", Owner: "alice"}); err != nil {
 		t.Fatalf("add first: %v", err)
 	}
-	if err := l.Add(Client{ID: "uuid-a2", Owner: "alice", Email: "alice"}); err != nil {
+	if _, err := l.Add(Client{ID: "uuid-a2", Owner: "alice"}); err != nil {
 		t.Fatalf("add second: %v", err)
 	}
 	clients, err := l.Clients()
@@ -35,23 +36,28 @@ func TestLedgerAddMultiplePerOwner(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, c := range clients {
-		if c.Email != c.ID {
-			t.Fatalf("email must equal client ID: %+v", c)
+		if !ValidClientName(c.Name) {
+			t.Fatalf("client name invalid: %+v", c)
 		}
-		if seen[c.Email] {
-			t.Fatalf("duplicate email: %+v", clients)
+		if seen[c.Name] {
+			t.Fatalf("duplicate client name: %+v", clients)
 		}
-		seen[c.Email] = true
+		seen[c.Name] = true
 	}
-	if err := l.Add(Client{ID: "UUID-A1", Owner: "bob"}); !errors.Is(err, ErrDuplicateID) {
+	if clients[0].Name != "alice" || clients[1].Name != "alice-2" {
+		t.Fatalf("expected generated names alice/alice-2, got %+v", clients)
+	}
+	if _, err := l.Add(Client{ID: "UUID-A1", Owner: "bob"}); !errors.Is(err, ErrDuplicateID) {
 		t.Fatalf("case-insensitive duplicate ID: %v", err)
 	}
 }
 
 func TestLedgerEnsureNormalizesLegacy(t *testing.T) {
 	l, layout := newLedger(t)
+	// 旧台账：email=UUID 的条目应按 owner 生成用户名；自定义 email 保留；
+	// 同一 UUID 的大小写变体去重。
 	legacy := `[
-	  {"id":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE","owner":"alice","email":"shared"},
+	  {"id":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE","owner":"alice","email":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
 	  {"id":"11111111-2222-3333-4444-555555555555","owner":"bob","email":"bob"},
 	  {"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","owner":"carol","email":"shared"}
 	]`
@@ -68,17 +74,28 @@ func TestLedgerEnsureNormalizesLegacy(t *testing.T) {
 	if len(clients) != 2 {
 		t.Fatalf("duplicate UUID variant should be dropped: %+v", clients)
 	}
+	if clients[0].Name != "alice" || clients[1].Name != "bob" {
+		t.Fatalf("legacy names not migrated by owner/custom email: %+v", clients)
+	}
 	for _, c := range clients {
-		if c.ID != lower(c.ID) || c.Email != c.ID {
+		if c.ID != lower(c.ID) || c.LegacyEmail != "" {
 			t.Fatalf("entry not normalized: %+v", c)
 		}
 	}
 	aliases := l.Aliases()
-	if aliases["bob"] != "11111111-2222-3333-4444-555555555555" {
-		t.Fatalf("bob alias missing: %+v", aliases)
+	if aliases["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"] != "alice" {
+		t.Fatalf("UUID email should alias to generated name: %+v", aliases)
+	}
+	// 迁移后的台账只保留 name，不再写 legacy email 字段。
+	data, err := os.ReadFile(layout.XrayClientsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"email"`) || !strings.Contains(string(data), `"name"`) {
+		t.Fatalf("normalized ledger must persist name and drop email: %s", data)
 	}
 	if _, ok := aliases["shared"]; ok {
-		t.Fatalf("ambiguous email must not alias: %+v", aliases)
+		t.Fatalf("ambiguous/dropped email must not alias: %+v", aliases)
 	}
 }
 
@@ -94,8 +111,8 @@ func lower(s string) string {
 
 func TestLedgerDeleteOwnerFilter(t *testing.T) {
 	l, _ := newLedger(t)
-	_ = l.Add(Client{ID: "uuid-alice", Owner: "alice"})
-	_ = l.Add(Client{ID: "uuid-bob", Owner: "bob"})
+	_, _ = l.Add(Client{ID: "uuid-alice", Owner: "alice"})
+	_, _ = l.Add(Client{ID: "uuid-bob", Owner: "bob"})
 
 	if _, err := l.Delete("uuid-alice", "bob"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("cross-owner delete: %v", err)
@@ -121,7 +138,7 @@ func TestLedgerConcurrentAdds(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			id := "uuid-" + string(rune('a'+i))
-			if err := l.Add(Client{ID: id, Owner: "alice"}); err != nil {
+			if _, err := l.Add(Client{ID: id, Owner: "alice"}); err != nil {
 				t.Errorf("add %s: %v", id, err)
 			}
 		}(i)
@@ -143,5 +160,21 @@ func TestLedgerEnsureMissingDoesNotCreateFile(t *testing.T) {
 	}
 	if _, err := os.Stat(layout.XrayClientsPath()); !os.IsNotExist(err) {
 		t.Fatalf("missing ledger should stay absent, stat err=%v", err)
+	}
+}
+
+func TestLedgerRejectsDuplicateAndInvalidName(t *testing.T) {
+	l, _ := newLedger(t)
+	if _, err := l.Add(Client{ID: "uuid-a1", Owner: "alice", Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Add(Client{ID: "uuid-a2", Owner: "alice", Name: "ALICE"}); !errors.Is(err, ErrDuplicateName) {
+		t.Fatalf("duplicate name must be rejected, got %v", err)
+	}
+	if _, err := l.Add(Client{ID: "uuid-a3", Owner: "alice", Name: "bad name"}); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("invalid name must be rejected, got %v", err)
+	}
+	if created, err := l.Add(Client{ID: "uuid-a4", Owner: "Bob"}); err != nil || created.Name != "bob" {
+		t.Fatalf("owner should generate lower-case name, got %+v err=%v", created, err)
 	}
 }

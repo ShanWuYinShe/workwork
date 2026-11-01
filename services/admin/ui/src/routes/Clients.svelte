@@ -15,8 +15,8 @@
   import { toast } from '../lib/toast.svelte.js';
 
   let clients = $state([]);
-  // trafficMap: client UUID → {up, down}（admin 才加载;viewer 看不到该列）。
-  // 流量统计键是 Xray email，现在等于客户端 UUID，不再是登录用户名。
+  // trafficMap: 客户端用户名（Xray email）→ {up, down}（admin 才加载;
+  // viewer 看不到该列）。用户名就是日志/统计里看到的 email。
   let trafficMap = $state({});
   let generatedJSON = $state('');
   let loading = $state(true);
@@ -25,6 +25,7 @@
   let adminUsers = $state([]);
   // 管理员可代其他用户创建客户端；留空表示归自己。
   let ownerInput = $state('');
+  let clientName = $state('');
   let deletingId = $state('');
   let creating = $state(false);
   let selectedUUID = $state('');
@@ -52,7 +53,7 @@
     }
   });
 
-  /** 拉取 per-client 流量并转成客户端 UUID 索引的 map;失败静默(旁路数据)。 */
+  /** 拉取 per-client 流量并转成客户端用户名索引的 map;失败静默(旁路数据)。 */
   async function loadTraffic() {
     try {
       const data = await getTraffic();
@@ -118,11 +119,12 @@
         isAdmin && ownerInput.trim() && ownerInput.trim() !== currentUser
           ? ownerInput.trim()
           : undefined;
-      await addXrayClient(uuid, owner);
+      const created = await addXrayClient(uuid, owner, clientName.trim() || undefined);
+      clientName = '';
       await loadData();
       selectedUUID = uuid;
       await loadConfig(uuid);
-      toast(t('clientCreated'), 'success');
+      toast(t('clientCreatedNamed', { name: created?.name || uuid.slice(0, 8) }), 'success');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -132,7 +134,12 @@
 
   async function deleteClient(uuid) {
     if (
-      !(await showConfirm(t('confirmDeleteClient', { uuid: uuid.slice(0, 8) }), { danger: true }))
+      !(await showConfirm(
+        t('confirmDeleteClient', {
+          name: clients.find((c) => c.id === uuid)?.name || uuid.slice(0, 8),
+        }),
+        { danger: true },
+      ))
     )
       return;
     deletingId = uuid;
@@ -183,6 +190,14 @@
           {/each}
         </datalist>
       {/if}
+      <input
+        type="text"
+        bind:value={clientName}
+        placeholder={t('clientNamePlaceholder')}
+        aria-label={t('clientName')}
+        class="input-w-sm"
+        maxlength="64"
+      />
       <button class="btn btn-primary" onclick={generateAndAdd} disabled={loading || creating}>
         {creating ? t('generating') : t('generateAndAdd')}
       </button>
@@ -207,6 +222,7 @@
           <table>
             <thead>
               <tr>
+                <th>{t('clientName')}</th>
                 <th>{t('uuid')}</th>
                 {#if isAdmin}<th>{t('owner')}</th>{/if}
                 {#if isAdmin}<th>{t('traffic')}</th>{/if}
@@ -223,6 +239,7 @@
                   class:selected={selectedUUID === c.id}
                   onclick={() => loadConfig(c.id)}
                 >
+                  <td class="cell-strong td-mono">{c.name || '—'}</td>
                   <td class="td-mono">
                     <button
                       class="link link-btn cell-strong td-mono"
@@ -238,7 +255,7 @@
                     <td class="td-muted">{c.owner || '—'}</td>
                   {/if}
                   {#if isAdmin}
-                    {@const usage = trafficMap[c.id]}
+                    {@const usage = trafficMap[c.name]}
                     <td class="td-mono td-muted">
                       {usage ? `${formatSize(usage.up)} / ${formatSize(usage.down)}` : '—'}
                     </td>

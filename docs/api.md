@@ -52,12 +52,12 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 
 | 端点 | 角色 | 说明 |
 |------|------|------|
-| `POST /users/xray/add` | viewer+ | `{uuid, owner?}`。UUID 重复 409；admin 可指定 `owner`（目标用户必须存在），非 admin 只能为自己创建 |
+| `POST /users/xray/add` | viewer+ | `{uuid, owner?, name?}`。`name` 是客户端用户名/Xray email，留空按 owner 自动生成；重复 409。admin 可指定 `owner`（目标用户必须存在），非 admin 只能为自己创建 |
 | `POST /users/xray/delete` | viewer+ | `{uuid}`，只能删自己的；admin 可删任意 |
 | `GET /users/xray/config/{uuid}` | viewer+ | 该客户端的完整客户端配置 JSON（路径中的 UUID 在日志中脱敏） |
 
-客户端台账的 `email` 恒等于客户端 UUID（Xray 要求同一入站内 email 唯一）；
-登录用户只承担 nginx Basic Auth 身份，一个用户可以创建多个客户端。
+客户端台账的 `name` 是网页上的客户端用户名，也是 Xray 配置的 `email`（日志/流量统计直接显示）；
+登录用户只承担 nginx Basic Auth 身份，一个用户可以创建多个客户端，用户名唯一。
 
 ### Dashboard / 服务 / 日志
 
@@ -92,7 +92,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 
 | 端点 | 角色 | 说明 |
 |------|------|------|
-| `GET /traffic` | admin | 按客户端累计代理流量：`{traffic: [{email, up, down}], collected_at}`（email = 客户端 UUID；xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
+| `GET /traffic` | admin | 按客户端累计代理流量：`{traffic: [{email, up, down}], collected_at}`（email = 客户端用户名；xray StatsService，每分钟增量采集，重启累计）。数据缺失（旧 xray/上游故障）时 traffic 为空数组 |
 
 （media/music 已拆分至独立站，其 API 契约见各自仓库 `media_center` / `music_player`；
 旧前缀由 Cloudflare 边缘 308 重定向承载，本面板不再提供。）

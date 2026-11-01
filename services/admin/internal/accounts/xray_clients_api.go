@@ -20,6 +20,7 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		var body struct {
 			UUID  string `json:"uuid"`
 			Owner string `json:"owner"`
+			Name  string `json:"name"`
 		}
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
 			platform.WriteError(w, "请求体不是合法 JSON", 400)
@@ -79,10 +80,15 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
 		defer cancel()
-		if err := svc.Add(ctx, xray.Client{ID: uuid, Owner: owner, Email: uuid}); err != nil {
+		created, err := svc.Add(ctx, xray.Client{ID: uuid, Owner: owner, Name: body.Name})
+		if err != nil {
 			switch {
 			case errors.Is(err, xray.ErrDuplicateID):
 				platform.WriteError(w, "该 UUID 的客户端已存在", 409)
+			case errors.Is(err, xray.ErrDuplicateName):
+				platform.WriteError(w, "客户端用户名已被占用", 409)
+			case errors.Is(err, xray.ErrInvalidName):
+				platform.WriteError(w, "客户端用户名不合法（小写字母/数字开头，仅含字母数字 . _ -，最长 64）", 400)
 			case errors.Is(err, xray.ErrRestart):
 				log.Printf("ERROR: add xray client %s: %v", uuid, err)
 				platform.WriteError(w, "客户端创建失败：Xray 无法加载新配置，已回滚", http.StatusBadGateway)
@@ -94,8 +100,8 @@ func ApiAddXray(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 			}
 			return
 		}
-		log.Printf("[security] xray client add uuid=%s owner=%s by=%s", uuid, owner, actor.Username)
-		platform.WriteJSON(w, map[string]string{"status": "ok", "uuid": uuid, "owner": owner})
+		log.Printf("[security] xray client add uuid=%s name=%q owner=%q by=%s", uuid, created.Name, owner, actor.Username)
+		platform.WriteJSON(w, map[string]string{"status": "ok", "uuid": uuid, "owner": owner, "name": created.Name})
 	}
 }
 
@@ -139,7 +145,7 @@ func ApiDeleteXray(svc *xray.Service) http.HandlerFunc {
 			}
 			return
 		}
-		log.Printf("[security] xray client delete uuid=%q owner=%q by=%s", body.UUID, deleted.Owner, actor.Username)
+		log.Printf("[security] xray client delete uuid=%q name=%q owner=%q by=%s", body.UUID, deleted.Name, deleted.Owner, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
@@ -179,7 +185,7 @@ func ApiXrayClientConfig(users *identity.Store, svc *xray.Service) http.HandlerF
 		proxyAuth := users.ProxyAuthForUserRead(client.Owner)
 		genJSON := xray.GenerateClientConfig([]xray.Client{*client}, xray.ClientConfigFromEnv(proxyAuth))
 		platform.WriteJSON(w, map[string]any{
-			"config": genJSON, "uuid": uuid, "owner": client.Owner,
+			"config": genJSON, "uuid": uuid, "owner": client.Owner, "name": client.Name,
 		})
 	}
 }

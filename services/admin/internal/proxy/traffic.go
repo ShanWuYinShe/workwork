@@ -56,7 +56,7 @@ type TrafficTracker struct {
 	// 连续失败一次性告警:旧 xray 镜像无 stats API 时避免每分钟刷屏。
 	failLogged bool
 	// aliases 是客户端台账规范化产生的"旧 email → 新 email"映射
-	// （登录用户名 → 客户端 UUID）。在状态加载之后应用一次，把历史累计值
+	// （旧 email/登录用户名 → 客户端用户名）。在状态加载之后应用一次，把历史累计值
 	// 续接到新键。
 	aliases map[string]string
 }
@@ -323,7 +323,7 @@ func (t *TrafficTracker) API() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		snapshot := t.Snapshot()
 		type row struct {
-			// email 现在是客户端 UUID（xray 统计键），不再是登录用户名。
+			// email 是客户端用户名（xray 统计键），日志/统计可直接定位客户端。
 			Email string `json:"email"`
 			Up    int64  `json:"up"`
 			Down  int64  `json:"down"`
