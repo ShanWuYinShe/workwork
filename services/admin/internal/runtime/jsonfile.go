@@ -45,39 +45,52 @@ func (f *JSONFile[T]) Path() string { return f.path }
 // 为 <path>.corrupt、外发告警并返回 ErrCorrupt 包装错误。
 func (f *JSONFile[T]) Load() (T, error) {
 	var v T
-	data, err := os.ReadFile(f.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return v, nil
-		}
-		return v, fmt.Errorf("read %s: %w", f.path, err)
-	}
-	if err := json.Unmarshal(data, &v); err != nil {
-		q := f.path + ".corrupt"
-		if qerr := os.Rename(f.path, q); qerr != nil {
-			log.Printf("ERROR: quarantine %s: %v", q, qerr)
-		}
-		if f.notifier != nil {
-			f.notifier.Notify("data.corrupt", "状态文件损坏已隔离: "+f.path, map[string]string{
-				"path": f.path, "quarantined_as": q,
-			})
-		}
-		return v, fmt.Errorf("%w: %s: %v", ErrCorrupt, f.path, err)
-	}
-	return v, nil
+	return v, LoadJSON(f.path, &v, f.notifier)
 }
 
 // Save 原子写入（自动创建父目录）。
 func (f *JSONFile[T]) Save(v T) error {
-	if err := os.MkdirAll(filepath.Dir(f.path), 0755); err != nil {
+	return SaveJSON(f.path, v, f.perm)
+}
+
+// LoadJSON 是仓库内 JSON 状态读取的唯一实现；JSONFile[T] 与 platform 的
+// 兼容转发都走这里，保证损坏隔离/告警策略只有一份。
+func LoadJSON(path string, dest any, notifier Notifier) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		log.Printf("ERROR: load json %s: %v", path, err)
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if err := json.Unmarshal(data, dest); err != nil {
+		log.Printf("ERROR: decode json %s: %v", path, err)
+		q := path + ".corrupt"
+		if qerr := os.Rename(path, q); qerr != nil {
+			log.Printf("ERROR: quarantine %s: %v", q, qerr)
+		}
+		if notifier != nil {
+			notifier.Notify("data.corrupt", "状态文件损坏已隔离: "+path, map[string]string{
+				"path": path, "quarantined_as": q,
+			})
+		}
+		return fmt.Errorf("%w: %s: %v", ErrCorrupt, path, err)
+	}
+	return nil
+}
+
+// SaveJSON 是仓库内 JSON 状态原子写入的唯一实现。
+func SaveJSON(path string, v any, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal %s: %w", f.path, err)
+		return fmt.Errorf("marshal %s: %w", path, err)
 	}
-	if err := AtomicWriteFile(f.path, data, f.perm); err != nil {
-		return fmt.Errorf("write %s: %w", f.path, err)
+	if err := AtomicWriteFile(path, data, perm); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }

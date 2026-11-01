@@ -55,6 +55,7 @@ type apiDeps struct {
 	security  *auth.Security
 	downloads *downloads.Manager
 	traffic   *proxy.TrafficTracker
+	ipv6State *proxy.IPv6State
 	layout    runtime.Layout
 }
 
@@ -88,8 +89,8 @@ func apiRoutes(d apiDeps) []apiRoute {
 
 		// ── 网络 / 安全 / 流量 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/network/status", Handler: proxy.ApiNetworkStatus(cli), Role: roleAdmin},
-		{Method: http.MethodPost, Pattern: "/api/admin/network/rotate-ipv6", Handler: proxy.ApiRotateIPv6(cli), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/network/sync-dns", Handler: proxy.ApiSyncDNS(cli), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/network/rotate-ipv6", Handler: proxy.ApiRotateIPv6(cli, d.ipv6State), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/network/sync-dns", Handler: proxy.ApiSyncDNS(cli, d.ipv6State), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/security/blocked", Handler: securitySvc.ApiBlockedIPs(), Role: roleAdmin},
 		{Method: http.MethodPost, Pattern: "/api/admin/security/block", Handler: securitySvc.ApiBlockIP(), Role: roleAdmin, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/security/unblock", Handler: securitySvc.ApiUnblockIP(), Role: roleAdmin, Audit: true},

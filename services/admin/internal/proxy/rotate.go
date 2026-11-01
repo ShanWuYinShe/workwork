@@ -13,11 +13,11 @@ import (
 
 // StartupRotateIPv6 在启动时恢复 DNS 已发布的轮换 IPv6 地址。
 // 仅当 DNS/容器当前状态没有可用地址时才分配新地址；无 CF token 时 no-op。
-func StartupRotateIPv6(cli *client.Client) {
+func StartupRotateIPv6(parent context.Context, cli *client.Client, state *IPv6State) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, 3*time.Minute)
 	defer cancel()
 
 	// 先等容器就绪——这段等待最长可达 3 分钟,绝不能持锁:轮换锁是全局互斥的,
@@ -117,20 +117,20 @@ func StartupRotateIPv6(cli *client.Client) {
 			}
 			log.Printf("startup IPv6 restore: DNS update failed: %v; rolled back newly generated IPs", err)
 		} else {
-			saveCurrentIPs(xrayIP, nginxIP)
+			state.SaveCurrent(xrayIP, nginxIP)
 			log.Printf("startup IPv6 restore: DNS update failed: %v; keeping restored IPs to avoid stale DNS", err)
 		}
 		return
 	}
 
-	saveCurrentIPs(xrayIP, nginxIP)
-	retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
-	retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
+	state.SaveCurrent(xrayIP, nginxIP)
+	state.RetireStaleAssigned("xray", xrayAssigned, xrayIP, rotatingPrefix)
+	state.RetireStaleAssigned("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
 	log.Printf("Startup IPv6 restore: xray=%s nginx=%s", xrayIP, nginxIP)
 }
 
-func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
+func ApiRotateIPv6(cli *client.Client, state *IPv6State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
@@ -221,14 +221,14 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 				platform.DelContainerIP(ctx, cli, nginxID, nginxIP)
 				log.Printf("DNS update failed: %v; rolled back DNS and IPs", err)
 			} else {
-				saveCurrentIPs(xrayIP, nginxIP)
+				state.SaveCurrent(xrayIP, nginxIP)
 				log.Printf("DNS update failed: %v; keeping new IPs to avoid stale DNS", err)
 			}
 			platform.WriteError(w, "DNS 更新失败", 500)
 			return
 		}
 
-		saveCurrentIPs(xrayIP, nginxIP)
+		state.SaveCurrent(xrayIP, nginxIP)
 		var retired []retiredIPv6Entry
 		if oldXrayIP != "" && platform.NormalizeIPv6(oldXrayIP) != platform.NormalizeIPv6(xrayStatic) && isRotatingIPv6InPrefix(oldXrayIP, rotatingPrefix) {
 			retired = append(retired, retiredIPv6Entry{Service: "xray", IP: oldXrayIP})
@@ -236,9 +236,9 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 		if oldNginxIP != "" && platform.NormalizeIPv6(oldNginxIP) != platform.NormalizeIPv6(nginxStatic) && isRotatingIPv6InPrefix(oldNginxIP, rotatingPrefix) {
 			retired = append(retired, retiredIPv6Entry{Service: "nginx", IP: oldNginxIP})
 		}
-		retireRotatingIPs(retired...)
-		retireStaleAssignedRotatingIPs("xray", xrayAssigned, xrayIP, rotatingPrefix)
-		retireStaleAssignedRotatingIPs("nginx", nginxAssigned, nginxIP, rotatingPrefix)
+		state.Retire(retired...)
+		state.RetireStaleAssigned("xray", xrayAssigned, xrayIP, rotatingPrefix)
+		state.RetireStaleAssigned("nginx", nginxAssigned, nginxIP, rotatingPrefix)
 
 		actor, _ := requestctx.ActorFrom(r.Context())
 		log.Printf("[security] rotate-ipv6 xray_ip=%s nginx_ip=%s domains=%d by=%s", xrayIP, nginxIP, len(updated), actor.Username)
@@ -251,7 +251,7 @@ func ApiRotateIPv6(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
+func ApiSyncDNS(cli *client.Client, state *IPv6State) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ipv6RotateMu.Lock()
 		defer ipv6RotateMu.Unlock()
@@ -296,7 +296,7 @@ func ApiSyncDNS(cli *client.Client) http.HandlerFunc {
 				results = append(results, fmt.Sprintf("%s → %s synced", di.Domain, ip))
 			}
 		}
-		saveCurrentIPs(xrayIP, nginxIP)
+		state.SaveCurrent(xrayIP, nginxIP)
 		actor, _ := requestctx.ActorFrom(r.Context())
 		// 审计区分成败:全失败也记成功形态的行,审计线无法区分事故(对照
 		// rotate-ipv6 只在真正成功后留痕)。

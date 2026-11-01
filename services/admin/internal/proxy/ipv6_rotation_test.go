@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"admin/internal/runtime"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,31 +76,32 @@ func TestSelectStartupRotatingIPPrefersDNSThenAssigned(t *testing.T) {
 }
 
 func TestRotatingIPStateSupportsLegacyAndRetiredQueue(t *testing.T) {
-	oldPath := rotatingIPStatePath
-	rotatingIPStatePath = filepath.Join(t.TempDir(), "rotating-ips.json")
-	t.Cleanup(func() { rotatingIPStatePath = oldPath })
-
-	if err := os.WriteFile(rotatingIPStatePath, []byte(`{"xray":"2605:a141:2322:2623:000f::1","nginx":"2605:a141:2322:2623:000f::2"}`), 0600); err != nil {
+	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
+	stateStore := NewIPv6State(layout)
+	if err := os.MkdirAll(filepath.Dir(layout.IPv6StatePath()), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(layout.IPv6StatePath(), []byte(`{"xray":"2605:a141:2322:2623:000f::1","nginx":"2605:a141:2322:2623:000f::2"}`), 0600); err != nil {
 		t.Fatalf("write legacy state: %v", err)
 	}
 
-	rotatingIPStateMu.Lock()
-	state := loadRotatingIPStateLocked()
-	rotatingIPStateMu.Unlock()
+	stateStore.mu.Lock()
+	state := stateStore.loadLocked()
+	stateStore.mu.Unlock()
 	if state.Current["xray"] != "2605:a141:2322:2623:f::1" || state.Current["nginx"] != "2605:a141:2322:2623:f::2" {
 		t.Fatalf("unexpected legacy state: %#v", state.Current)
 	}
 
-	saveCurrentIPs("2605:a141:2322:2623:f::10", "2605:a141:2322:2623:f::20")
+	stateStore.SaveCurrent("2605:a141:2322:2623:f::10", "2605:a141:2322:2623:f::20")
 	before := time.Now().Add(rotatingIPv6CleanupGrace - time.Second)
-	retireRotatingIPs(
+	stateStore.Retire(
 		retiredIPv6Entry{Service: "xray", IP: "2605:a141:2322:2623:f::1"},
 		retiredIPv6Entry{Service: "xray", IP: "2605:a141:2322:2623:f::10"},
 	)
 
-	rotatingIPStateMu.Lock()
-	state = loadRotatingIPStateLocked()
-	rotatingIPStateMu.Unlock()
+	stateStore.mu.Lock()
+	state = stateStore.loadLocked()
+	stateStore.mu.Unlock()
 
 	if state.Current["xray"] != "2605:a141:2322:2623:f::10" {
 		t.Fatalf("unexpected current xray IP: %#v", state.Current)

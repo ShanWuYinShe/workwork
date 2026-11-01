@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"admin/internal/platform"
+	"admin/internal/runtime"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net/netip"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +18,16 @@ import (
 	"github.com/docker/docker/client"
 )
 
-var (
-	rotatingIPStatePath = "/app/data/rotating-ips.json"
-	rotatingIPStateMu   sync.Mutex
-)
+// IPv6State 是轮换地址状态的唯一 owner：路径来自 Layout，锁随实例走。
+// 不再有包级可变路径/mutex；生产由 main 构造，测试用临时 Layout。
+type IPv6State struct {
+	path string
+	mu   sync.Mutex
+}
+
+func NewIPv6State(layout runtime.Layout) *IPv6State {
+	return &IPv6State{path: layout.IPv6StatePath()}
+}
 
 type rotatingIPState struct {
 	Current map[string]string  `json:"current"`
@@ -37,9 +45,9 @@ type startupIPv6Selection struct {
 	Generated bool
 }
 
-func loadRotatingIPStateLocked() rotatingIPState {
+func (s *IPv6State) loadLocked() rotatingIPState {
 	defaultState := rotatingIPState{Current: map[string]string{}}
-	data, err := os.ReadFile(rotatingIPStatePath)
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			log.Printf("WARNING: read rotating IP state: %v", err)
@@ -61,12 +69,12 @@ func loadRotatingIPStateLocked() rotatingIPState {
 		// 与 platform.LoadJSONFile 同策略:损坏现场隔离为 .corrupt——下一次
 		// 保存会静默覆盖原文件,不隔离则 Retired 清理队列无法事后恢复。
 		log.Printf("ERROR: parse rotating IP state: %v", err)
-		quarantine := rotatingIPStatePath + ".corrupt"
-		if qerr := os.Rename(rotatingIPStatePath, quarantine); qerr != nil {
+		quarantine := s.path + ".corrupt"
+		if qerr := os.Rename(s.path, quarantine); qerr != nil {
 			log.Printf("ERROR: quarantine rotating IP state %s: %v", quarantine, qerr)
 		}
-		platform.NotifyWebhook("data.corrupt", "状态文件损坏已隔离: "+rotatingIPStatePath, map[string]string{
-			"path": rotatingIPStatePath, "quarantined_as": quarantine,
+		platform.NotifyWebhook("data.corrupt", "状态文件损坏已隔离: "+s.path, map[string]string{
+			"path": s.path, "quarantined_as": quarantine,
 		})
 		return defaultState
 	}
@@ -75,14 +83,14 @@ func loadRotatingIPStateLocked() rotatingIPState {
 	return state
 }
 
-func saveRotatingIPStateLocked(state rotatingIPState) {
+func (s *IPv6State) saveLocked(state rotatingIPState) {
 	normalizeRotatingIPState(&state)
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		log.Printf("ERROR: marshal rotating IP state: %v", err)
 		return
 	}
-	if err := platform.AtomicWriteFile(rotatingIPStatePath, data, 0600); err != nil {
+	if err := platform.AtomicWriteFile(s.path, data, 0600); err != nil {
 		log.Printf("ERROR: save rotating IP state: %v", err)
 	}
 }
@@ -113,32 +121,38 @@ func normalizeRotatingIPState(state *rotatingIPState) {
 	for _, entry := range dedup {
 		state.Retired = append(state.Retired, entry)
 	}
+	sort.Slice(state.Retired, func(i, j int) bool {
+		if state.Retired[i].Service != state.Retired[j].Service {
+			return state.Retired[i].Service < state.Retired[j].Service
+		}
+		return state.Retired[i].IP < state.Retired[j].IP
+	})
 }
 
-// saveCurrentIPs persists the active rotating IPs and the retired-IP cleanup queue.
-func saveCurrentIPs(xrayIP, nginxIP string) {
-	rotatingIPStateMu.Lock()
-	defer rotatingIPStateMu.Unlock()
+// SaveCurrent persists the active rotating IPs and the retired-IP cleanup queue.
+func (s *IPv6State) SaveCurrent(xrayIP, nginxIP string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	state := loadRotatingIPStateLocked()
+	state := s.loadLocked()
 	if xrayIP != "" {
 		state.Current["xray"] = platform.NormalizeIPv6(xrayIP)
 	}
 	if nginxIP != "" {
 		state.Current["nginx"] = platform.NormalizeIPv6(nginxIP)
 	}
-	saveRotatingIPStateLocked(state)
+	s.saveLocked(state)
 }
 
-func retireRotatingIPs(entries ...retiredIPv6Entry) {
+func (s *IPv6State) Retire(entries ...retiredIPv6Entry) {
 	if len(entries) == 0 {
 		return
 	}
 
-	rotatingIPStateMu.Lock()
-	defer rotatingIPStateMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	state := loadRotatingIPStateLocked()
+	state := s.loadLocked()
 	now := time.Now()
 	for _, entry := range entries {
 		entry.Service = strings.TrimSpace(entry.Service)
@@ -154,10 +168,10 @@ func retireRotatingIPs(entries ...retiredIPv6Entry) {
 		}
 		state.Retired = append(state.Retired, entry)
 	}
-	saveRotatingIPStateLocked(state)
+	s.saveLocked(state)
 }
 
-func retireStaleAssignedRotatingIPs(service string, assigned []string, keepIP string, rotatingPrefix netip.Prefix) {
+func (s *IPv6State) RetireStaleAssigned(service string, assigned []string, keepIP string, rotatingPrefix netip.Prefix) {
 	keepIP = platform.NormalizeIPv6(keepIP)
 	var entries []retiredIPv6Entry
 	for _, ip := range assigned {
@@ -167,10 +181,10 @@ func retireStaleAssignedRotatingIPs(service string, assigned []string, keepIP st
 		}
 		entries = append(entries, retiredIPv6Entry{Service: service, IP: ip})
 	}
-	retireRotatingIPs(entries...)
+	s.Retire(entries...)
 }
 
-func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
+func (s *IPv6State) CleanupDue(ctx context.Context, cli *client.Client) {
 	if platform.GetEnv("CF_API_TOKEN") == "" {
 		return
 	}
@@ -180,15 +194,15 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	defer ipv6RotateMu.Unlock()
 
 	// 锁内：读取 state 并划分待清理列表，立即落盘（先移除待清理项）。
-	// 这样网络 IO 在锁外执行，不会长时间阻塞其它 state 读写（saveCurrentIPs 等）。
-	rotatingIPStateMu.Lock()
+	// 这样网络 IO 在锁外执行，不会长时间阻塞其它 state 读写（SaveCurrent 等）。
+	s.mu.Lock()
 	rotatingPrefix, err := rotatingIPv6Prefix(platform.GetEnv("IPV6_SUBNET"))
 	if err != nil {
-		rotatingIPStateMu.Unlock()
+		s.mu.Unlock()
 		log.Printf("[ip-cleanup] subnet: %v", err)
 		return
 	}
-	state := loadRotatingIPStateLocked()
+	state := s.loadLocked()
 	now := time.Now()
 
 	var keep []retiredIPv6Entry
@@ -210,8 +224,8 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 	}
 	// 先把待清理项从持久化 state 中移除，失败时再在锁外回补。
 	state.Retired = keep
-	saveRotatingIPStateLocked(state)
-	rotatingIPStateMu.Unlock()
+	s.saveLocked(state)
+	s.mu.Unlock()
 
 	// 锁外：执行可能缓慢的网络 IO（platform.FindContainer + platform.DelContainerIP）。
 	cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -237,11 +251,11 @@ func cleanupDueRetiredRotatingIPs(ctx context.Context, cli *client.Client) {
 
 	// 短锁回写失败的项（延后重试）。
 	if len(failed) > 0 {
-		rotatingIPStateMu.Lock()
-		state = loadRotatingIPStateLocked()
+		s.mu.Lock()
+		state = s.loadLocked()
 		state.Retired = append(state.Retired, failed...)
-		saveRotatingIPStateLocked(state)
-		rotatingIPStateMu.Unlock()
+		s.saveLocked(state)
+		s.mu.Unlock()
 	}
 }
 

@@ -24,6 +24,7 @@ func testRouteDeps(layout runtime.Layout) apiDeps {
 		security:  auth.NewSecurity(layout),
 		downloads: downloads.NewManager(layout),
 		traffic:   proxy.NewTrafficTracker(layout),
+		ipv6State: proxy.NewIPv6State(layout),
 		layout:    layout,
 	}
 }
