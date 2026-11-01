@@ -24,7 +24,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
   https://yinghuoren.com/speedtest/{0|8388608}
 ```
 
-**cfst 标准流程**（XIU2/CloudflareSpeedTest v2.3.5，darwin arm64 二进制历史上放在 `.workwork/cf-opt/cfst/`——该目录属中间产物、可能已被清理，需要时经本机 xray 代理从 GitHub release 重新下载）：2.5 分钟完成全段粗筛 + top10 下载测速。
+**cfst 标准流程**（XIU2/CloudflareSpeedTest v2.3.5，darwin arm64 二进制在 `.workwork/cf-opt/cfst/`——该目录属中间产物、可能已被清理，需要时经本机 xray 代理从 GitHub release 重新下载）：2.5 分钟完成全段粗筛 + top10 下载测速。
 
 ```bash
 ./cfst -url "https://yinghuoren.com/speedtest/33554432" -dn 10 -t 4 -p 15 -o result.csv
@@ -74,7 +74,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 
 ## CF API token 与 DoH
 
-- CF API token（`~/work/dogod/cf_token_and_cert/cf_account_token`）的 IP 白名单**只放服务器出口 IP**（用户有意设计）：本机直连调用被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。**
+- CF API token（`~/work/dogod/cf_token_and_cert/cf_account_token`）的 IP 白名单**只放服务器出口 IP**（有意设计）：本机直连调用被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。**
 - DoH 候选可达性实测必须用 **RFC8484 wire format**：`?dns=<base64url 查询>` + `accept: application/dns-message`。JSON API（`?name=`）对 Google/Quad9 会 400，造成「不可用」误判——wire format 下 1.1.1.1/1.0.0.1/8.8.8.8/9.9.9.9 与 v6 解析器全部 200，且 8.8.8.8 证书含 IP SAN 可作 DOHL 目标。
   ```bash
   python3 -c "import base64,struct;h=struct.pack('>HHHHHH',0x1234,0x0100,1,0,0,0);n=b''.join(bytes([len(p)])+p.encode() for p in 'example.com'.split('.'))+b'\\x00';print(base64.urlsafe_b64encode(h+n+struct.pack('>HH',1,1)).decode().rstrip('='))"
@@ -84,17 +84,17 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 ## 出站策略陷阱：prioritizeIPv6
 
 - freedom `prioritizeIPv6: true` 会拖死无 AAAA 的目标：`github.com` 无 IPv6，开启后经代理访问 20s 超时（服务器 v4 直连 0.1s 正常），youtube/cloudflare 等有 AAAA 的正常——表现为「特定网站经代理打不开、其他正常」，极易误判为链路问题。
-- 已改 `xray.json.tmpl` 的 `prioritizeIPv6=false`（commit 9e85d93）。排障手法：源站 `curl -4/-6` 分栈对比 + 经隧道与直连源站同目标对比，即可区分「链路问题 / 出站策略问题」。
+- `xray.json.tmpl` 必须保持 `prioritizeIPv6=false`（commit 9e85d93）。排障手法：源站 `curl -4/-6` 分栈对比 + 经隧道与直连源站同目标对比，即可区分「链路问题 / 出站策略问题」。
 - 注意 `xray.json.tmpl` 渲染后必须是合法 JSON——JSON 结构内不能加 `//` 注释（`nginx.conf.tmpl` 才行），`TestXrayTemplateRendersValidJSON` 会拦。
 
 ## h3 / QUIC
 
 - `XHTTP_ALPN=h3` 的客户端在晚高峰 QUIC 出站整段挂死（curl 000、15s 超时，direct 规则正常），同刻 h2/TCP 一切正常、服务器数据面 631×200/h——武汉电信晚高峰对 UDP 443 的 QoS。
 - 因此面板默认 `XHTTP_ALPN=h2`（安全默认，TCP 专属 sockopt 保留）；h3 留作旋钮，仅适合 UDP 质量好的时段/网络，**晚高峰代理挂掉先查这里**（服务器 `.env` 一行 + 重启 admin）。
-- 用户客户端 `config.jsonc` 若 h3-only，晚高峰同样会挂，`alpn` 改回 `["h2"]` 即恢复。本机 curl 8.7 无 http3，直连只能测 h2；h3 差异未直测。
+- 客户端 `config.jsonc` 若 h3-only，晚高峰同样会挂，`alpn` 改回 `["h2"]` 即恢复。本机 curl 8.7 无 http3，直连只能测 h2；h3 差异未直测。
 
-## 历史结论（只留方法教训）
+## 方法要点
 
-- 手搓 curl 时代：默认解析 IP 有 2.5-8s 坏样本；v6 各段全面劣于 v4，故暂未配 AAAA（以后要 v6 须先同样手法实测再加）。
+- 默认解析 IP 有 2.5-8s 坏样本；v6 各段全面劣于 v4，故暂未配 AAAA（以后要 v6 须先同样手法实测再加）。
 - 单 IP 测速会骗人：某候选单连接最快，4 连接聚合复测排名翻转（152.1 聚合 8.7 / 147.1 8.4 / 31.35 仅 5.8 MB/s）——curl 单连接吞吐会被每连接瓶颈骗过；XHTTP packet-up 是多分片并发，**终测必须加多连接聚合**。
-- **已淘汰的现役 IP（勿沿用）**：`162.159.128.1`（TTFB 最差 2531ms）、`104.26.1.1`（吞吐最差 2.77 MB/s）、`104.26.6.1`（退化 3.62MB/s / 638ms）、`162.159.137.187`（三轮聚合 7.1/9.6/7.9，全场最弱退场）、`162.159.152.1`（同法仅 5.6 MB/s）。它们都只反映各自测量窗口，换 IP 必须重新按上面的方法实测。
+- **不要沿用的 IP**：`162.159.128.1`（TTFB 最差 2531ms）、`104.26.1.1`（吞吐最差 2.77 MB/s）、`104.26.6.1`（退化 3.62MB/s / 638ms）、`162.159.137.187`（三轮聚合 7.1/9.6/7.9，全场最弱退场）、`162.159.152.1`（同法仅 5.6 MB/s）。它们都只反映各自测量窗口，换 IP 必须重新按上面的方法实测。

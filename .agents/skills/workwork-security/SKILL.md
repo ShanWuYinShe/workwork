@@ -71,8 +71,8 @@ docker compose logs --since 30m nginx 2>&1 | grep 'POST /proxy/query' | awk '{pr
   ./cfst -url "https://yinghuoren.com/speedtest/33554432" -dn 10 -t 4 -p 15 -o result.csv
   ```
   cfst 2.5 分钟完成全段粗筛 + top10 下载测速；完整方法论、扫描分阶段纪律与陷阱见 references/edge-opt.md。
-- CF API token 的 IP 白名单**只放服务器出口 IP**（用户有意设计）：本机直连调用被拒（错误码 9109），正确用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白，也不要把 token 复制到服务器**（凭据红线）。
-- h3/QUIC 晚高峰不可用：`XHTTP_ALPN=h3` 客户端晚高峰 QUIC 出站整段挂死（curl 000、15s 超时），同刻 h2/TCP 正常，属运营商对 UDP 443 的 QoS。面板默认 `XHTTP_ALPN=h2`；晚高峰代理挂掉先查这里（服务器 `.env` 一行 + 重启 admin）。`prioritizeIPv6: true` 会拖死无 AAAA 的目标（如 github.com），已改回 false，排障手法见 references/edge-opt.md。
+- CF API token 的 IP 白名单**只放服务器出口 IP**（有意设计）：本机直连调用被拒（错误码 9109），正确用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白，也不要把 token 复制到服务器**（凭据红线）。
+- h3/QUIC 晚高峰不可用：`XHTTP_ALPN=h3` 客户端晚高峰 QUIC 出站整段挂死（curl 000、15s 超时），同刻 h2/TCP 正常，属运营商对 UDP 443 的 QoS。面板默认 `XHTTP_ALPN=h2`；晚高峰代理挂掉先查这里（服务器 `.env` 一行 + 重启 admin）。`prioritizeIPv6` 必须为 `false`（`true` 会拖死无 AAAA 的目标，如 github.com），排障手法见 references/edge-opt.md。
 
 ## IPv6 寻址
 
