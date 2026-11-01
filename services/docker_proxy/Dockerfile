@@ -1,5 +1,5 @@
 # workwork-docker-proxy:docker API 精确白名单反代(见 main.go 头注释)。
-# 单文件无第三方依赖;上游 unix socket,仅容器内网监听。
+# 无第三方依赖;上游 unix socket,仅容器内网监听。
 ARG GO_VERSION=1.26.10
 ARG ALPINE_VERSION=3.24.1
 
@@ -11,7 +11,7 @@ WORKDIR /src
 RUN sed -i "s#dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
     && apk add --no-cache git ca-certificates
 ENV GOPROXY=${GOPROXY}
-COPY go.mod main.go ./
+COPY go.mod ./*.go ./
 ARG GIT_VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${GIT_VERSION}" -o /out/docker-proxy .
 

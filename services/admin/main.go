@@ -40,6 +40,7 @@ func main() {
 	notifier := runtime.NotifyFunc(platform.NotifyWebhook)
 	users := identity.NewStore(layout, notifier)
 	secrets := identity.NewSecrets(layout)
+	securitySvc := auth.NewSecurity(layout)
 
 	// 不要用 client.WithTimeout:它设置的是 http.Client.Timeout,即整个
 	// 请求-响应周期(含 body 读取)的硬墙,会把无 deadline 的长连接流掐断——
@@ -55,7 +56,7 @@ func main() {
 	transferStore := transfer.NewStore(layout)
 
 	// Auto-generate configs from templates before dependent services start.
-	if err := generateConfigs(users, secrets, layout, xraySvc); err != nil {
+	if err := generateConfigs(users, secrets, layout, xraySvc, securitySvc); err != nil {
 		log.Fatalf("Config generation failed: %v", err)
 	}
 
@@ -64,8 +65,8 @@ func main() {
 	proxy.SetTrafficEmailAliases(xraySvc.EmailAliases())
 	// 封禁同步到 nginx 层需要 docker exec reload;注入 client 并在启动时
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
-	auth.SetBlocklistClient(cli)
-	auth.ScheduleBlocklistSync()
+	securitySvc.SetBlocklistClient(cli)
+	securitySvc.ScheduleBlocklistSync()
 	// 删用户级联清理其 transfer 上传(钩子注入,保持 accounts 不依赖 transfer)。
 	accounts.CascadeDeleteUploads = transferStore.DeleteUploadsByUploader
 
@@ -92,10 +93,10 @@ func main() {
 	go daemonGuard(&daemonWG, "traffic-collector", func() { proxy.StartTrafficCollector(ctx, cli) })
 
 	mux := http.NewServeMux()
-	mw := auth.NewMiddleware(users, secrets)
+	mw := auth.NewMiddleware(users, secrets, securitySvc)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli, users, xraySvc, transferStore, layout)
+	routes := apiRoutes(cli, users, xraySvc, transferStore, securitySvc, layout)
 	registerBodyLimitExemptions(routes)
 	registerRoutes(mux, routes, mw)
 
@@ -161,13 +162,13 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	auth.StartRateLimiter()
+	securitySvc.StartRateLimiter()
 
 	// Graceful shutdown — 信号 ctx 已在守护 goroutine 启动前创建（见上方
 	// proxy 三守护），transfer 的 cleanup loop 与它们共享同一 ctx。
 	// 优雅关闭时停止 rate limiter 的 cleanup goroutine，避免 goroutine 泄漏
 	// 到进程退出之外（也顺带让最后一次 ipBlocker.save() 有机会执行）。
-	defer auth.StopRateLimiter()
+	defer securitySvc.StopRateLimiter()
 
 	// SIGKILL(磁盘满 OOM/宿主重启/部署 stop 超时)会让 defer 删除失效,残留
 	// 的 .tmp-* 等临时文件在此统一兜底回收(覆盖各写入路径)。
@@ -219,7 +220,7 @@ func main() {
 		log.Println("Shutdown: daemons did not exit in 5s, proceeding")
 	}
 	// 去抖中的封禁写入必须在这里落盘，否则限流热路径最后 1s 的封禁会丢。
-	auth.FlushBlockedIPs()
+	securitySvc.FlushBlockedIPs()
 	log.Println("Server stopped")
 }
 

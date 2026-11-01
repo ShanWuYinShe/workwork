@@ -25,19 +25,23 @@ type rateLimiter struct {
 	// map 只能精确匹配),但计数按 /64——网段超限后,该网段每个新 IP 首个
 	// 请求即触发封禁,换后缀不再重置预算。
 	v6Prefix map[string]*rateLimitEntry
-	maxReqs  int           // max requests in the window
+	maxReqs  int // max requests in the window
+	blocker  *ipBlockStore
 	window   time.Duration // sliding window
 	banTime  time.Duration // how long to ban
 	stopChan chan struct{}
 	stopOnce sync.Once
 }
 
-var authRateLimiter = &rateLimiter{
-	entries:  make(map[string]*rateLimitEntry),
-	v6Prefix: make(map[string]*rateLimitEntry),
-	maxReqs:  20,               // 20 requests
-	window:   10 * time.Second, // per 10 seconds
-	banTime:  30 * time.Minute, // ban for 30 minutes
+func newRateLimiter(blocker *ipBlockStore) *rateLimiter {
+	return &rateLimiter{
+		entries:  make(map[string]*rateLimitEntry),
+		v6Prefix: make(map[string]*rateLimitEntry),
+		maxReqs:  20,
+		window:   10 * time.Second,
+		banTime:  30 * time.Minute,
+		blocker:  blocker,
+	}
 }
 
 // maxRateLimitEntries 限制内存型限流表的最大条目数。走 Cloudflare 时
@@ -64,7 +68,7 @@ func (rl *rateLimiter) cleanupLoop() {
 		select {
 		case <-ticker.C:
 			rl.cleanup()
-			ipBlocker.cleanupExpired()
+			rl.blocker.cleanupExpired()
 		case <-rl.stopChan:
 			return
 		}
@@ -113,7 +117,7 @@ func ipv6PrefixKey(ip string) (string, bool) {
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
-	// 持久化封禁在锁外执行:ipBlocker.saveDebounced() 会合并短时间内的多次
+	// 持久化封禁在锁外执行:rl.blocker.saveDebounced() 会合并短时间内的多次
 	// 封禁写盘,避免攻击者持续超限时每个请求都触发全量序列化+fsync。
 	var blockAfterUnlock string
 
@@ -154,8 +158,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 		if len(ce.timestamps) >= rl.maxReqs {
 			blockAfterUnlock = ip
 			rl.mu.Unlock()
-			ipBlocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
-			ipBlocker.saveDebounced()
+			rl.blocker.add(blockAfterUnlock, "rate limit exceeded ("+countKey+")", rl.banTime)
+			rl.blocker.saveDebounced()
 			platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip+" (网段 "+countKey+" 超限)", map[string]string{
 				"ip": ip, "prefix": countKey, "duration": rl.banTime.String(),
 			})
@@ -202,8 +206,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 		blockAfterUnlock = ip
 		rl.mu.Unlock()
 		// Also add to persistent IP blocker (outside the lock)
-		ipBlocker.add(blockAfterUnlock, "rate limit exceeded", rl.banTime)
-		ipBlocker.saveDebounced()
+		rl.blocker.add(blockAfterUnlock, "rate limit exceeded", rl.banTime)
+		rl.blocker.saveDebounced()
 		platform.NotifyWebhook("ratelimit.ban", "限流自动封禁: "+ip, map[string]string{
 			"ip": ip, "duration": rl.banTime.String(),
 		})
@@ -250,7 +254,7 @@ func (m *Middleware) RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 		ip := clientIP(r)
-		if ip != "" && !authRateLimiter.allow(ip) {
+		if ip != "" && !m.security.limiter.allow(ip) {
 			platform.WriteError(w, "请求过于频繁，请稍后重试", 429)
 			return
 		}
@@ -258,18 +262,18 @@ func (m *Middleware) RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc
 	}
 }
 
-func ApiRateLimitStatus() http.HandlerFunc {
+func (s *Security) ApiRateLimitStatus() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		authRateLimiter.mu.Lock()
-		defer authRateLimiter.mu.Unlock()
+		s.limiter.mu.Lock()
+		defer s.limiter.mu.Unlock()
 		var blocked []map[string]any
 		now := time.Now()
-		for ip, e := range authRateLimiter.entries {
-			if !e.blockedAt.IsZero() && now.Sub(e.blockedAt) < authRateLimiter.banTime {
+		for ip, e := range s.limiter.entries {
+			if !e.blockedAt.IsZero() && now.Sub(e.blockedAt) < s.limiter.banTime {
 				blocked = append(blocked, map[string]any{
 					"ip":         ip,
 					"blocked_at": e.blockedAt.Format(time.RFC3339),
-					"until":      e.blockedAt.Add(authRateLimiter.banTime).Format(time.RFC3339),
+					"until":      e.blockedAt.Add(s.limiter.banTime).Format(time.RFC3339),
 					"count":      len(e.timestamps),
 				})
 			}
@@ -278,7 +282,7 @@ func ApiRateLimitStatus() http.HandlerFunc {
 	}
 }
 
-func ApiRateLimitUnblock() http.HandlerFunc {
+func (s *Security) ApiRateLimitUnblock() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP string `json:"ip"`
@@ -295,8 +299,8 @@ func ApiRateLimitUnblock() http.HandlerFunc {
 			platform.WriteError(w, "IP 地址不合法", 400)
 			return
 		}
-		authRateLimiter.mu.Lock()
-		if e, ok := authRateLimiter.entries[body.IP]; ok {
+		s.limiter.mu.Lock()
+		if e, ok := s.limiter.entries[body.IP]; ok {
 			e.blockedAt = time.Time{}
 			e.timestamps = nil
 		}
@@ -304,20 +308,16 @@ func ApiRateLimitUnblock() http.HandlerFunc {
 		// 请求即被封禁,只清 entries[ip] 时同一 /64 会立刻再次触发网段封禁,
 		// 运维侧表现为"解封无效"(旧实现只能靠 10s window 静默自愈)。
 		if key, ok := ipv6PrefixKey(body.IP); ok {
-			if ce, ok := authRateLimiter.v6Prefix[key]; ok {
+			if ce, ok := s.limiter.v6Prefix[key]; ok {
 				ce.blockedAt = time.Time{}
 				ce.timestamps = nil
 			}
 		}
-		authRateLimiter.mu.Unlock()
-		ipBlocker.remove(body.IP)
-		ipBlocker.save()
+		s.limiter.mu.Unlock()
+		s.blocker.remove(body.IP)
+		s.blocker.save()
 		actor, _ := requestctx.ActorFrom(r.Context())
 		log.Printf("[security] rate-limit unblock ip=%s by=%s", body.IP, actor.Username)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
-
-// StartRateLimiter/StopRateLimiter 供 main 装配调用(包内 authRateLimiter 单例)。
-func StartRateLimiter() { authRateLimiter.start() }
-func StopRateLimiter()  { authRateLimiter.stop() }

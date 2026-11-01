@@ -13,7 +13,7 @@ func newTestMiddleware(t *testing.T) *Middleware {
 	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
 	users := identity.NewStore(layout, nil)
 	secrets := identity.NewSecrets(layout)
-	return NewMiddleware(users, secrets)
+	return NewMiddleware(users, secrets, NewSecurity(layout))
 }
 
 // useInternalToken 设置 env token 并完成 secrets 初始化。

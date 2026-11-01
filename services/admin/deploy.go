@@ -14,7 +14,7 @@ import (
 // generateConfigs 创建运行时配置与认证文件，供 xray/nginx 启动前使用。
 // 依赖显式传入（identity store / secrets / layout），不再由 auth 包级全局
 // 变量与散落的 /app/data 路径隐式提供。
-func generateConfigs(users *identity.Store, secrets *identity.Secrets, layout runtime.Layout, svc *xray.Service) error {
+func generateConfigs(users *identity.Store, secrets *identity.Secrets, layout runtime.Layout, svc *xray.Service, security *auth.Security) error {
 	if err := ensureRuntimeDirs(layout); err != nil {
 		return fmt.Errorf("runtime dirs: %w", err)
 	}
@@ -37,7 +37,7 @@ func generateConfigs(users *identity.Store, secrets *identity.Secrets, layout ru
 	}
 	// 封禁 map 配置是 nginx 配置的硬依赖(undefined variable 即 emerg),
 	// 必须在 nginx 容器启动前同步落盘;后续变更仍走 2s 去抖的异步同步。
-	if err := auth.WriteBlockedIPsConf(); err != nil {
+	if err := security.WriteBlockedIPsConf(); err != nil {
 		return fmt.Errorf("nginx blocked-ips conf: %w", err)
 	}
 	if err := users.EnsureHtpasswd(); err != nil {

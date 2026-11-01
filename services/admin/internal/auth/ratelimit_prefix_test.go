@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"admin/internal/runtime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,15 +37,14 @@ func TestIPv6PrefixKey(t *testing.T) {
 // TestRateLimiterPrefixAggregation 验证 /64 网段聚合:同一 /64 内换后缀
 // 不重置预算——网段超限后,该网段的新 IP 首个请求即封禁;相邻 /64 不受影响。
 func TestRateLimiterPrefixAggregation(t *testing.T) {
-	oldBlocker := ipBlocker
-	ipBlocker = &ipBlockStore{path: t.TempDir() + "/blocked-ips.json"}
-	t.Cleanup(func() { ipBlocker = oldBlocker })
+	sec := NewSecurity(runtime.NewLayout(t.TempDir(), t.TempDir()))
 
 	rl := &rateLimiter{
 		entries: make(map[string]*rateLimitEntry),
 		maxReqs: 2,
 		window:  10 * time.Second,
 		banTime: time.Minute,
+		blocker: sec.blocker,
 	}
 	const p1 = "2001:db8:1:2::"
 	// 后缀 A、B 各 1 次(合计 2 次,窗口内仍在 /64 预算内)。
@@ -56,7 +56,7 @@ func TestRateLimiterPrefixAggregation(t *testing.T) {
 		t.Fatal("third suffix in same /64 should hit the aggregated threshold")
 	}
 	// 触发阈值的 C 已被持久封禁。
-	if !ipBlocker.isBlocked(p1 + "3") {
+	if !sec.blocker.isBlocked(p1 + "3") {
 		t.Fatal("threshold-crossing suffix should be persisted into the blocker")
 	}
 	// 相邻 /64 的 IP 不受影响。
@@ -73,21 +73,19 @@ func TestRateLimiterPrefixAggregation(t *testing.T) {
 // nginx limit_req 一致:GET 与 HEAD 都不经 Go 限流(下载器探测文件头会发
 // HEAD,落进管理面 20req/10s 窗口会触发 30min 误封);POST(上传)仍受限流。
 func TestRateLimitExemptsTransferGETAndHEAD(t *testing.T) {
-	oldBlocker := ipBlocker
-	ipBlocker = &ipBlockStore{path: t.TempDir() + "/blocked-ips.json"}
-	t.Cleanup(func() { ipBlocker = oldBlocker })
+	sec := NewSecurity(runtime.NewLayout(t.TempDir(), t.TempDir()))
 
 	rl := &rateLimiter{
 		entries: make(map[string]*rateLimitEntry),
 		maxReqs: 1,
 		window:  10 * time.Second,
 		banTime: time.Minute,
+		blocker: sec.blocker,
 	}
-	origRL := authRateLimiter
-	authRateLimiter = rl
-	t.Cleanup(func() { authRateLimiter = origRL })
+	sec.limiter = rl
 
 	mw := newTestMiddleware(t)
+	mw.security = sec
 	reached := false
 	handler := mw.RateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
@@ -123,19 +121,16 @@ func TestRateLimitExemptsTransferGETAndHEAD(t *testing.T) {
 // 只清 entries[ip] 时网段预算仍是满的,同一 /64 的下一个请求会立刻再次被封禁,
 // 运维侧表现为"解封无效"。
 func TestRateLimitUnblockClearsIPv6PrefixBudget(t *testing.T) {
-	oldBlocker := ipBlocker
-	ipBlocker = &ipBlockStore{path: t.TempDir() + "/blocked-ips.json"}
-	t.Cleanup(func() { ipBlocker = oldBlocker })
+	sec := NewSecurity(runtime.NewLayout(t.TempDir(), t.TempDir()))
 
 	rl := &rateLimiter{
 		entries: make(map[string]*rateLimitEntry),
 		maxReqs: 2,
 		window:  10 * time.Second,
 		banTime: time.Minute,
+		blocker: sec.blocker,
 	}
-	origRL := authRateLimiter
-	authRateLimiter = rl
-	t.Cleanup(func() { authRateLimiter = origRL })
+	sec.limiter = rl
 
 	const prefix = "2001:db8:1:2::"
 	victim := prefix + "3"
@@ -149,7 +144,7 @@ func TestRateLimitUnblockClearsIPv6PrefixBudget(t *testing.T) {
 	body := strings.NewReader(`{"ip":"` + victim + `"}`)
 	req := httptest.NewRequest(http.MethodPost, "http://admin/api/admin/security/rate-limit/unblock", body)
 	rec := httptest.NewRecorder()
-	ApiRateLimitUnblock()(rec, req)
+	sec.ApiRateLimitUnblock()(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unblock should succeed, got %d: %s", rec.Code, rec.Body.String())
 	}

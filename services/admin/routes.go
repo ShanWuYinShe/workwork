@@ -47,7 +47,7 @@ func (r apiRoute) PatternWithMethod() string {
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, layout runtime.Layout) []apiRoute {
+func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service, transferStore *transfer.Store, securitySvc *auth.Security, layout runtime.Layout) []apiRoute {
 	return []apiRoute{
 		// ── 认证 / 账户 ──
 		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
@@ -74,11 +74,11 @@ func apiRoutes(cli *client.Client, users *identity.Store, xraySvc *xray.Service,
 		{Method: http.MethodGet, Pattern: "/api/admin/network/status", Handler: proxy.ApiNetworkStatus(cli), Role: roleAdmin},
 		{Method: http.MethodPost, Pattern: "/api/admin/network/rotate-ipv6", Handler: proxy.ApiRotateIPv6(cli), Role: roleAdmin, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/network/sync-dns", Handler: proxy.ApiSyncDNS(cli), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/security/blocked", Handler: auth.ApiBlockedIPs(), Role: roleAdmin},
-		{Method: http.MethodPost, Pattern: "/api/admin/security/block", Handler: auth.ApiBlockIP(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/security/unblock", Handler: auth.ApiUnblockIP(), Role: roleAdmin, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/security/rate-limit", Handler: auth.ApiRateLimitStatus(), Role: roleAdmin},
-		{Method: http.MethodPost, Pattern: "/api/admin/security/rate-limit/unblock", Handler: auth.ApiRateLimitUnblock(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/security/blocked", Handler: securitySvc.ApiBlockedIPs(), Role: roleAdmin},
+		{Method: http.MethodPost, Pattern: "/api/admin/security/block", Handler: securitySvc.ApiBlockIP(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/security/unblock", Handler: securitySvc.ApiUnblockIP(), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/security/rate-limit", Handler: securitySvc.ApiRateLimitStatus(), Role: roleAdmin},
+		{Method: http.MethodPost, Pattern: "/api/admin/security/rate-limit/unblock", Handler: securitySvc.ApiRateLimitUnblock(), Role: roleAdmin, Audit: true},
 		{Method: http.MethodGet, Pattern: "/api/admin/traffic", Handler: proxy.ApiTraffic(), Role: roleAdmin},
 
 		// ── 公开端点 ──

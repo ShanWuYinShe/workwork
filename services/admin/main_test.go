@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/internal/auth"
 	"admin/internal/identity"
 	"admin/internal/runtime"
 	"admin/internal/transfer"
@@ -16,7 +17,8 @@ import (
 // main() 的内联 HandleFunc、init() 的 body-limit 清单和各 handler 的日志里，
 // 只能靠源码正则扫描；现在路由表就是契约本身。
 func TestRouteTableContract(t *testing.T) {
-	routes := apiRoutes(nil, identity.NewStore(runtime.NewLayout(t.TempDir(), t.TempDir()), nil), nil, transfer.NewStore(runtime.NewLayout(t.TempDir(), t.TempDir())), runtime.NewLayout(t.TempDir(), t.TempDir()))
+	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
+	routes := apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), layout)
 	seen := map[string]bool{}
 	var exempt []string
 
@@ -95,7 +97,8 @@ func TestRouteTableCriticalRoles(t *testing.T) {
 		"GET /api/admin/health":                    rolePublic,
 	}
 	got := map[string]string{}
-	for _, rt := range apiRoutes(nil, identity.NewStore(runtime.NewLayout(t.TempDir(), t.TempDir()), nil), nil, transfer.NewStore(runtime.NewLayout(t.TempDir(), t.TempDir())), runtime.NewLayout(t.TempDir(), t.TempDir())) {
+	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
+	for _, rt := range apiRoutes(nil, identity.NewStore(layout, nil), nil, transfer.NewStore(layout), auth.NewSecurity(layout), layout) {
 		got[rt.PatternWithMethod()] = rt.Role
 	}
 	for key, role := range want {

@@ -18,12 +18,13 @@ import (
 // 变量（usersMetaPath、internalToken atomic.Value），任何 import auth 的
 // 包都会被绑到同一份全局状态，测试只能靠 testhooks 重定向。
 type Middleware struct {
-	users   *identity.Store
-	secrets *identity.Secrets
+	users    *identity.Store
+	secrets  *identity.Secrets
+	security *Security
 }
 
-func NewMiddleware(users *identity.Store, secrets *identity.Secrets) *Middleware {
-	return &Middleware{users: users, secrets: secrets}
+func NewMiddleware(users *identity.Store, secrets *identity.Secrets, security *Security) *Middleware {
+	return &Middleware{users: users, secrets: secrets, security: security}
 }
 
 const (

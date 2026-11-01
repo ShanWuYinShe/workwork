@@ -33,23 +33,16 @@ type ipBlockEntry struct {
 }
 
 type ipBlockStore struct {
-	mu      sync.Mutex
-	path    string
-	Entries []ipBlockEntry `json:"entries"`
+	mu       sync.Mutex
+	path     string
+	onChange func()
+	Entries  []ipBlockEntry `json:"entries"`
 	// loadErr 记录启动时读取失败（非文件不存在、非损坏隔离）的错误。
 	// 此时内存里的 Entries 不是磁盘现状，必须拒绝 save，否则会用空表
 	// 覆盖原文件，历史封禁全部丢失（fail-open）。
 	loadErr error
 	// saveTimer 是 saveDebounced 的去抖定时器（调用方须持有 mu）。
 	saveTimer *time.Timer
-}
-
-var ipBlocker = &ipBlockStore{path: "/app/data/blocked-ips.json"}
-
-// FlushBlockedIPs 立即落盘待写入的封禁状态（优雅关闭时调用，避免去抖窗口
-// 内的最后一批封禁丢失）。
-func FlushBlockedIPs() {
-	ipBlocker.flush()
 }
 
 func (s *ipBlockStore) load() {
@@ -162,7 +155,9 @@ func (s *ipBlockStore) saveLocked() {
 	}
 	// 同步到 nginx 层(去抖 + 异步):让 /proxy/query、媒体 API 等非 admin 面
 	// 也执行同一封禁。只调度不阻塞——save 可能在限流热路径持锁调用。
-	ScheduleBlocklistSync()
+	if s.onChange != nil {
+		s.onChange()
+	}
 }
 
 func (s *ipBlockStore) isBlocked(ip string) bool {
@@ -314,7 +309,7 @@ func (m *Middleware) IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		ip := clientIP(r)
-		if ip != "" && ipBlocker.isBlocked(ip) {
+		if ip != "" && m.security.blocker.isBlocked(ip) {
 			platform.WriteError(w, "访问被拒绝", 403)
 			return
 		}
@@ -322,7 +317,7 @@ func (m *Middleware) IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func ApiBlockIP() http.HandlerFunc {
+func (s *Security) ApiBlockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP       string `json:"ip"`
@@ -350,14 +345,14 @@ func ApiBlockIP() http.HandlerFunc {
 			return
 		}
 		dur := time.Duration(body.Duration) * time.Second
-		ipBlocker.add(body.IP, body.Reason, dur)
-		ipBlocker.save()
+		s.blocker.add(body.IP, body.Reason, dur)
+		s.blocker.save()
 
 		// 回读生效条目：add 对已封禁 IP 是覆盖（更新 reason/时长），
 		// 用回读结果构造响应，保证展示的封禁状态与持久化一致。
 		// find 与 add 是两个独立临界区，并发 unblock 同一 IP（fail2ban 到期
 		// 解封）时 find 可能返回 nil，不能直接解引用。
-		entry := ipBlocker.find(body.IP)
+		entry := s.blocker.find(body.IP)
 		kind := "permanent"
 		blockedAt, expiresAt := "", ""
 		if entry != nil {
@@ -387,7 +382,7 @@ func ApiBlockIP() http.HandlerFunc {
 	}
 }
 
-func ApiUnblockIP() http.HandlerFunc {
+func (s *Security) ApiUnblockIP() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			IP string `json:"ip"`
@@ -407,11 +402,11 @@ func ApiUnblockIP() http.HandlerFunc {
 		// 幂等提示分支：目标不在列表 → 404 + 错误码（明确语义而非静默 ok）。
 		// 注意：fail2ban 的 unban 在 bantime 到期后触发，此时条目可能已被
 		// cleanupExpired 清理，404 属预期，action 侧应容忍（见 admin-api.conf）。
-		if !ipBlocker.remove(body.IP) {
+		if !s.blocker.remove(body.IP) {
 			platform.WriteErrorCode(w, "该 IP 未被封禁", http.StatusNotFound, errCodeBlockNotFound)
 			return
 		}
-		ipBlocker.save()
+		s.blocker.save()
 		actor, _ := requestctx.ActorFrom(r.Context())
 		log.Printf("[security] unblock ip=%s by=%s", body.IP, actor.Username)
 		platform.NotifyWebhook("security.unblock", "IP 解封: "+body.IP, map[string]string{
@@ -421,16 +416,12 @@ func ApiUnblockIP() http.HandlerFunc {
 	}
 }
 
-func ApiBlockedIPs() http.HandlerFunc {
+func (s *Security) ApiBlockedIPs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		page, ok := platform.ParseListPage(w, r)
 		if !ok {
 			return
 		}
-		platform.WriteJSON(w, map[string]any{"entries": platform.Apply(ipBlocker.list(), page)})
+		platform.WriteJSON(w, map[string]any{"entries": platform.Apply(s.blocker.list(), page)})
 	}
-}
-
-func init() {
-	ipBlocker.load()
 }

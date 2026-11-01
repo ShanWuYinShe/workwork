@@ -1,9 +1,9 @@
 package auth
 
 import (
+	"admin/internal/runtime"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -12,15 +12,13 @@ import (
 // 窗口内超过上限后 allow 返回 false,且 IP 进入持久封禁表。
 // (last-admin 守卫的用例是 accounts.TestLastAdminGuard,不在本包。)
 func TestRateLimiterBansExceedingIP(t *testing.T) {
-	oldBlocker := ipBlocker
-	ipBlocker = &ipBlockStore{path: filepath.Join(t.TempDir(), "blocked-ips.json")}
-	t.Cleanup(func() { ipBlocker = oldBlocker })
-
+	sec := NewSecurity(runtime.NewLayout(t.TempDir(), t.TempDir()))
 	rl := &rateLimiter{
 		entries: make(map[string]*rateLimitEntry),
 		maxReqs: 2,
 		window:  10 * time.Second,
 		banTime: time.Minute,
+		blocker: sec.blocker,
 	}
 	const ip = "198.51.100.42"
 	// maxReqs=2:先精确用满窗口配额(两次都必须在限额内放行)。
@@ -32,7 +30,7 @@ func TestRateLimiterBansExceedingIP(t *testing.T) {
 	if rl.allow(ip) {
 		t.Fatal("request over limit should be rejected")
 	}
-	if !ipBlocker.isBlocked(ip) {
+	if !sec.blocker.isBlocked(ip) {
 		t.Fatal("over-limit IP should be added to persistent blocker")
 	}
 	// 封禁期内继续拒绝
