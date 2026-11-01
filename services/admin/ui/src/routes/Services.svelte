@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { navigate } from '../lib/nav.svelte.js';
-  import { getServices, serviceAction, getCurrentUser } from '../lib/api.js';
+  import { getServices, serviceAction } from '../lib/api.js';
+  import { auth } from '../lib/auth.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -9,7 +10,7 @@
 
   let services = $state([]);
   let loading = $state(true);
-  let isAdmin = $state(false);
+  let isAdmin = $derived(auth.isAdmin);
   let actingService = $state('');
 
   onMount(() => {
@@ -24,9 +25,8 @@
   async function refresh(silent = false) {
     if (!silent) loading = true;
     try {
-      const [d, user] = await Promise.all([getServices(), getCurrentUser()]);
+      const d = await getServices();
       services = d.services || [];
-      isAdmin = user.role === 'admin';
     } catch (e) {
       // 轮询失败不弹 toast：15s 一次会把其他提示刷掉；首次加载失败仍提示。
       if (!silent) toast(e.message, 'error');

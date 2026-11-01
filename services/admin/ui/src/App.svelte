@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getCurrentUser } from './lib/api.js';
+  import { auth } from './lib/auth.svelte.js';
   import { t } from './lib/i18n.svelte.js';
   import { toast } from './lib/toast.svelte.js';
   import { routes, routeTitles } from './lib/routes.js';
@@ -9,34 +9,25 @@
   import ConfirmModal from './lib/ConfirmModal.svelte';
   import Toast from './lib/Toast.svelte';
 
-  let userInfo = $state(null);
-  let authError = $state(null);
-  let authLoading = $state(true);
+  let userInfo = $derived(auth.user);
+  let authError = $derived(auth.error);
+  let authLoading = $derived(auth.loading);
   let sidebarCollapsed = $state(false);
   let mobileMenuOpen = $state(false);
   let mainScroll = $state(null);
 
   async function loadUser() {
-    authLoading = true;
-    authError = null;
     try {
-      userInfo = await getCurrentUser();
+      await auth.load(true);
       // 登出标记仍在且 /me 成功 = 浏览器没有清除凭证（覆盖失败），如实告知
       // 而不是假装已登出；认证失败的分支会清掉标记（用户即将重新登录）。
       if (sessionStorage.getItem('ww_logout_pending')) {
         sessionStorage.removeItem('ww_logout_pending');
         toast(t('logoutBlockedWarning'), 'error', 10000);
       }
-    } catch (e) {
-      // Don't silently swallow — surface the failure so the user can
-      // retry or report a broken auth backend. Without this, an admin
-      // who hits one bad response is permanently locked on the
-      // forbidden screen.
-      authError = e?.message || String(e);
-      userInfo = null;
+    } catch {
+      // auth.error 已带失败原因，模板的认证失败横幅负责展示与重试。
       sessionStorage.removeItem('ww_logout_pending');
-    } finally {
-      authLoading = false;
     }
   }
 
@@ -55,7 +46,7 @@
     mainScroll?.scrollTo(0, 0);
   });
 
-  let isAdmin = $derived(userInfo?.role === 'admin');
+  let isAdmin = $derived(auth.isAdmin);
 
   let currentRoute = $derived(routes.find((r) => r.path === nav.path));
 

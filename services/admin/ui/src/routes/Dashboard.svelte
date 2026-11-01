@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { getDashboard, getCurrentUser } from '../lib/api.js';
+  import { getDashboard } from '../lib/api.js';
+  import { auth } from '../lib/auth.svelte.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { serviceDisplayName, serviceStateBadge } from '../lib/services.js';
@@ -21,7 +22,7 @@
   let myClients = $state([]);
   let generatedJSON = $state('');
   let loading = $state(true);
-  let isAdmin = $state(false);
+  let isAdmin = $derived(auth.isAdmin);
   const viewerQuickActions = [
     { path: '/clients', label: 'openClients', desc: 'clientsActionDesc', primary: true },
     { path: '/transfer', label: 'openTransfer', desc: 'transferActionDesc' },
@@ -36,9 +37,8 @@
   let quickActions = $derived(isAdmin ? adminQuickActions : viewerQuickActions);
 
   async function loadDashboard() {
-    const [user, d] = await Promise.all([getCurrentUser(), getDashboard()]);
-    isAdmin = user.role === 'admin';
-    username = d.username || user.username;
+    const d = await getDashboard();
+    username = d.username || auth.user?.username || '';
 
     if (isAdmin) {
       stats = d.stats || stats;

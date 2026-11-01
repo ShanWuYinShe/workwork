@@ -1,11 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import {
-    getTransferFiles,
-    deleteTransferFile,
-    transferUploadUrl,
-    getCurrentUser,
-  } from '../lib/api.js';
+  import { auth } from '../lib/auth.svelte.js';
+  import { getTransferFiles, deleteTransferFile, transferUploadUrl } from '../lib/api.js';
   import { t } from '../lib/i18n.svelte.js';
   import { copyToClipboard } from '../lib/clipboard.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
@@ -17,8 +13,8 @@
   let uploading = $state(false);
   let uploadProgress = $state(null);
   let deletingCode = $state('');
-  let isAdmin = $state(false);
-  let currentUsername = $state('');
+  let isAdmin = $derived(auth.isAdmin);
+  let currentUsername = $derived(auth.user?.username || '');
   let totalSize = $state(0);
   let maxTotal = $state(20 * 1024 * 1024 * 1024);
   let fileInput = $state(null);
@@ -31,9 +27,6 @@
 
   onMount(async () => {
     try {
-      const user = await getCurrentUser();
-      isAdmin = user.role === 'admin';
-      currentUsername = user.username || '';
       await loadFiles();
     } catch (e) {
       toast(e.message, 'error');

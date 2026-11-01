@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import { auth } from '../lib/auth.svelte.js';
   import {
     getUsers,
-    getCurrentUser,
     addXrayClient,
     deleteXrayClient,
     getXrayClientConfig,
@@ -20,8 +20,8 @@
   let trafficMap = $state({});
   let generatedJSON = $state('');
   let loading = $state(true);
-  let isAdmin = $state(false);
-  let currentUser = $state('');
+  let isAdmin = $derived(auth.isAdmin);
+  let currentUser = $derived(auth.user?.username || '');
   let adminUsers = $state([]);
   // 管理员可代其他用户创建客户端；留空表示归自己。
   let ownerInput = $state('');
@@ -34,10 +34,8 @@
 
   onMount(async () => {
     try {
-      const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
+      const d = await getUsers();
       const allClients = d.xrayClients || [];
-      isAdmin = user.role === 'admin';
-      currentUser = user.username;
       adminUsers = d.adminUsers || [];
       ownerInput = currentUser;
       clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
@@ -69,10 +67,8 @@
   }
 
   async function loadData() {
-    const [d, user] = await Promise.all([getUsers(), getCurrentUser()]);
+    const d = await getUsers();
     const allClients = d.xrayClients || [];
-    isAdmin = user.role === 'admin';
-    currentUser = user.username;
     adminUsers = d.adminUsers || [];
     clients = isAdmin ? allClients : allClients.filter((c) => c.owner === currentUser);
     if (isAdmin) loadTraffic();

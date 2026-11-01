@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import { auth } from '../lib/auth.svelte.js';
   import {
-    getCurrentUser,
     getUsers,
     addAdminUser,
     deleteAdminUser,
@@ -16,8 +16,8 @@
 
   let adminUsers = $state([]);
   let loading = $state(true);
-  let isAdmin = $state(false);
-  let currentUsername = $state('');
+  let isAdmin = $derived(auth.isAdmin);
+  let currentUsername = $derived(auth.user?.username || '');
   let newUser = $state(''),
     newPass = $state(''),
     newRole = $state('viewer');
@@ -36,9 +36,6 @@
   async function loadUsers() {
     const d = await getUsers();
     adminUsers = d.adminUsers || [];
-    const me = await getCurrentUser();
-    isAdmin = me?.role === 'admin';
-    currentUsername = me?.username || '';
     pwUser = currentUsername;
   }
 

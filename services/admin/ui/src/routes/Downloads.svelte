@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import { auth } from '../lib/auth.svelte.js';
   import {
     BASE,
-    getCurrentUser,
     getClaudeReleases,
     getClaudeStored,
     getClaudePlatforms,
@@ -25,7 +25,7 @@
   let releases = $state([]);
   let stored = $state([]);
   let loading = $state(true);
-  let isAdmin = $state(false);
+  let isAdmin = $derived(auth.isAdmin);
   let refreshing = $state(false);
   let downloading = $state(false);
   let downloadKey = $state('');
@@ -35,8 +35,6 @@
 
   onMount(async () => {
     try {
-      const user = await getCurrentUser();
-      isAdmin = user.role === 'admin';
       await loadTabData();
     } catch (e) {
       toast(e.message, 'error');
