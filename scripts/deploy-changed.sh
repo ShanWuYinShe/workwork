@@ -77,6 +77,10 @@ if [ "$current_branch" != "main" ]; then
   echo "错误: 当前分支 $current_branch 非 main,拒绝部署(切到 main 后重试)" >&2
   exit 1
 fi
+# 显式拉取 tag：git pull 只保证分支，实测服务器上 v2.0.0 tag 未被自动跟随，
+# `git describe --tags` 落到 v1.2.0-11-g...，镜像版本烙印与发布 tag 不一致。
+# 不带 --force：本地 tag 与远端冲突时让部署失败，而不是静默改写发布标记。
+git fetch --tags origin
 old=${1:-}
 if [ -n "$old" ]; then
   echo "复跑模式: 从 $old 推导变更（跳过 pull）"
@@ -124,6 +128,16 @@ add_svc() {
     services="$services $1"
   fi
 }
+
+# 发布 tag 变化（v2.0.0 → v2.0.1）不会体现在 changed 文件里，但四个镜像的
+# 版本烙印都必须更新：否则健康端点仍报旧版本，回滚 tag 也对不上实际镜像。
+# 用「最近 tag」比较而非 describe 全串：普通未打 tag 的提交仍只做最小部署。
+old_tag="$(git describe --tags --abbrev=0 "$old" 2>/dev/null || true)"
+new_tag="$(git describe --tags --abbrev=0 "$new" 2>/dev/null || true)"
+if [ -n "$new_tag" ] && [ "$old_tag" != "$new_tag" ]; then
+  echo "⚠ 发布 tag ${old_tag:-<none>} → $new_tag：全量重建以更新镜像版本烙印"
+  for svc in $ALL_SERVICES; do add_svc "$svc"; done
+fi
 
 # 版本文件变更 → 全部服务重建(基础镜像统一升级的最小安全集)
 if printf '%s\n' "$changed" | grep -q '^versions.env$'; then
