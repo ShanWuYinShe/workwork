@@ -230,10 +230,10 @@ func pruneTimestamps(e *rateLimitEntry, cutoff time.Time) {
 
 // RateLimitMiddleware should be placed before IPBlockMiddleware so repeated
 // abusive requests can be persisted into the IP block list.
-func RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (m *Middleware) RateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service requests (fail2ban etc.) bypass rate limiting
-		if isPrivilegedServiceRequest(r) {
+		if m.isPrivilegedServiceRequest(r) {
 			next(w, r)
 			return
 		}

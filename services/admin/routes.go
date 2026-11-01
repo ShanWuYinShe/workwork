@@ -4,9 +4,11 @@ import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
 	"admin/internal/downloads"
+	"admin/internal/identity"
 	"admin/internal/infra"
 	"admin/internal/platform"
 	"admin/internal/proxy"
+	"admin/internal/runtime"
 	"admin/internal/transfer"
 	"log"
 	"net/http"
@@ -44,23 +46,23 @@ func (r apiRoute) PatternWithMethod() string {
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
 // 不会调用 handler。SPA/静态资源不属于 API 表，仍在 main() 注册。
-func apiRoutes(cli *client.Client) []apiRoute {
+func apiRoutes(cli *client.Client, users *identity.Store, layout runtime.Layout) []apiRoute {
 	return []apiRoute{
 		// ── 认证 / 账户 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(cli), Role: roleViewer},
-		{Method: http.MethodGet, Pattern: "/api/admin/users", Handler: accounts.ApiUsers(cli), Role: roleViewer},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/password", Handler: accounts.ApiChangePassword(cli), Role: roleViewer, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/add", Handler: accounts.ApiAddAdmin(cli), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(cli), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/roles/set", Handler: accounts.ApiSetRole(cli), Role: roleAdmin, Audit: true},
+		{Method: http.MethodGet, Pattern: "/api/admin/auth/me", Handler: accounts.ApiWhoAmI(), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/users", Handler: accounts.ApiUsers(users), Role: roleViewer},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/password", Handler: accounts.ApiChangePassword(users), Role: roleViewer, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/add", Handler: accounts.ApiAddAdmin(users), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(users, cli), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/roles/set", Handler: accounts.ApiSetRole(users), Role: roleAdmin, Audit: true},
 
 		// ── Xray 客户端 ──
-		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/add", Handler: accounts.ApiAddXray(cli), Role: roleViewer, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/add", Handler: accounts.ApiAddXray(users, cli), Role: roleViewer, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/xray/delete", Handler: accounts.ApiDeleteXray(cli), Role: roleViewer, Audit: true},
-		{Method: http.MethodGet, Pattern: "/api/admin/users/xray/config/{uuid}", Handler: accounts.ApiXrayClientConfig(), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/users/xray/config/{uuid}", Handler: accounts.ApiXrayClientConfig(users), Role: roleViewer},
 
 		// ── 面板 / 服务 / 日志 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/dashboard", Handler: infra.ApiDashboard(cli), Role: roleViewer},
+		{Method: http.MethodGet, Pattern: "/api/admin/dashboard", Handler: infra.ApiDashboard(users, cli), Role: roleViewer},
 		{Method: http.MethodGet, Pattern: "/api/admin/services", Handler: infra.ApiServices(cli), Role: roleAdmin},
 		// 兼容旧 nginx 301：/api/admin/services/ 直接返回列表。
 		{Method: http.MethodGet, Pattern: "/api/admin/services/", Handler: infra.ApiServices(cli), Role: roleAdmin},
@@ -81,7 +83,7 @@ func apiRoutes(cli *client.Client) []apiRoute {
 		{Method: http.MethodGet, Pattern: "/api/admin/traffic", Handler: proxy.ApiTraffic(), Role: roleAdmin},
 
 		// ── 公开端点 ──
-		{Method: http.MethodGet, Pattern: "/api/admin/health", Handler: healthHandler(), Role: rolePublic},
+		{Method: http.MethodGet, Pattern: "/api/admin/health", Handler: healthHandler(layout), Role: rolePublic},
 		{Method: http.MethodGet, Pattern: "/speedtest/{size}", Handler: infra.ApiSpeedtest(), Role: rolePublic},
 		{Method: http.MethodGet, Pattern: "/api/transfer/{code}", Handler: transfer.ApiTransferPublicDownload(), Role: rolePublic},
 
@@ -114,9 +116,9 @@ func apiRoutes(cli *client.Client) []apiRoute {
 
 // healthHandler 是公开的健康检查（admin 层无业务认证；经 nginx 时仍要
 // basic auth，机器探针应使用 /healthz）。
-func healthHandler() http.HandlerFunc {
+func healthHandler(layout runtime.Layout) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		if err := runtimeFilesReady(); err != nil {
+		if err := runtimeFilesReady(layout); err != nil {
 			log.Printf("health check failed: %v", err)
 			platform.WriteError(w, "服务初始化中，请稍后重试", http.StatusServiceUnavailable)
 			return
@@ -127,11 +129,11 @@ func healthHandler() http.HandlerFunc {
 
 // registerRoutes 统一套 RBAC 并注册；角色拼写错误在启动时就会被
 // RequireRole 的默认分支拒绝（契约测试也会枚举）。
-func registerRoutes(mux *http.ServeMux, routes []apiRoute) {
+func registerRoutes(mux *http.ServeMux, routes []apiRoute, mw *auth.Middleware) {
 	for _, rt := range routes {
 		h := rt.Handler
 		if rt.Role != rolePublic {
-			h = auth.RequireRole(rt.Role)(h)
+			h = mw.RequireRole(rt.Role)(h)
 		}
 		mux.HandleFunc(rt.PatternWithMethod(), h)
 	}

@@ -3,9 +3,11 @@ package main
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
+	"admin/internal/identity"
 	"admin/internal/infra"
 	"admin/internal/platform"
 	"admin/internal/proxy"
+	"admin/internal/runtime"
 	"admin/internal/transfer"
 	"context"
 	"log"
@@ -33,8 +35,13 @@ func main() {
 		port = "8318"
 	}
 
+	layout := runtime.DefaultLayout()
+	notifier := runtime.NotifyFunc(platform.NotifyWebhook)
+	users := identity.NewStore(layout, notifier)
+	secrets := identity.NewSecrets(layout)
+
 	// Auto-generate configs from templates before dependent services start.
-	if err := generateConfigs(); err != nil {
+	if err := generateConfigs(users, secrets, layout); err != nil {
 		log.Fatalf("Config generation failed: %v", err)
 	}
 
@@ -86,11 +93,12 @@ func main() {
 	go daemonGuard(&daemonWG, "traffic-collector", func() { proxy.StartTrafficCollector(ctx, cli) })
 
 	mux := http.NewServeMux()
+	mw := auth.NewMiddleware(users, secrets)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
-	routes := apiRoutes(cli)
+	routes := apiRoutes(cli, users, layout)
 	registerBodyLimitExemptions(routes)
-	registerRoutes(mux, routes)
+	registerRoutes(mux, routes, mw)
 
 	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
 	mux.HandleFunc("GET /admin/", serveSPA)
@@ -123,7 +131,7 @@ func main() {
 			} else {
 				w.Header().Set("Cache-Control", "public, max-age=3600")
 			}
-			auth.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+			mw.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 				mux.ServeHTTP(w2, r2)
 			})(w, r)
 			return
@@ -137,7 +145,7 @@ func main() {
 		// 武器化为 DoS 受害者)。IP 封禁必须在限流之前:已封禁 IP 不应再消耗
 		// 限流预算、触发封禁写盘/webhook（否则封禁后仍可周期性放大写盘）。
 		// 安全头/静态资源分支不需要这些（均为 GET）。
-		auth.CSRFMiddleware(auth.IPBlockMiddleware(auth.RateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
+		auth.CSRFMiddleware(mw.IPBlockMiddleware(mw.RateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
 			mux.ServeHTTP(w2, r2)
 		})))(w, r)
 	})

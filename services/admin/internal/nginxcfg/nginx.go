@@ -12,20 +12,17 @@ import (
 	"strconv"
 	"strings"
 
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 )
-
-// safeInternalToken 与 auth.EnsureInternalToken 的字符集保持一致：token
-// 会被写进 nginx map 正则，必须排除引号/反斜杠/$/空白等注入字符。
-var safeInternalToken = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 
 // EnsureNginxConfig 渲染并（仅在内容变化时）写 nginx 配置。
 // internalToken 用于 map 的**真实值**匹配：此前 nginx 只看
 // X-Internal-Token/Authorization 头是否存在就豁免限流与 IP 封禁，任意
 // 伪造头即可绕过（实测伪造头 10 次全 200，不带头第 3 次 429）。
 func EnsureNginxConfig(internalToken string) error {
-	if !safeInternalToken.MatchString(internalToken) {
+	if !identity.ValidInternalToken(internalToken) {
 		return fmt.Errorf("internal token is empty or contains unsafe characters for nginx config")
 	}
 	tmpl, err := os.ReadFile(proxy.NginxConfigTemplatePath)

@@ -304,11 +304,11 @@ func forwardedForIP(raw string) net.IP {
 	return nil
 }
 
-func IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (m *Middleware) IPBlockMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Internal service calls are authenticated by shared secret and must
 		// still work when fail2ban has just blocked an external client IP.
-		if isPrivilegedServiceRequest(r) {
+		if m.isPrivilegedServiceRequest(r) {
 			next(w, r)
 			return
 		}

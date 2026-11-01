@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"admin/internal/auth"
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"context"
@@ -36,7 +37,7 @@ func rollbackXrayClientDelete(entry xrayClientEntry) {
 	}
 }
 
-func ApiAddXray(cli *client.Client) http.HandlerFunc {
+func ApiAddXray(users *identity.Store, cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
@@ -73,7 +74,7 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "无权操作：只能为自己创建客户端", 403)
 			return
 		}
-		if !auth.IsValidUsername(owner) || auth.IsReservedUsername(owner) {
+		if !identity.IsValidUsername(owner) || identity.IsReservedUsername(owner) {
 			platform.WriteError(w, "owner 用户名不合法或为保留名", 400)
 			return
 		}
@@ -83,7 +84,7 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 		userLifecycleMu.Lock()
 		defer userLifecycleMu.Unlock()
 
-		exists, err := auth.UserMetaExists(owner)
+		exists, err := users.Exists(owner)
 		if err != nil {
 			log.Printf("check user %q: %v", owner, err)
 			platform.WriteInternalError(w, err)
@@ -95,7 +96,11 @@ func ApiAddXray(cli *client.Client) http.HandlerFunc {
 		}
 		// 保留伪用户(internal/fail2ban)已在上面拒绝；这里为真实登录用户
 		// 懒创建 nginx Basic Auth 的 proxy 密码。
-		if _, err := auth.GetOrCreateProxyPassword(owner); err != nil {
+		if _, err := users.EnsureProxyPassword(owner); err != nil {
+			if errors.Is(err, identity.ErrUserNotFound) {
+				platform.WriteError(w, "owner 用户不存在", 404)
+				return
+			}
 			log.Printf("Failed to create proxy password for %s: %v", owner, err)
 			platform.WriteInternalError(w, err)
 			return
@@ -212,7 +217,7 @@ func ApiDeleteXray(cli *client.Client) http.HandlerFunc {
 }
 
 // GET /api/admin/users/xray/config/{uuid} — generate config for a specific client
-func ApiXrayClientConfig() http.HandlerFunc {
+func ApiXrayClientConfig(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 		uuid := strings.ToLower(r.PathValue("uuid"))
@@ -248,7 +253,7 @@ func ApiXrayClientConfig() http.HandlerFunc {
 		// 只读端点:用 auth.ProxyAuthForUserRead 拿已有密码,绝不在这里懒创建
 		// (生成密码 + 重写 htpasswd 是写副作用,并发 GET 会写放大,且写失败
 		// 会让只读请求 500)。用户无 proxy 密码时配置里留空,与 auth.ApiUsers 一致。
-		proxyAuth := auth.ProxyAuthForUserRead(client["owner"])
+		proxyAuth := users.ProxyAuthForUserRead(client["owner"])
 		genJSON := GenerateClientConfig([]map[string]string{client}, ClientConfig{
 			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 			XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),

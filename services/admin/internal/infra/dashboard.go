@@ -3,6 +3,7 @@ package infra
 import (
 	"admin/internal/accounts"
 	"admin/internal/auth"
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"context"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-func ApiDashboard(cli *client.Client) http.HandlerFunc {
+func ApiDashboard(users *identity.Store, cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 
@@ -36,7 +37,7 @@ func ApiDashboard(cli *client.Client) http.HandlerFunc {
 				// 生成 proxy 密码并重写 htpasswd(users_api.go / xray_clients_api.go
 				// 两个读端点同此约定改用 Read 变体)。密码尚未生成时返回空串——
 				// 客户端首次添加 Xray 客户端时再懒创建,与那两个读端点一致。
-				proxyAuth = auth.ProxyAuthForUserRead(username)
+				proxyAuth = users.ProxyAuthForUserRead(username)
 			}
 			genJSON := accounts.GenerateClientConfig(myClients, accounts.ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),

@@ -1,51 +1,43 @@
 package accounts
 
 import (
+	"admin/internal/identity"
+	"admin/internal/runtime"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"admin/internal/auth"
-	"admin/internal/platform"
 )
 
-// withUsersMetaPath 覆盖 auth 的 users.json 路径到临时目录并写入初始 fixture。
-func withUsersMetaPath(t *testing.T, initialJSON string) {
+// newUsersStore 构造隔离的 identity store；fixture 直接写 users.json。
+// 策略显式指定 protected=root，不依赖进程 env。
+func newUsersStore(t *testing.T, fixture string) *identity.Store {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "users.json")
-	if initialJSON != "" {
-		if err := os.WriteFile(path, []byte(initialJSON), 0600); err != nil {
+	layout := runtime.NewLayout(t.TempDir(), t.TempDir())
+	if fixture != "" {
+		if err := os.WriteFile(layout.UsersMetaPath(), []byte(fixture), 0600); err != nil {
 			t.Fatalf("write users fixture: %v", err)
 		}
 	}
-	auth.WithUsersMetaPath(t, path)
+	return identity.NewStoreWithPolicy(layout, nil, identity.Policy{ProtectedUser: "root"})
 }
 
 func TestLastAdminGuard(t *testing.T) {
-	withUsersMetaPath(t, `{
+	users := newUsersStore(t, `{
   "users": {
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
     "bob":   {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
     "carol": {"role": "viewer", "created_at": "2026-01-01T00:00:00Z"}
   }
 }`)
-	// 防止 AUTH_USER 干扰(alice/bob 都不是 protected)
-	oldAuth := platform.GetEnv("AUTH_USER")
-	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
-	os.Setenv("AUTH_USER", "root")
-	// 删用户会级联重建 .htpasswd-proxy，重定向到临时目录避免依赖容器内 /app/data。
-	auth.WithNginxAuthDir(t, t.TempDir())
 
 	doSetRole := func(t *testing.T, username, role string) int {
 		t.Helper()
 		body := strings.NewReader(`{"username":"` + username + `","role":"` + role + `"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/roles/set", body)
 		rec := httptest.NewRecorder()
-		ApiSetRole(nil)(rec, req)
+		ApiSetRole(users)(rec, req)
 		return rec.Code
 	}
 
@@ -54,7 +46,7 @@ func TestLastAdminGuard(t *testing.T) {
 		body := strings.NewReader(`{"username":"` + username + `"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/delete", body)
 		rec := httptest.NewRecorder()
-		ApiDeleteAdmin(nil)(rec, req)
+		ApiDeleteAdmin(users, nil)(rec, req)
 		return rec.Code
 	}
 
@@ -88,33 +80,18 @@ func TestLastAdminGuard(t *testing.T) {
 }
 
 func TestAddAdminCannotResetProtectedAdmin(t *testing.T) {
-	withUsersMetaPath(t, `{
+	users := newUsersStore(t, `{
   "users": {
     "root": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"},
     "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
   }
 }`)
-	// 放行分支（无 AUTH_USER 时）由 auth.TestAddAdminGuardAllowsFreshAuthUser 覆盖。
-	oldAuth := platform.GetEnv("AUTH_USER")
-	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
-	os.Setenv("AUTH_USER", "root")
 
-	// 只覆盖守卫分支：root 已存在时守卫在读/写 htpasswd 之前就拒绝——
-	// 正向创建路径由部署环境验证。
-	doAdd := func(t *testing.T, username string) int {
-		t.Helper()
-		body := strings.NewReader(`{"username":"` + username + `","password":"newpw123","role":"admin"}`)
-		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/add", body)
-		rec := httptest.NewRecorder()
-		ApiAddAdmin(nil)(rec, req)
-		return rec.Code
+	body := strings.NewReader(`{"username":"root","password":"newpw123","role":"admin"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/add", body)
+	rec := httptest.NewRecorder()
+	ApiAddAdmin(users)(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("reset AUTH_USER via add: status = %d, want 403", rec.Code)
 	}
-
-	t.Run("reset protected admin password rejected", func(t *testing.T) {
-		if code := doAdd(t, "root"); code != http.StatusForbidden {
-			t.Fatalf("reset AUTH_USER via add: status = %d, want 403", code)
-		}
-	})
-	// 放行分支（AUTH_USER 尚未 provisioned 时不拦截）由
-	// auth.TestAddAdminGuardAllowsFreshAuthUser 用不含 AUTH_USER 的 fixture 覆盖。
 }

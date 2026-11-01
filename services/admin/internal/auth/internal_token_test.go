@@ -12,20 +12,14 @@ func internalTokenRequest(path string) *http.Request {
 	return req
 }
 
-func useInternalToken(t *testing.T) {
-	t.Helper()
-	setInternalToken("internal-secret")
-	t.Cleanup(func() { setInternalToken("") })
-}
-
 // 未配置白名单时保持既有全权语义：仓库内没有 internal token 的消费者，
 // 它服务于外部自动化，默认收紧会静默破坏它们。
 func TestInternalTokenRemainsFullAccessWithoutWhitelist(t *testing.T) {
-	useInternalToken(t)
+	mw := useInternalToken(t)
 	t.Setenv("INTERNAL_TOKEN_ALLOWED_PREFIXES", "")
 
 	for _, p := range []string{"/api/admin/users/admin/add", "/api/admin/network/rotate-ipv6"} {
-		if !isInternalRequest(internalTokenRequest(p)) {
+		if !mw.isInternalRequest(internalTokenRequest(p)) {
 			t.Fatalf("expected full access without whitelist, rejected on %s", p)
 		}
 	}
@@ -33,7 +27,7 @@ func TestInternalTokenRemainsFullAccessWithoutWhitelist(t *testing.T) {
 
 // 配置白名单后，前缀内放行、前缀外一律拒绝（退回正常认证，无凭证即 401）。
 func TestInternalTokenWhitelistRestrictsPaths(t *testing.T) {
-	useInternalToken(t)
+	mw := useInternalToken(t)
 	t.Setenv("INTERNAL_TOKEN_ALLOWED_PREFIXES", "/api/admin/security, /api/admin/dashboard")
 
 	allowed := []string{
@@ -43,7 +37,7 @@ func TestInternalTokenWhitelistRestrictsPaths(t *testing.T) {
 		"/api/admin/dashboard",
 	}
 	for _, p := range allowed {
-		if !isInternalRequest(internalTokenRequest(p)) {
+		if !mw.isInternalRequest(internalTokenRequest(p)) {
 			t.Fatalf("expected internal token to be allowed on %s", p)
 		}
 	}
@@ -55,7 +49,7 @@ func TestInternalTokenWhitelistRestrictsPaths(t *testing.T) {
 		"/api/admin/security-evil", // 段边界：相似前缀不是同一子树
 	}
 	for _, p := range denied {
-		if isInternalRequest(internalTokenRequest(p)) {
+		if mw.isInternalRequest(internalTokenRequest(p)) {
 			t.Fatalf("expected internal token to be rejected on %s", p)
 		}
 	}
@@ -64,24 +58,24 @@ func TestInternalTokenWhitelistRestrictsPaths(t *testing.T) {
 // Authorization: Bearer 与 X-Internal-Token 等同：持合法 token 豁免限流时
 // 外部自动化（经 CF/nginx 透传）用标准 Bearer 形式携带。
 func TestInternalTokenBearerHeaderEquivalent(t *testing.T) {
-	useInternalToken(t)
+	mw := useInternalToken(t)
 	t.Setenv("INTERNAL_TOKEN_ALLOWED_PREFIXES", "")
 
 	req := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
 	req.Header.Set("Authorization", "Bearer internal-secret")
-	if !isInternalRequest(req) {
+	if !mw.isInternalRequest(req) {
 		t.Fatal("expected Authorization: Bearer to be accepted like X-Internal-Token")
 	}
 
 	bad := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
 	bad.Header.Set("Authorization", "Bearer wrong-secret")
-	if isInternalRequest(bad) {
+	if mw.isInternalRequest(bad) {
 		t.Fatal("expected wrong bearer token to be rejected")
 	}
 
 	nonBearer := httptest.NewRequest(http.MethodGet, "http://admin/api/admin/dashboard", nil)
 	nonBearer.Header.Set("Authorization", "Basic aW50ZXJuYWw6c2VjcmV0")
-	if isInternalRequest(nonBearer) {
+	if mw.isInternalRequest(nonBearer) {
 		t.Fatal("expected non-Bearer Authorization to be rejected")
 	}
 }
@@ -108,13 +102,13 @@ func TestInternalTokenPrefixMatchBoundary(t *testing.T) {
 
 // 非法条目（缺前导斜杠）被忽略且不影响合法条目。
 func TestInternalTokenWhitelistIgnoresBadEntries(t *testing.T) {
-	useInternalToken(t)
+	mw := useInternalToken(t)
 	t.Setenv("INTERNAL_TOKEN_ALLOWED_PREFIXES", "api/admin/no-slash, /api/admin/dashboard")
 
-	if !isInternalRequest(internalTokenRequest("/api/admin/dashboard")) {
+	if !mw.isInternalRequest(internalTokenRequest("/api/admin/dashboard")) {
 		t.Fatal("expected valid entry to be honored alongside a malformed one")
 	}
-	if isInternalRequest(internalTokenRequest("/api/admin/no-slash")) {
+	if mw.isInternalRequest(internalTokenRequest("/api/admin/no-slash")) {
 		t.Fatal("malformed entry (no leading slash) must not grant access")
 	}
 }

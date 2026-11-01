@@ -1,29 +1,12 @@
 package auth
 
 import (
-	"admin/internal/platform"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
-
-// 覆盖 usersMetaPath 到临时目录并恢复,避免污染 /app/data。
-func withUsersMetaPath(t *testing.T, initialJSON string) {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "users.json")
-	if initialJSON != "" {
-		if err := os.WriteFile(path, []byte(initialJSON), 0600); err != nil {
-			t.Fatalf("write users fixture: %v", err)
-		}
-	}
-	old := usersMetaPath
-	usersMetaPath = path
-	t.Cleanup(func() { usersMetaPath = old })
-}
 
 // TestRateLimiterBansExceedingIP 验证限流超限触发持久封禁(锁外落盘的回归):
 // 窗口内超过上限后 allow 返回 false,且 IP 进入持久封禁表。
@@ -72,27 +55,4 @@ func TestRedactRequestPath(t *testing.T) {
 	if got := redactRequestPath(req3); got != "/api/admin/dashboard" {
 		t.Fatalf("non-transfer path should pass through: got %q", got)
 	}
-}
-
-// TestAddAdminGuardAllowsFreshAuthUser：users.json 尚无 AUTH_USER（初始部署）
-// 时守卫放行——只验证存在性判断，不实际触达 htpasswd 写入。
-// (拒绝侧 AUTH_USER 已存在时必须 403 的用例是 accounts.TestAddAdminCannotResetProtectedAdmin。)
-func TestAddAdminGuardAllowsFreshAuthUser(t *testing.T) {
-	withUsersMetaPath(t, `{
-  "users": {
-    "alice": {"role": "admin", "created_at": "2026-01-01T00:00:00Z"}
-  }
-}`)
-	oldAuth := platform.GetEnv("AUTH_USER")
-	t.Cleanup(func() { os.Setenv("AUTH_USER", oldAuth) })
-	os.Setenv("AUTH_USER", "bootadmin")
-
-	doc, err := ReadUsersMeta()
-	if err != nil {
-		t.Fatalf("read users meta: %v", err)
-	}
-	if _, exists := doc.Users["bootadmin"]; exists {
-		t.Fatal("fixture should not contain bootadmin")
-	}
-	// 守卫分支条件即“存在才拒”——无该用户时不会 403（实际创建走部署验证）。
 }

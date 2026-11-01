@@ -2,15 +2,16 @@ package accounts
 
 import (
 	"admin/internal/auth"
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"admin/internal/proxy"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/docker/docker/client"
 	"log"
 	"net/http"
-	"time"
+
+	"github.com/docker/docker/client"
 )
 
 // CascadeDeleteUploads 在删除用户时级联清理其名下资源,由 main 装配注入
@@ -19,12 +20,9 @@ import (
 // 未装配(nil)时跳过级联——单元测试环境无需构造 transfer 状态。
 var CascadeDeleteUploads func(uploader string) (int, error)
 
-// minPasswordLen 是密码最小长度。此前无任何强度约束,viewer 可把密码设成
-// "1"——面板 basic auth 是唯一的登录门,空强度密码直接击穿它。
-const minPasswordLen = 8
-
 // -- User management APIs --
-func ApiUsers(cli *client.Client) http.HandlerFunc {
+
+func ApiUsers(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 		allClients, err := ReadXrayClientMaps()
@@ -46,10 +44,9 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 			}
 		}
 
-		// 只读：GET 端点不创建 proxy 密码（避免写副作用）。
-		// generatedJSON 仍只服务"当前用户自己的客户端"：admin 视角的 filtered
-		// 含其他用户的客户端，取"第一个 client"会把他人 UUID/明文凭证嵌进
-		// 返回的配置，admin 转发配置即泄露他人凭证。混合归属时留空。
+		// 只读：GET 端点不创建 proxy 密码。generatedJSON 只服务"当前用户自己的
+		// 客户端"：admin 视角含他人客户端时留空，避免把他人 UUID/明文凭证
+		// 嵌进返回配置。
 		allOwned := len(filtered) > 0
 		for _, c := range filtered {
 			if c["owner"] != username {
@@ -60,7 +57,7 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 		proxyAuth := ""
 		genJSON := ""
 		if allOwned {
-			proxyAuth = auth.ProxyAuthForUserRead(username)
+			proxyAuth = users.ProxyAuthForUserRead(username)
 			genJSON = GenerateClientConfig(filtered, ClientConfig{
 				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
 				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
@@ -69,9 +66,9 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 			})
 		}
 
-		// Build adminUsers with role info
-		doc, err := auth.ReadUsersMeta()
+		doc, htpasswdUsers, err := users.AdminView()
 		if err != nil {
+			log.Printf("read users/htpasswd: %v", err)
 			platform.WriteInternalError(w, err)
 			return
 		}
@@ -82,12 +79,6 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 		}
 		var adminUsers []adminUserJSON
 		if userInfo != nil && userInfo.Role == "admin" {
-			htpasswdUsers, err := auth.ReadHtpasswdUsers()
-			if err != nil {
-				log.Printf("read htpasswd: %v", err)
-				platform.WriteInternalError(w, err)
-				return
-			}
 			for _, u := range htpasswdUsers {
 				au := adminUserJSON{Username: u, Role: "viewer"}
 				if info, ok := doc.Users[u]; ok {
@@ -96,13 +87,10 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 				}
 				adminUsers = append(adminUsers, au)
 			}
+		} else if curInfo, ok := doc.Users[username]; ok {
+			adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
 		} else {
-			// Regular users only see themselves
-			if curInfo, ok := doc.Users[username]; ok {
-				adminUsers = []adminUserJSON{{Username: username, Role: curInfo.Role, CreatedAt: curInfo.CreatedAt}}
-			} else {
-				adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
-			}
+			adminUsers = []adminUserJSON{{Username: username, Role: "viewer"}}
 		}
 
 		platform.WriteJSON(w, map[string]any{
@@ -111,7 +99,7 @@ func ApiUsers(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiChangePassword(cli *client.Client) http.HandlerFunc {
+func ApiChangePassword(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userInfo, username := auth.GetUserFromContext(r)
 		var body struct {
@@ -127,58 +115,44 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "用户名与密码必填", 400)
 			return
 		}
-		if len(body.Password) < minPasswordLen {
-			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", minPasswordLen), 400)
+		if len(body.Password) < identity.MinPasswordLen {
+			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", identity.MinPasswordLen), 400)
 			return
 		}
-		if !auth.IsValidUsername(body.Username) {
+		if !identity.IsValidUsername(body.Username) {
 			platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
 			return
 		}
-		// Non-admin can only change their own password
+		// Non-admin can only change their own password.
 		if userInfo != nil && userInfo.Role != "admin" && body.Username != username {
 			platform.WriteError(w, "无权操作：只能修改自己的密码", 403)
 			return
 		}
-		// 目标用户必须存在于 users.json:此前 admin 可为不存在的用户名写入
-		// htpasswd——能过 nginx basic auth、被 Go 以"用户未初始化"403,留下
-		// htpasswd/users.json 双真相源漂移的幽灵凭证。
-		if doc, err := auth.ReadUsersMeta(); err != nil {
-			platform.WriteInternalError(w, err)
-			return
-		} else if _, ok := doc.Users[body.Username]; !ok {
-			platform.WriteError(w, "用户不存在", 404)
-			return
-		}
-		// Protected admin account (AUTH_USER) can only change its own password:
-		// 防止任意 admin 重置超级管理员密码并接管该账号(纵深防御,与
-		// ApiSetRole/ApiDeleteAdmin 的 auth.IsProtectedAdmin 守卫对齐)。
-		if body.Username == platform.GetEnv("AUTH_USER") && (userInfo == nil || username != body.Username) {
+		// 内置管理员只能改自己的密码，防止任意 admin 重置超管密码接管账号。
+		if users.IsProtected(body.Username) && (userInfo == nil || username != body.Username) {
 			platform.WriteError(w, "内置管理员账号密码请经修改密码功能变更", 403)
 			return
 		}
-		// Verify old password for non-admin users（校验+重写在单次持锁内完成,
-		// 消除两段式之间并发改密互相覆盖的窗口）
-		if userInfo == nil || userInfo.Role != "admin" {
-			if body.OldPassword == "" {
-				platform.WriteError(w, "旧密码必填", 400)
-				return
-			}
-			ok, err := auth.HtpasswdChangePassword(body.Username, body.OldPassword, body.Password)
-			if err != nil {
-				platform.WriteInternalError(w, err)
-				return
-			}
-			if !ok {
-				platform.WriteError(w, "旧密码不正确", 401)
-				return
-			}
-			log.Printf("[security] password change user=%s by=%s", body.Username, username)
-			platform.WriteJSON(w, map[string]string{"status": "ok"})
+		requireOld := userInfo == nil || userInfo.Role != "admin"
+		if requireOld && body.OldPassword == "" {
+			platform.WriteError(w, "旧密码必填", 400)
 			return
 		}
-		if err := auth.HtpasswdAddUser(body.Username, body.Password); err != nil {
+		ok, err := users.ChangePassword(body.Username, body.OldPassword, body.Password, requireOld)
+		switch {
+		case err == nil:
+		case errors.Is(err, identity.ErrUserNotFound):
+			platform.WriteError(w, "用户不存在", 404)
+			return
+		case errors.Is(err, identity.ErrPasswordTooShort):
+			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", identity.MinPasswordLen), 400)
+			return
+		default:
 			platform.WriteInternalError(w, err)
+			return
+		}
+		if !ok {
+			platform.WriteError(w, "旧密码不正确", 401)
 			return
 		}
 		log.Printf("[security] password change user=%s by=%s", body.Username, username)
@@ -186,7 +160,7 @@ func ApiChangePassword(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
+func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Username string `json:"username"`
@@ -201,146 +175,56 @@ func ApiAddAdmin(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "用户名与密码必填", 400)
 			return
 		}
-		if len(body.Password) < minPasswordLen {
-			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", minPasswordLen), 400)
+		if len(body.Password) < identity.MinPasswordLen {
+			platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", identity.MinPasswordLen), 400)
 			return
 		}
-		if !auth.IsValidUsername(body.Username) {
+		if !identity.IsValidUsername(body.Username) {
 			platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
 			return
 		}
-		if auth.IsReservedUsername(body.Username) {
+		if identity.IsReservedUsername(body.Username) {
 			platform.WriteError(w, "该用户名为保留名", 400)
 			return
 		}
-		// role 省略时：编辑既有用户保留原角色，新建用户默认 viewer。
-		// 此前省略 role 会被当成 viewer，编辑路径会静默把管理员降级。
 		if body.Role != "" && body.Role != "admin" && body.Role != "viewer" {
 			platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
 			return
 		}
-		// Only admin can create admin users
 		userInfo, _ := auth.GetUserFromContext(r)
 		if body.Role == "admin" && userInfo != nil && userInfo.Role != "admin" {
 			platform.WriteError(w, "无权限", 403)
 			return
 		}
-		// 受保护账号(AUTH_USER)已存在时禁止经此端点覆盖密码：auth.UpdateUsersMeta 的
-		// 守卫只在"降级已有 admin"时触发，role 保持 admin 的重置密码路径会绕过
-		// 它直达 auth.HtpasswdAddUser——与 ApiChangePassword 对同一攻击的阻断对齐
-		// (防止任意 admin 重置超管密码接管账号，也让 UI 误填超管用户名时明确报错)。
-		if body.Username == platform.GetEnv("AUTH_USER") {
-			doc, err := auth.ReadUsersMeta()
-			if err != nil {
-				// fail-closed:读不到现状时拒绝写入,防止绕过内置管理员保护。
-				log.Printf("read users meta for protected-admin guard: %v", err)
-				platform.WriteInternalError(w, err)
-				return
-			}
-			if _, exists := doc.Users[body.Username]; exists {
-				platform.WriteError(w, "内置管理员账号不可修改，请使用修改密码功能", 403)
-				return
-			}
-		}
 
-		// This handler doubles as the edit path for an existing username, so it
-		// must enforce the same lockout guards as ApiSetRole when demoting an
-		// admin, and must preserve durable fields instead of wiping them.
-		// last-admin 检查与写入在 auth.UpdateUsersMeta 的单次持锁回调内完成(原子
-		// read-check-write),消除两段式守卫的 TOCTOU。
-		var previousInfo auth.UserInfo
-		var hadPrevious bool
-		resolvedRole := body.Role
-		if err := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
-			prev, ok := doc.Users[body.Username]
-			hadPrevious = ok
-			if ok {
-				previousInfo = prev
-			}
-			role := body.Role
-			if role == "" {
-				if ok && prev.Role != "" {
-					role = prev.Role
-				} else {
-					role = "viewer"
-				}
-			}
-			resolvedRole = role
-			if ok && prev.Role == "admin" && role != "admin" {
-				if auth.IsProtectedAdmin(body.Username) {
-					return false, auth.ErrProtectedAdmin
-				}
-				adminCount := 0
-				for _, info := range doc.Users {
-					if info.Role == "admin" {
-						adminCount++
-					}
-				}
-				if adminCount <= 1 {
-					return false, auth.ErrLastAdmin
-				}
-			}
-			newInfo := auth.UserInfo{
-				Role:      role,
-				CreatedAt: time.Now().UTC().Format(time.RFC3339),
-			}
-			if ok {
-				// Keep the existing XHTTP proxy password and creation time so we
-				// don't break client configs or reset account metadata on edit.
-				newInfo.ProxyPassword = prev.ProxyPassword
-				if prev.CreatedAt != "" {
-					newInfo.CreatedAt = prev.CreatedAt
-				}
-			}
-			doc.Users[body.Username] = newInfo
-			return true, nil
-		}); err != nil {
-			if errors.Is(err, auth.ErrLastAdmin) {
+		result, err := users.UpsertUser(body.Username, body.Password, body.Role)
+		if err != nil {
+			switch {
+			case errors.Is(err, identity.ErrLastAdmin):
 				platform.WriteErrorCode(w, "不能降级最后一个管理员", 400, "LAST_ADMIN")
-				return
-			}
-			if errors.Is(err, auth.ErrProtectedAdmin) {
+			case errors.Is(err, identity.ErrProtectedAdmin):
 				platform.WriteError(w, "不能改动内置管理员账号的角色", 403)
-				return
+			case errors.Is(err, identity.ErrProtectedAccount):
+				platform.WriteError(w, "内置管理员账号不可修改，请使用修改密码功能", 403)
+			case errors.Is(err, identity.ErrPasswordTooShort):
+				platform.WriteError(w, fmt.Sprintf("密码至少 %d 个字符", identity.MinPasswordLen), 400)
+			case errors.Is(err, identity.ErrInvalidUsername):
+				platform.WriteError(w, "用户名不合法（仅字母/数字/下划线/连字符）", 400)
+			case errors.Is(err, identity.ErrInvalidRole):
+				platform.WriteError(w, "角色必须是 admin 或 viewer", 400)
+			default:
+				platform.WriteInternalError(w, err)
 			}
-			platform.WriteInternalError(w, err)
-			return
-		}
-		if err := auth.HtpasswdAddUser(body.Username, body.Password); err != nil {
-			// 回滚禁止用旧快照整条覆盖(UpdateUserMeta):bcrypt 耗时窗口内并发
-			// SetRole/改密会被静默回滚(丢失更新,可把被降级的 admin 恢复成
-			// admin)。锁内重读,仅当条目仍是本次写入的角色时回退该角色。
-			rollbackErr := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
-				cur, ok := doc.Users[body.Username]
-				if !ok {
-					// 并发删除优先：不要用旧快照把已删除用户复活。
-					return false, nil
-				}
-				if cur.Role != resolvedRole {
-					return false, nil // 已被并发修改,保留现状不覆盖
-				}
-				if hadPrevious {
-					cur.Role = previousInfo.Role
-					doc.Users[body.Username] = cur
-					return true, nil
-				}
-				delete(doc.Users, body.Username)
-				return true, nil
-			})
-			if rollbackErr != nil {
-				log.Printf("WARNING: failed to roll back user meta for %q after htpasswd error: %v", body.Username, rollbackErr)
-			}
-			platform.WriteInternalError(w, err)
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
 		log.Printf("[security] user upsert user=%s role=%s created=%t by=%s",
-			body.Username, resolvedRole, !hadPrevious, actor)
+			body.Username, result.Role, result.Created, actor)
 		platform.WriteJSON(w, map[string]string{"status": "ok"})
 	}
 }
 
-func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
+func ApiDeleteAdmin(users *identity.Store, cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
@@ -351,7 +235,7 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 			platform.WriteError(w, "用户名必填", 400)
 			return
 		}
-		if auth.IsProtectedAdmin(body.Username) {
+		if users.IsProtected(body.Username) {
 			platform.WriteError(w, "不能删除内置管理员账号", 403)
 			return
 		}
@@ -366,62 +250,23 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 		userLifecycleMu.Lock()
 		defer userLifecycleMu.Unlock()
 
-		// last-admin 检查与删除在 auth.UpdateUsersMeta 的单次持锁回调内完成(原子
-		// read-check-write),消除两段式守卫的 TOCTOU——并发删除两个管理员时
-		// 只有一个能通过计数检查。
-		var deleted bool
-		if err := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
-			targetInfo, ok := doc.Users[body.Username]
-			if !ok {
-				return false, nil
-			}
-			deleted = true
-			if targetInfo.Role == "admin" {
-				adminCount := 0
-				for _, info := range doc.Users {
-					if info.Role == "admin" {
-						adminCount++
-					}
-				}
-				if adminCount <= 1 {
-					return false, auth.ErrLastAdmin
-				}
-			}
-			delete(doc.Users, body.Username)
-			return true, nil
-		}); err != nil {
-			if errors.Is(err, auth.ErrLastAdmin) {
+		deleted, err := users.DeleteUser(body.Username)
+		if err != nil {
+			switch {
+			case errors.Is(err, identity.ErrLastAdmin):
 				platform.WriteErrorCode(w, "不能删除最后一个管理员", 400, "LAST_ADMIN")
-				return
+			case errors.Is(err, identity.ErrProtectedAccount):
+				platform.WriteError(w, "不能删除内置管理员账号", 403)
+			default:
+				log.Printf("ERROR: delete user %s: %v", body.Username, err)
+				platform.WriteError(w, "用户已删除，但清理登录/代理凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
 			}
-			platform.WriteInternalError(w, err)
 			return
 		}
 
-		// 即使 users.json 里已经没有该用户，也继续执行清理：上一次删除可能
-		// 在中途失败（htpasswd/xray 级联），重试必须能补齐。此前这里直接
-		// 404 早退，导致"请重试删除"的提示永远无法兑现，凭证/UUID 永久残留。
-		if err := auth.HtpasswdRemoveUser(body.Username); err != nil {
-			// users.json 已删、nginx 凭证未清：面板登录已不可用（auth.RequireRole
-			// 会以 "用户未初始化" 拒绝），但 htpasswd 行残留。如实
-			// 上报部分成功，提示重试自愈，而非笼统 500。
-			log.Printf("ERROR: remove htpasswd entry for %s: %v", body.Username, err)
-			platform.WriteError(w, "用户已删除，但清理登录凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
-			return
-		}
-
-		// 撤销代理凭证：.htpasswd-proxy 从 users.json 重建，被删用户自动剔除。
-		// 重建失败同样返回 500，让调用方重试；否则残留的 nginx 凭证行会
-		// 继续接受被删用户的 proxy 密码。
-		if err := auth.EnsureProxyHtpasswd(); err != nil {
-			log.Printf("ERROR: revoke proxy credentials for %s: %v", body.Username, err)
-			platform.WriteError(w, "用户已删除，但清理代理凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
-			return
-		}
-
-		// 联动删除该用户的 Xray 客户端：UUID 不随用户删除失效，留存等同
-		// 保留完整代理访问权。重试路径（!deleted）即使没有可删的台账条目，
-		// 也要重新生成并重启——上一次可能已删台账但没来得及让 xray 加载。
+		// 联动删除该用户的 Xray 客户端。重试路径（!deleted）即使没有可删的
+		// 台账条目，也要重新生成并重启——上一次可能已删台账但没来得及让
+		// xray 加载。
 		const xrayCascadeFailMsg = "用户已删除，但联动更新 Xray 配置失败，其代理 UUID 在配置生效前仍然有效，请重启 Xray 或重试删除"
 		removed, err := deleteXrayClientsByOwner(body.Username)
 		if err != nil {
@@ -447,9 +292,9 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 				}
 			}
 		}
-		// 级联清理其名下的 transfer 上传:用户已删,文件既无法自助管理,
-		// 配额也无人释放。级联失败不作为整体失败(用户已删,文件 7 天后
-		// 随过期清理回收),只记日志并告知。
+		// 级联清理其名下的 transfer 上传：用户已删，文件既无法自助管理，
+		// 配额也无人释放。级联失败不作为整体失败（文件随过期清理回收），
+		// 只记日志并告知。
 		uploadsRemoved := 0
 		if CascadeDeleteUploads != nil {
 			if n, err := CascadeDeleteUploads(body.Username); err != nil {
@@ -464,7 +309,7 @@ func ApiDeleteAdmin(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiSetRole(cli *client.Client) http.HandlerFunc {
+func ApiSetRole(users *identity.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Username string `json:"username"`
@@ -483,46 +328,20 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 			return
 		}
 
-		// Protected admin account cannot be demoted
-		if auth.IsProtectedAdmin(body.Username) && body.Role != "admin" {
+		err := users.SetRole(body.Username, body.Role)
+		switch {
+		case err == nil:
+		case errors.Is(err, identity.ErrUserNotFound):
+			platform.WriteError(w, "用户不存在", 404)
+			return
+		case errors.Is(err, identity.ErrProtectedAdmin):
 			platform.WriteError(w, "不能改动内置管理员账号的角色", 403)
 			return
-		}
-
-		// last-admin 检查在 auth.UpdateUsersMeta 的持锁回调内完成(单次锁获取内
-		// read-check-write):并发降级两个管理员时,只有一个能通过计数检查,
-		// 杜绝"先读后写"两段式守卫的 TOCTOU。
-		var notFound bool
-		if err := auth.UpdateUsersMeta(func(doc *auth.UsersMetaDoc) (bool, error) {
-			info, exists := doc.Users[body.Username]
-			if !exists {
-				notFound = true
-				return false, nil
-			}
-			if body.Role != "admin" && info.Role == "admin" {
-				adminCount := 0
-				for username, other := range doc.Users {
-					if other.Role == "admin" && username != body.Username {
-						adminCount++
-					}
-				}
-				if adminCount == 0 {
-					return false, auth.ErrLastAdmin
-				}
-			}
-			info.Role = body.Role
-			doc.Users[body.Username] = info
-			return true, nil
-		}); err != nil {
-			if errors.Is(err, auth.ErrLastAdmin) {
-				platform.WriteErrorCode(w, "不能降级最后一个管理员", 400, "LAST_ADMIN")
-				return
-			}
-			platform.WriteInternalError(w, err)
+		case errors.Is(err, identity.ErrLastAdmin):
+			platform.WriteErrorCode(w, "不能降级最后一个管理员", 400, "LAST_ADMIN")
 			return
-		}
-		if notFound {
-			platform.WriteError(w, "用户不存在", 404)
+		default:
+			platform.WriteInternalError(w, err)
 			return
 		}
 		_, actor := auth.GetUserFromContext(r)
@@ -531,7 +350,7 @@ func ApiSetRole(cli *client.Client) http.HandlerFunc {
 	}
 }
 
-func ApiWhoAmI(cli *client.Client) http.HandlerFunc {
+func ApiWhoAmI() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		info, username := auth.GetUserFromContext(r)
 		if info == nil {

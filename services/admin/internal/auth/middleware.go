@@ -1,21 +1,15 @@
 package auth
 
 import (
+	"admin/internal/identity"
 	"admin/internal/platform"
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -24,62 +18,22 @@ type ctxKey string
 const userInfoCtxKey ctxKey = "userInfo"
 const usernameCtxKey ctxKey = "username"
 
-type UserInfo struct {
-	Role          string `json:"role"`
-	CreatedAt     string `json:"created_at"`
-	ProxyPassword string `json:"proxy_password"` // plaintext, for xhttp client config
+// Middleware 持有认证所需的身份/密钥依赖。之前这些依赖是 auth 包级全局
+// 变量（usersMetaPath、internalToken atomic.Value），任何 import auth 的
+// 包都会被绑到同一份全局状态，测试只能靠 testhooks 重定向。
+type Middleware struct {
+	users   *identity.Store
+	secrets *identity.Secrets
 }
 
-type UsersMetaDoc struct {
-	Users map[string]UserInfo `json:"users"`
+func NewMiddleware(users *identity.Store, secrets *identity.Secrets) *Middleware {
+	return &Middleware{users: users, secrets: secrets}
 }
 
-var (
-	usersMetaPath = "/app/data/users.json"
-	usersMetaMu   sync.Mutex
-)
-
-// ErrLastAdmin 表示"不能移除最后一个管理员"的业务错误。它由 usersMeta 持锁回调
-// 返回(在 UpdateUsersMeta 的单次锁获取内完成 read-check-write),handler 层用
-// errors.Is 识别并映射为 400——把 last-admin 守卫从"先读后写"的两段式改成原子
-// 操作,消除并发降级/删除绕过守卫把管理员清零的 TOCTOU 窗口。
-var ErrLastAdmin = errors.New("cannot remove the last admin user")
-
-// ErrProtectedAdmin 表示"不能降级受保护的管理员账号"(AUTH_USER)。
-var ErrProtectedAdmin = errors.New("cannot demote the default admin account")
-
-// ErrUserNotFound 表示 users.json 中不存在该用户。GetOrCreateProxyPassword
-// 用它拒绝"为已删除用户懒创建凭证"——删除流程与在途 add 并发时，这曾让
-// 被删用户重新获得 proxy 访问权。
-var ErrUserNotFound = errors.New("user not found")
-
-// internalToken/fail2banToken 由 deploy.go 生成并加载。
-// 避免使用 os.Setenv 注入进程环境（并发不安全）以及 platform.GetEnv 的双重来源行为。
-var internalToken atomic.Value // holds string
-var fail2banToken atomic.Value // holds string
-
-func getInternalToken() string {
-	v, _ := internalToken.Load().(string)
-	return v
-}
-
-// InternalToken 返回当前进程使用的 internal token（未初始化时为空串）。
-// nginx 渲染需要把同一个值写进 map，做真实值匹配而不是"头存在即豁免"。
-func InternalToken() string {
-	return getInternalToken()
-}
-
-func setInternalToken(tok string) {
-	internalToken.Store(tok)
-}
-
-func getFail2BanToken() string {
-	v, _ := fail2banToken.Load().(string)
-	return v
-}
-
-func setFail2BanToken(tok string) {
-	fail2banToken.Store(tok)
+func GetUserFromContext(r *http.Request) (*identity.UserInfo, string) {
+	info, _ := r.Context().Value(userInfoCtxKey).(*identity.UserInfo)
+	username, _ := r.Context().Value(usernameCtxKey).(string)
+	return info, username
 }
 
 const (
@@ -90,7 +44,7 @@ const (
 var trustedProxyHostCache = struct {
 	sync.Mutex
 	ips      []net.IP
-	lastGood []net.IP // 上次成功解析结果,DNS 故障期间回退用
+	lastGood []net.IP
 	expires  time.Time
 }{}
 
@@ -103,169 +57,6 @@ var trustedProxyCIDRCache = struct {
 	valid bool
 }{}
 
-func ReadUsersMeta() (*UsersMetaDoc, error) {
-	usersMetaMu.Lock()
-	defer usersMetaMu.Unlock()
-
-	doc := &UsersMetaDoc{Users: make(map[string]UserInfo)}
-	data, err := os.ReadFile(usersMetaPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return doc, nil
-		}
-		return nil, err
-	}
-	if err := json.Unmarshal(data, doc); err != nil {
-		return nil, err
-	}
-	if doc.Users == nil {
-		doc.Users = make(map[string]UserInfo)
-	}
-	return doc, nil
-}
-
-func UpdateUsersMeta(fn func(doc *UsersMetaDoc) (bool, error)) error {
-	usersMetaMu.Lock()
-	defer usersMetaMu.Unlock()
-
-	doc := &UsersMetaDoc{Users: make(map[string]UserInfo)}
-	data, err := os.ReadFile(usersMetaPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else if err := json.Unmarshal(data, doc); err != nil {
-		return err
-	}
-	if doc.Users == nil {
-		doc.Users = make(map[string]UserInfo)
-	}
-
-	dirty, err := fn(doc)
-	if err != nil || !dirty {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(usersMetaPath), 0755); err != nil {
-		return err
-	}
-	data, err = json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	return platform.AtomicWriteFile(usersMetaPath, data, 0600)
-}
-
-func EnsureUserMeta(username string) (*UserInfo, error) {
-	doc, err := ReadUsersMeta()
-	if err != nil {
-		return nil, err
-	}
-	if existing, exists := doc.Users[username]; exists {
-		return &existing, nil
-	}
-	// User not in users.json — must be explicitly created by admin.
-	// Do NOT auto-provision on first request: any request could forge X-Forwarded-User.
-	return nil, nil
-}
-
-func IsProtectedAdmin(username string) bool {
-	return username == platform.GetEnv("AUTH_USER")
-}
-
-func GetUserFromContext(r *http.Request) (*UserInfo, string) {
-	info, _ := r.Context().Value(userInfoCtxKey).(*UserInfo)
-	username, _ := r.Context().Value(usernameCtxKey).(string)
-	return info, username
-}
-
-// UserMetaExists 报告 users.json 中是否存在该用户。供"admin 代用户创建
-// Xray 客户端"等需要确认目标用户真实存在的路径使用。
-func UserMetaExists(username string) (bool, error) {
-	doc, err := ReadUsersMeta()
-	if err != nil {
-		return false, err
-	}
-	_, ok := doc.Users[username]
-	return ok, nil
-}
-
-func GetOrCreateProxyPassword(username string) (string, error) {
-	var password string
-	created := false
-	err := UpdateUsersMeta(func(doc *UsersMetaDoc) (bool, error) {
-		// 用户不存在时必须拒绝，而不是顺手新建一条只有 ProxyPassword、
-		// Role 为空的幽灵条目：删除用户与在途 add 并发时，这正是被删用户
-		// 重新拿回 proxy 访问权的路径。
-		info, ok := doc.Users[username]
-		if !ok {
-			return false, ErrUserNotFound
-		}
-		if info.ProxyPassword != "" {
-			password = info.ProxyPassword
-			return false, nil
-		}
-		b := make([]byte, 12)
-		if _, err := rand.Read(b); err != nil {
-			return false, err
-		}
-		info.ProxyPassword = hex.EncodeToString(b)
-		if info.CreatedAt == "" {
-			info.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-		}
-		doc.Users[username] = info
-		password = info.ProxyPassword
-		created = true
-		return true, nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if created || !proxyHtpasswdContainsUser(username) {
-		if err := EnsureProxyHtpasswd(); err != nil {
-			return "", err
-		}
-	}
-	return password, nil
-}
-
-func proxyHtpasswdContainsUser(username string) bool {
-	data, err := os.ReadFile(ProxyHtpasswdPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("WARNING: read proxy htpasswd: %v", err)
-		}
-		return false
-	}
-	prefix := username + ":"
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-// proxyPasswordIfExists 返回已存在的 proxy 密码（只读，不创建）。
-// 用于 GET /api/admin/users 这类读端点——避免在查询时产生副作用（生成密码 +
-// 重写 htpasswd）。密码在用户首次添加 Xray 客户端时由 GetOrCreateProxyPassword 懒创建。
-func proxyPasswordIfExists(username string) string {
-	if username == "" {
-		return ""
-	}
-	doc, err := ReadUsersMeta()
-	if err != nil {
-		return ""
-	}
-	if info, ok := doc.Users[username]; ok {
-		return info.ProxyPassword
-	}
-	return ""
-}
-
-// trustedProxyCIDRs returns the set of networks allowed to forge X-Forwarded-User.
-// Configurable via TRUSTED_PROXY_CIDRS env (comma-separated CIDRs).
-// Default: loopback only. The nginx container is trusted by hostname below.
 func trustedProxyCIDRs() []*net.IPNet {
 	defaults := "127.0.0.0/8,::1/128"
 	raw := platform.GetEnv("TRUSTED_PROXY_CIDRS")
@@ -322,10 +113,7 @@ func trustedProxyHosts() []string {
 }
 
 // trustedProxyHostIPs 返回信任代理主机名解析出的 IP 集合。
-// DNS 解析在锁外进行（与 cloudflare.go cfResolveZoneID 同款模式）：此前解析
-// 持有全局锁，每个经 RequireRole 的请求都要过这把锁——缓存过期或 DNS 故障
-// （失败只缓存 5s）期间所有请求串行排队，各付最长 200ms 解析超时，面板整体
-// 延迟被放大。锁外解析 + 锁内回写（允许并发重复解析，结果幂等）消除该瓶颈。
+// DNS 解析在锁外进行：锁内解析会让缓存过期/DNS 故障期间所有请求串行排队。
 func trustedProxyHostIPs() []net.IP {
 	hosts := trustedProxyHosts()
 	if len(hosts) == 0 {
@@ -353,12 +141,9 @@ func trustedProxyHostIPs() []net.IP {
 		if err != nil {
 			continue
 		}
-		// fail-closed:Docker 用户定义网络允许多个容器共享同一
-		// network-alias,同网容器以 "nginx" 别名抢注后,DNS 会把攻击者 IP
-		// 与真 nginx IP 一并返回——若全部纳入信任集,攻击者即可直连
-		// admin:8318 伪造 X-Forwarded-User 冒充任意用户。因此同一主机名
-		// 解析出多个不同 IP 时整体弃用该主机(本周期内不作信任代理),
-		// 并留 [security] 痕迹。
+		// fail-closed:Docker 用户定义网络允许多个容器共享同一 network-alias,
+		// 同网容器以 "nginx" 别名抢注后,DNS 会把攻击者 IP 与真 nginx IP 一并
+		// 返回。同一主机名解析出多个不同 IP 时整体弃用该主机并留痕。
 		seen := make(map[string]bool, len(addrs))
 		var hostIPs []net.IP
 		for _, addr := range addrs {
@@ -387,11 +172,6 @@ func trustedProxyHostIPs() []net.IP {
 	if len(ips) > 0 {
 		trustedProxyHostCache.lastGood = ips
 	} else if !hardFailed && len(trustedProxyHostCache.lastGood) > 0 {
-		// DNS 全解析失败(网络抖动/daemon DNS 短暂不可用):沿用上次成功
-		// 结果而不是清空信任集。清空的后果是故障期间所有经 nginx 的请求
-		// 401 = 全站拒绝;沿用旧值的残余风险仅是"nginx 容器在故障窗口内被
-		// 换到新 IP"——内网容器 IP 远比 DNS 稳定,可用性优先。硬失败(多 IP
-		// 抢注)不回退:那是主动攻击信号,fail-closed。
 		log.Printf("WARNING: trusted proxy DNS resolution failed; reusing last known good IPs %v", trustedProxyHostCache.lastGood)
 		ips = trustedProxyHostCache.lastGood
 	}
@@ -415,9 +195,9 @@ func remoteIP(remoteAddr string) net.IP {
 	return net.ParseIP(host)
 }
 
-// isTrustedProxy reports whether the immediate caller of this service is in
-// the trusted-proxy set. Without this guard, any container on the Docker bridge
-// could set X-Forwarded-User to impersonate any user.
+// isTrustedProxy reports whether the immediate caller is in the trusted-proxy
+// set. Without this guard, any container on the Docker bridge could set
+// X-Forwarded-User to impersonate any user.
 func isTrustedProxy(remoteAddr string) bool {
 	ip := remoteIP(remoteAddr)
 	if ip == nil {
@@ -436,10 +216,8 @@ func isTrustedProxy(remoteAddr string) bool {
 	return false
 }
 
-// internalTokenAllowedPrefixes 返回 INTERNAL_TOKEN_ALLOWED_PREFIXES 配置的路径
-// 前缀白名单（逗号分隔）。空表示未配置——internal token 保持全权（兼容既有
-// 外部自动化）；配置后 internal token 只能豁免白名单前缀内的路径，其余路径
-// 一律退回正常认证（无凭证即 401），fail-closed。
+// internalTokenAllowedPrefixes 返回 INTERNAL_TOKEN_ALLOWED_PREFIXES 配置的
+// 路径前缀白名单（逗号分隔）。空表示未配置——internal token 保持全权。
 func internalTokenAllowedPrefixes() []string {
 	raw := strings.TrimSpace(platform.GetEnv("INTERNAL_TOKEN_ALLOWED_PREFIXES"))
 	if raw == "" {
@@ -460,9 +238,7 @@ func internalTokenAllowedPrefixes() []string {
 	return out
 }
 
-// internalTokenPrefixMatch 判断路径是否落在前缀白名单内。前缀按路径段边界
-// 匹配："/api/admin/security" 命中 "/api/admin/security/block" 与自身，但不命中
-// "/api/admin/security-evil"。
+// internalTokenPrefixMatch 按路径段边界匹配前缀。
 func internalTokenPrefixMatch(path string, prefixes []string) bool {
 	for _, p := range prefixes {
 		base := strings.TrimSuffix(p, "/")
@@ -473,15 +249,11 @@ func internalTokenPrefixMatch(path string, prefixes []string) bool {
 	return false
 }
 
-func isInternalRequest(r *http.Request) bool {
-	tok := getInternalToken()
+func (m *Middleware) isInternalRequest(r *http.Request) bool {
+	tok := m.secrets.InternalToken()
 	if tok == "" {
 		return false
 	}
-	// 两种携带方式：X-Internal-Token 头（服务器内部容器间调用），以及
-	// Authorization: Bearer <token>（外部自动化经 CF/nginx 透传）。两者恒时
-	// 比较同一个 token。持合法 token 的请求豁免应用层限流与 IP 封禁——授权
-	// 请求不应被防护误伤；伪造者比较失败，不受任何优待，防线不弱化。
 	presented := r.Header.Get("X-Internal-Token")
 	if presented == "" {
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -498,14 +270,12 @@ func isInternalRequest(r *http.Request) bool {
 	if internalTokenPrefixMatch(r.URL.Path, prefixes) {
 		return true
 	}
-	// 拒绝必须留痕：运维据此发现外部自动化实际需要的最小前缀集合，
-	// 再把它们配进 INTERNAL_TOKEN_ALLOWED_PREFIXES。
 	log.Printf("[security] internal-token rejected: path %q not in INTERNAL_TOKEN_ALLOWED_PREFIXES", r.URL.Path)
 	return false
 }
 
-func isFail2BanRequest(r *http.Request) bool {
-	tok := getFail2BanToken()
+func (m *Middleware) isFail2BanRequest(r *http.Request) bool {
+	tok := m.secrets.Fail2BanToken()
 	return tok != "" &&
 		isFail2BanEndpoint(r) &&
 		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Fail2Ban-Token")), []byte(tok)) == 1
@@ -523,37 +293,31 @@ func isFail2BanEndpoint(r *http.Request) bool {
 	}
 }
 
-func isPrivilegedServiceRequest(r *http.Request) bool {
-	return isInternalRequest(r) || isFail2BanRequest(r)
+func (m *Middleware) isPrivilegedServiceRequest(r *http.Request) bool {
+	return m.isInternalRequest(r) || m.isFail2BanRequest(r)
 }
 
-func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
+func (m *Middleware) RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 	roleLevel := map[string]int{"admin": 2, "viewer": 1}
 
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			var info *UserInfo
+			var info *identity.UserInfo
 			var username string
 
 			// Internal automation uses scoped shared secrets.
-			if isInternalRequest(r) {
-				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+			if m.isInternalRequest(r) {
+				info = &identity.UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 				username = "internal"
-			} else if isFail2BanRequest(r) {
-				info = &UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
+			} else if m.isFail2BanRequest(r) {
+				info = &identity.UserInfo{Role: "admin", CreatedAt: time.Now().UTC().Format(time.RFC3339)}
 				username = "fail2ban"
 			} else {
 				// External requests must come through a trusted reverse proxy
 				// (nginx on the docker bridge), and the proxy must have set
 				// X-Forwarded-User after authenticating with basic auth.
 				if !isTrustedProxy(r.RemoteAddr) {
-					// 伪造尝试单独留痕(带头才记,避免裸端口扫描噪音):
-					// internal_docker 上的第三方容器持续探测身份伪造时,
-					// 运维能像 internal-token 白名单拒绝一样从日志察觉。
 					if r.Header.Get("X-Forwarded-User") != "" {
-						// path 用 %q:URL 路径可含 %0A 解码后的换行,不转义会
-						// 被用来注入伪造的 "[security]" 日志行(与 AGENTS 审计
-						// 转义规范对齐)。
 						log.Printf("[security] x-forwarded-user spoof attempt ip=%s path=%q", remoteIP(r.RemoteAddr), r.URL.Path)
 					}
 					platform.WriteError(w, "未认证", 401)
@@ -565,15 +329,14 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 					return
 				}
 				var err error
-				info, err = EnsureUserMeta(username)
+				info, err = m.users.Lookup(username)
 				if err != nil {
 					platform.WriteInternalError(w, err)
 					return
 				}
 				if info == nil {
 					// User authenticated by nginx but not provisioned in
-					// users.json. Refuse to auto-create on first request —
-					// admin must add them via /api/admin/users/admin/add.
+					// users.json. Refuse to auto-create on first request.
 					platform.WriteError(w, "用户未初始化", 403)
 					return
 				}
@@ -589,9 +352,7 @@ func RequireRole(minRole string) func(http.HandlerFunc) http.HandlerFunc {
 			if !ok {
 				userLevel = 0
 			}
-			// 认证成功即落审计身份（含 403 Forbidden 的请求）：外层
-			// RequestLogMiddleware 在 next 返回后读取同一 holder，把 user
-			// 写进访问日志——回答"谁在何时调用了什么"。
+			// 认证成功即落审计身份（含 403 Forbidden 的请求）。
 			markAuditUser(r.Context(), username)
 			if userLevel < requiredLevel {
 				platform.WriteError(w, "无权限", 403)

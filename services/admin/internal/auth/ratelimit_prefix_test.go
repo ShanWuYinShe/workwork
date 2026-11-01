@@ -87,8 +87,9 @@ func TestRateLimitExemptsTransferGETAndHEAD(t *testing.T) {
 	authRateLimiter = rl
 	t.Cleanup(func() { authRateLimiter = origRL })
 
+	mw := newTestMiddleware(t)
 	reached := false
-	handler := RateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	handler := mw.RateLimitMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		reached = true
 	})
 
