@@ -49,7 +49,7 @@ func TestLastAdminGuard(t *testing.T) {
 		body := strings.NewReader(`{"username":"` + username + `"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/users/admin/delete", body)
 		rec := httptest.NewRecorder()
-		ApiDeleteAdmin(users, svc)(rec, req)
+		ApiDeleteAdmin(users, svc, nil)(rec, req)
 		t.Logf("delete %s -> %d %s", username, rec.Code, rec.Body.String())
 		return rec.Code
 	}

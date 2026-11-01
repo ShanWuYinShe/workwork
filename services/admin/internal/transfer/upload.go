@@ -111,27 +111,9 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 			platform.WriteInternalError(w, err)
 			return
 		}
-		if snapshot.TotalSize+header.Size > transferMaxTotal {
+		if msg := checkUploadQuota(snapshot, actor.Username, header.Size); msg != "" {
 			s.mu.Unlock()
-			platform.WriteError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(snapshot.TotalSize)), 400)
-			return
-		}
-		if quota := transferMaxPerUserBytes(); quota > 0 {
-			var used int64
-			for _, f := range snapshot.Files {
-				if f.Uploader == actor.Username {
-					used += f.Size
-				}
-			}
-			if used+header.Size > quota {
-				s.mu.Unlock()
-				platform.WriteError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
-				return
-			}
-		}
-		if countUploaderEntries(snapshot, actor.Username) >= maxTransferFilesPerUser {
-			s.mu.Unlock()
-			platform.WriteError(w, fmt.Sprintf("文件数量已达上限（每人最多 %d 个）", maxTransferFilesPerUser), 400)
+			platform.WriteError(w, msg, 400)
 			return
 		}
 		s.mu.Unlock()
@@ -185,32 +167,10 @@ func ApiTransferUpload(s *Store) http.HandlerFunc {
 			return
 		}
 
-		if m.TotalSize+written > transferMaxTotal {
+		if msg := checkUploadQuota(m, actor.Username, written); msg != "" {
 			s.mu.Unlock()
 			os.Remove(tmpPath)
-			platform.WriteError(w, fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize)), 400)
-			return
-		}
-		// per-user 配额:防止单个 viewer 用 2GB×N 次上传填满全局配额。
-		// 在锁内统计(manifest 一致视图)。
-		if quota := transferMaxPerUserBytes(); quota > 0 {
-			var used int64
-			for _, f := range m.Files {
-				if f.Uploader == actor.Username {
-					used += f.Size
-				}
-			}
-			if used+written > quota {
-				s.mu.Unlock()
-				os.Remove(tmpPath)
-				platform.WriteError(w, fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota)), 400)
-				return
-			}
-		}
-		if countUploaderEntries(m, actor.Username) >= maxTransferFilesPerUser {
-			s.mu.Unlock()
-			os.Remove(tmpPath)
-			platform.WriteError(w, fmt.Sprintf("文件数量已达上限（每人最多 %d 个）", maxTransferFilesPerUser), 400)
+			platform.WriteError(w, msg, 400)
 			return
 		}
 

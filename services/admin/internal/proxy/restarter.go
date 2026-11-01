@@ -3,11 +3,11 @@ package proxy
 import (
 	"admin/internal/platform"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 )
 
@@ -38,18 +38,13 @@ func RestartXray(ctx context.Context, cli *client.Client) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
-			Key: "label", Value: "com.docker.compose.service=xray",
-		}),
-	})
+	id, err := platform.FindContainer(ctx, cli, "xray")
 	if err != nil {
-		return fmt.Errorf("list xray container: %w", err)
+		if errors.Is(err, platform.ErrContainerNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find xray container: %w", err)
 	}
-	if len(containers) == 0 {
-		return nil
-	}
-	id := containers[0].ID
 
 	t := platform.DockerStopTimeoutSeconds
 	restartErr := cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &t})

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"admin/internal/accounts"
 	"admin/internal/auth"
 	"admin/internal/downloads"
 	"admin/internal/identity"
@@ -16,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -71,8 +69,8 @@ func main() {
 	// 同步一次(把上次运行的封禁状态恢复到 nginx,nginx 容器重建后同样生效)。
 	securitySvc.SetBlocklistClient(cli)
 	securitySvc.ScheduleBlocklistSync()
-	// 删用户级联清理其 transfer 上传(钩子注入,保持 accounts 不依赖 transfer)。
-	accounts.CascadeDeleteUploads = transferStore.DeleteUploadsByUploader
+	// 删用户级联清理其 transfer 上传通过 apiDeps 显式注入，保持 accounts
+	// 不 import transfer，也避免"未接线时静默跳过"的可变全局。
 
 	// 启动 IPv6 恢复完成后关闭此 channel，proxy.IPConsistencyChecker 等待它避免竞态。
 	startupRotateDone := make(chan struct{})
@@ -87,81 +85,47 @@ func main() {
 	// RestoreServiceRotatingIP(容器 IP 补挂)可能被杀在半路,轮换 IP 丢失、
 	// 代理出口失效直到下次启动兜底。带超时等待,守护卡死时不阻塞退出。
 	var daemonWG sync.WaitGroup
-	daemonWG.Add(6)
-	go daemonGuard(&daemonWG, "xhttp-health", func() { proxy.XhttpHealthChecker(ctx, cli) })
-	go daemonGuard(&daemonWG, "ip-watcher", func() { proxy.IPWatcher(ctx, cli) })
-	go daemonGuard(&daemonWG, "ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone, ipv6State) })
-	// 证书到期监控(CF Origin CA 到期 = 全站 5xx,提前 30 天 webhook 告警)。
-	go daemonGuard(&daemonWG, "cert-expiry", func() { infra.StartCertExpiryWatcher(ctx) })
-	// per-user 流量统计(xray StatsService 经 docker exec 拉取,每分钟)。
-	go daemonGuard(&daemonWG, "traffic-collector", func() { trafficTracker.Start(ctx, cli) })
+	// 列表 + len() 注册：新增/删除守护不再需要手改 Add 数字（少加会 panic，
+	// 多加会让关闭时的 Wait 永久等到超时）。
+	daemons := []struct {
+		name string
+		run  func()
+	}{
+		{"xhttp-health", func() { proxy.XhttpHealthChecker(ctx, cli) }},
+		{"ip-watcher", func() { proxy.IPWatcher(ctx, cli) }},
+		{"ip-consistency", func() { proxy.IPConsistencyChecker(ctx, cli, startupRotateDone, ipv6State) }},
+		// 证书到期监控(CF Origin CA 到期 = 全站 5xx,提前 30 天 webhook 告警)。
+		{"cert-expiry", func() { infra.StartCertExpiryWatcher(ctx) }},
+		// per-user 流量统计(xray StatsService 经 docker exec 拉取,每分钟)。
+		{"traffic-collector", func() { trafficTracker.Start(ctx, cli) }},
+		{"transfer-cleanup", func() { transferStore.StartCleanupLoop(ctx) }},
+	}
+	daemonWG.Add(len(daemons) + 1) // +1 = startup IPv6 restore goroutine
+	for _, d := range daemons {
+		go daemonGuard(&daemonWG, d.name, d.run)
+	}
 
 	mux := http.NewServeMux()
 	mw := auth.NewMiddleware(users, secrets, securitySvc)
 
 	// 路由表是唯一事实来源：角色、body-limit 豁免、审计属性都在 routes.go。
 	routes := apiRoutes(apiDeps{
-		cli:       cli,
-		users:     users,
-		xraySvc:   xraySvc,
-		transfer:  transferStore,
-		security:  securitySvc,
-		downloads: downloadsMgr,
-		traffic:   trafficTracker,
-		layout:    layout,
+		cli:            cli,
+		users:          users,
+		xraySvc:        xraySvc,
+		transfer:       transferStore,
+		security:       securitySvc,
+		downloads:      downloadsMgr,
+		traffic:        trafficTracker,
+		ipv6State:      ipv6State,
+		cascadeUploads: transferStore.DeleteUploadsByUploader,
+		layout:         layout,
 	})
-	registerBodyLimitExemptions(routes)
+	bodyLimits := platform.NewBodyLimits(bodyLimitExemptions(routes))
 	registerRoutes(mux, routes, mw)
 
-	// Svelte SPA - serve at /admin/ (any subpath serves index.html)
-	mux.HandleFunc("GET /admin/", serveSPA)
-	mux.HandleFunc("GET /admin", serveSPA)
-
-	// Svelte static assets - serve at absolute paths
-	static := http.FileServer(http.Dir("/app/ui"))
-	mux.Handle("/assets/", static)
-	mux.Handle("/favicon.svg", static)
-	mux.Handle("/icons.svg", static)
-
-	// Wrap all routes: CSRF -> IP block -> rate limit -> serve
-	// Static assets bypass rate limiting to avoid consuming request quota.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		// Transfer upload streams large bodies (per-file cap enforced in the
-		// handler via io.LimitReader); use exact match to avoid false positives
-		// on similar paths.
-		platform.ApplyBodyLimit(w, r)
-		// Static assets: /assets/ 是指纹文件名(内容哈希),可永久缓存;
-		// favicon.svg / icons.svg 非指纹,更新后需尽快生效,只给短缓存。
-		// 两者都跳过 rate limit(高频低价值)。
-		if platform.IsStaticAsset(r.URL.Path) {
-			if strings.HasPrefix(r.URL.Path, "/assets/") {
-				w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
-			} else {
-				w.Header().Set("Cache-Control", "public, max-age=3600")
-			}
-			mw.IPBlockMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
-				mux.ServeHTTP(w2, r2)
-			})(w, r)
-			return
-		}
-
-		// API 与 SPA 响应禁止缓存:no-store 同时关闭磁盘缓存与 bfcache,
-		// 防止登出后浏览器回退页残留管理数据(users 列表内嵌明文代理凭证)。
-		w.Header().Set("Cache-Control", "no-store")
-		// CSRF 校验必须在限流之前:跨站伪造请求来自受害者自己的浏览器与 IP,
-		// 若先限流,攻击会耗尽受害者 IP 的配额触发 30min 自动封禁(限流器被
-		// 武器化为 DoS 受害者)。IP 封禁必须在限流之前:已封禁 IP 不应再消耗
-		// 限流预算、触发封禁写盘/webhook（否则封禁后仍可周期性放大写盘）。
-		// 安全头/静态资源分支不需要这些（均为 GET）。
-		auth.CSRFMiddleware(mw.IPBlockMiddleware(mw.RateLimitMiddleware(func(w2 http.ResponseWriter, r2 *http.Request) {
-			mux.ServeHTTP(w2, r2)
-		})))(w, r)
-	})
+	registerStaticRoutes(mux)
+	handler := newHTTPHandler(mux, mw, bodyLimits)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -187,8 +151,6 @@ func main() {
 	// 的 .tmp-* 等临时文件已在启动最前面统一回收(此时仍可能有下载/上传的
 	// 专项清理，它们各自处理自己的前缀)。
 	transferStore.CleanupOrphanTempFiles()
-	daemonWG.Add(1)
-	go daemonGuard(&daemonWG, "transfer-cleanup", func() { transferStore.StartCleanupLoop(ctx) })
 
 	go func() {
 		log.Printf("admin %s listening on %s", version, srv.Addr)
@@ -248,8 +210,4 @@ func daemonGuard(wg *sync.WaitGroup, name string, fn func()) {
 		}
 	}()
 	fn()
-}
-
-func serveSPA(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "/app/ui/index.html")
 }

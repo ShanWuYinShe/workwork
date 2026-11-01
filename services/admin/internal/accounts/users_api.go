@@ -12,12 +12,6 @@ import (
 	"net/http"
 )
 
-// CascadeDeleteUploads 在删除用户时级联清理其名下资源,由 main 装配注入
-// (transfer.DeleteUploadsByUploader)。依赖方向约束:transfer 依赖 accounts
-// 之下的层,accounts 不能直接 import transfer,故用钩子注入而不是直接调用。
-// 未装配(nil)时跳过级联——单元测试环境无需构造 transfer 状态。
-var CascadeDeleteUploads func(uploader string) (int, error)
-
 // -- User management APIs --
 
 func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
@@ -56,12 +50,7 @@ func ApiUsers(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		genJSON := ""
 		if allOwned {
 			proxyAuth = users.ProxyAuthForUserRead(actor.Username)
-			genJSON = xray.GenerateClientConfig(filtered, xray.ClientConfig{
-				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
-				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
-				XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
-				XHTTPProxyAuth: proxyAuth,
-			})
+			genJSON = xray.GenerateClientConfig(filtered, xray.ClientConfigFromEnv(proxyAuth))
 		}
 
 		doc, htpasswdUsers, err := users.AdminView()
@@ -222,7 +211,10 @@ func ApiAddAdmin(users *identity.Store) http.HandlerFunc {
 	}
 }
 
-func ApiDeleteAdmin(users *identity.Store, svc *xray.Service) http.HandlerFunc {
+// ApiDeleteAdmin 删除面板用户并级联清理其 xray 客户端与 transfer 上传。
+// cascade 由 main 注入 transfer.Store.DeleteUploadsByUploader；依赖方向约束
+// 不允许 accounts 直接 import transfer。nil 仅用于不需要级联的单测。
+func ApiDeleteAdmin(users *identity.Store, svc *xray.Service, cascade func(uploader string) (int, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Username string }
 		if err := platform.DecodeStrictJSON(r.Body, &body); err != nil {
@@ -287,8 +279,8 @@ func ApiDeleteAdmin(users *identity.Store, svc *xray.Service) http.HandlerFunc {
 		// 配额也无人释放。级联失败不作为整体失败（文件随过期清理回收），
 		// 只记日志并告知。
 		uploadsRemoved := 0
-		if CascadeDeleteUploads != nil {
-			if n, err := CascadeDeleteUploads(body.Username); err != nil {
+		if cascade != nil {
+			if n, err := cascade(body.Username); err != nil {
 				log.Printf("ERROR: cascade delete uploads for %s: %v", body.Username, err)
 			} else {
 				uploadsRemoved = n

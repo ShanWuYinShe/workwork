@@ -7,9 +7,9 @@ import (
 	"admin/internal/runtime"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"log"
 	"net/http"
@@ -42,35 +42,30 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 		// 与 IPv6 轮转/DNS 同步一致,用不受取消影响的 context + 超时。
 		opCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), platform.RestartTimeout)
 		defer cancel()
-		containers, err := cli.ContainerList(opCtx, container.ListOptions{
-			All: true,
-			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
-				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
-			}),
-		})
+		id, err := platform.FindContainerAll(opCtx, cli, name)
 		if err != nil {
+			if errors.Is(err, platform.ErrContainerNotFound) {
+				platform.WriteError(w, "服务不存在", 404)
+				return
+			}
 			platform.WriteInternalError(w, err)
-			return
-		}
-		if len(containers) == 0 {
-			platform.WriteError(w, "服务不存在", 404)
 			return
 		}
 		switch action {
 		case "start":
-			err = cli.ContainerStart(opCtx, containers[0].ID, container.StartOptions{})
+			err = cli.ContainerStart(opCtx, id, container.StartOptions{})
 			if err == nil && (name == "xray" || name == "nginx") {
-				proxy.RestoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
+				proxy.RestoreServiceRotatingIP(opCtx, cli, id, name)
 			}
 		case "stop":
 			t := platform.DockerStopTimeoutSeconds
-			err = cli.ContainerStop(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
+			err = cli.ContainerStop(opCtx, id, container.StopOptions{Timeout: &t})
 		case "restart":
 			t := platform.DockerStopTimeoutSeconds
-			err = cli.ContainerRestart(opCtx, containers[0].ID, container.StopOptions{Timeout: &t})
+			err = cli.ContainerRestart(opCtx, id, container.StopOptions{Timeout: &t})
 			// 始终尝试恢复轮换 IP，不受 restart 错误影响。
 			if name == "xray" || name == "nginx" {
-				proxy.RestoreServiceRotatingIP(opCtx, cli, containers[0].ID, name)
+				proxy.RestoreServiceRotatingIP(opCtx, cli, id, name)
 			}
 		default:
 			platform.WriteError(w, "未知操作", 400)

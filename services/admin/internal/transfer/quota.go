@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"admin/internal/platform"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -51,4 +52,28 @@ func transferMaxPerUserBytes() int64 {
 	}
 	log.Printf("WARNING: invalid TRANSFER_USER_QUOTA %q, using default", raw)
 	return transferDefaultPerUserQuota
+}
+
+// checkUploadQuota 统一全局容量、个人配额与单用户文件数检查。
+// 预检（header.Size）与精确检查（实际 written）共用，避免两段逻辑漂移。
+// 返回空串表示通过；否则是可直接返回给客户端的文案。
+func checkUploadQuota(m transferManifest, uploader string, size int64) string {
+	if m.TotalSize+size > transferMaxTotal {
+		return fmt.Sprintf("存储空间不足（已用 %s，上限 20GB）", formatBytes(m.TotalSize))
+	}
+	if quota := transferMaxPerUserBytes(); quota > 0 {
+		var used int64
+		for _, f := range m.Files {
+			if f.Uploader == uploader {
+				used += f.Size
+			}
+		}
+		if used+size > quota {
+			return fmt.Sprintf("个人存储配额已用完（上限 %s）", formatBytes(quota))
+		}
+	}
+	if countUploaderEntries(m, uploader) >= maxTransferFilesPerUser {
+		return fmt.Sprintf("文件数量已达上限（每人最多 %d 个）", maxTransferFilesPerUser)
+	}
+	return ""
 }

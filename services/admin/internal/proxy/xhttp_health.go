@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -160,16 +159,12 @@ func countXHTTPPosts(ctx context.Context, cli *client.Client) xhttpPostStats {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	containers, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
-			Key: "label", Value: "com.docker.compose.service=nginx",
-		}),
-	})
-	if err != nil || len(containers) == 0 {
+	nginxID, err := platform.FindContainerAll(ctx, cli, "nginx")
+	if err != nil {
 		return stats
 	}
 
-	logs, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
+	logs, err := cli.ContainerLogs(ctx, nginxID, container.LogsOptions{
 		ShowStdout: true,
 		Since:      checkWindow,
 		// 时间过滤优先于行数：packet-up 模式每包一个 POST，2 分钟窗口内

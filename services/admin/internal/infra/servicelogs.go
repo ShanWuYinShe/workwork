@@ -4,9 +4,9 @@ import (
 	"admin/internal/platform"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"io"
@@ -20,37 +20,11 @@ import (
 // GET /api/admin/services/{name}/logs?tail=100
 func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if !validServiceName.MatchString(name) {
-			platform.WriteError(w, "服务名不合法", 400)
+		name, id, tail, ok := resolveServiceLogTarget(w, r, cli)
+		if !ok {
 			return
 		}
-		tail := r.URL.Query().Get("tail")
-		if tail == "" {
-			tail = "100"
-		}
-		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
-			tail = "100"
-		}
-		listCtx, listCancel := context.WithTimeout(r.Context(), 10*time.Second)
-		containers, err := cli.ContainerList(listCtx, container.ListOptions{
-			All: true,
-			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
-				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
-			}),
-		})
-		listCancel()
-		if err != nil {
-			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
-			log.Printf("list containers for logs (%s): %v", name, err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		if len(containers) == 0 {
-			platform.WriteError(w, "服务不存在", 404)
-			return
-		}
-		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
+		logs, err := cli.ContainerLogs(r.Context(), id, container.LogsOptions{
 			ShowStdout: true, ShowStderr: true,
 			Tail: tail,
 		})
@@ -74,6 +48,34 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 	}
 }
 
+// resolveServiceLogTarget 统一校验服务名、解析 tail、查找容器并写错误响应。
+// 非流式与 SSE 两个 handler 共用，避免校验/查找逻辑两处漂移。
+func resolveServiceLogTarget(w http.ResponseWriter, r *http.Request, cli *client.Client) (name, id, tail string, ok bool) {
+	name = r.PathValue("name")
+	if !validServiceName.MatchString(name) {
+		platform.WriteError(w, "服务名不合法", 400)
+		return "", "", "", false
+	}
+	tail = r.URL.Query().Get("tail")
+	if tail == "" || func() bool { n, err := strconv.Atoi(tail); return err != nil || n <= 0 || n > 10000 }() {
+		tail = "100"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	id, err := platform.FindContainerAll(ctx, cli, name)
+	if err != nil {
+		if errors.Is(err, platform.ErrContainerNotFound) {
+			platform.WriteError(w, "服务不存在", 404)
+			return "", "", "", false
+		}
+		// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
+		log.Printf("find container for logs (%s): %v", name, err)
+		platform.WriteInternalError(w, err)
+		return "", "", "", false
+	}
+	return name, id, tail, true
+}
+
 // limitWriter 只保留最近 max 字节的写入(环形覆盖),用于日志等只需要尾部的场景。
 type limitWriter struct {
 	buf []byte
@@ -95,37 +97,11 @@ func (w *limitWriter) Write(p []byte) (int, error) {
 // GET /api/admin/services/{name}/logs/stream?tail=100
 func ApiServiceLogStream(cli *client.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if !validServiceName.MatchString(name) {
-			platform.WriteError(w, "服务名不合法", 400)
+		_, id, tail, ok := resolveServiceLogTarget(w, r, cli)
+		if !ok {
 			return
 		}
-		tail := r.URL.Query().Get("tail")
-		if tail == "" {
-			tail = "100"
-		}
-		if n, err := strconv.Atoi(tail); err != nil || n <= 0 || n > 10000 {
-			tail = "100"
-		}
-		listCtx, listCancel := context.WithTimeout(r.Context(), 10*time.Second)
-		containers, err := cli.ContainerList(listCtx, container.ListOptions{
-			All: true,
-			Filters: platform.ComposeProjectFilters(filters.KeyValuePair{
-				Key: "label", Value: fmt.Sprintf("com.docker.compose.service=%s", name),
-			}),
-		})
-		listCancel()
-		if err != nil {
-			// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
-			log.Printf("list containers for logs (%s): %v", name, err)
-			platform.WriteInternalError(w, err)
-			return
-		}
-		if len(containers) == 0 {
-			platform.WriteError(w, "服务不存在", 404)
-			return
-		}
-		logs, err := cli.ContainerLogs(r.Context(), containers[0].ID, container.LogsOptions{
+		logs, err := cli.ContainerLogs(r.Context(), id, container.LogsOptions{
 			ShowStdout: true, ShowStderr: true,
 			Tail: tail, Follow: true,
 		})

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 )
 
@@ -101,12 +100,31 @@ func DecodeStrictJSON(r io.Reader, dest any) error {
 	return nil
 }
 
+// staticAssetPrefixes / staticAssetFiles 是 SPA 静态资源清单的唯一来源：
+// mux 注册、缓存策略、限流豁免都从这里派生，新增资源不需要改三处。
+var staticAssetPrefixes = []string{"/assets/"}
+var staticAssetFiles = []string{"/favicon.svg", "/icons.svg"}
+
+// StaticAssetPatterns 返回 http.ServeMux 需要的静态资源模式。
+func StaticAssetPatterns() []string {
+	out := append([]string(nil), staticAssetPrefixes...)
+	return append(out, staticAssetFiles...)
+}
+
 // IsStaticAsset 判断是否 admin SPA 静态资源路径(指纹文件名,可永久缓存
 // 且跳过限流)。
 func IsStaticAsset(path string) bool {
-	return len(path) >= 8 &&
-		(path == "/favicon.svg" || path == "/icons.svg" ||
-			(len(path) > 8 && path[:8] == "/assets/"))
+	for _, p := range staticAssetPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	for _, p := range staticAssetFiles {
+		if path == p {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeHeaderValue 移除 HTTP header 值中的危险字符
@@ -121,31 +139,23 @@ func SanitizeHeaderValue(s string) string {
 
 // ---- 全局请求体上限 ----
 
-// bodyLimitExemptPaths 由 main 在路由注册处对大上传端点调用 ExemptBodyLimit
-// 声明(与路由声明同处,杜绝"加路由忘豁免"的双清单漂移);各自 handler 内
-// 用 MaxBytesReader/io.LimitReader 施加自己的上限。
-var bodyLimitExemptPaths = map[string]bool{}
-
-// ExemptBodyLimit 登记大上传端点,豁免全局 1MB 请求体上限。
-func ExemptBodyLimit(path string) { bodyLimitExemptPaths[path] = true }
-
-// BodyLimitExempt 报告路径是否已豁免(供回归测试断言注册契约)。
-func BodyLimitExempt(path string) bool { return bodyLimitExemptPaths[path] }
-
-// BodyLimitExemptions 返回全部已登记豁免路径(排序)。契约测试用它断言
-// 豁免集合恰好等于声明清单——单向断言发现不了"端点已删、豁免残留"。
-func BodyLimitExemptions() []string {
-	paths := make([]string, 0, len(bodyLimitExemptPaths))
-	for p := range bodyLimitExemptPaths {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	return paths
+// BodyLimits 是不可变的请求体豁免集合。由组合根从路由表派生后注入，
+// 不再有运行期可写的包级 map（此前 `ApplyBodyLimit` 在热路径无锁读取）。
+type BodyLimits struct {
+	exempt map[string]bool
 }
 
-// ApplyBodyLimit 对未豁免路径施加全局 1MB 请求体上限。
-func ApplyBodyLimit(w http.ResponseWriter, r *http.Request) {
-	if !BodyLimitExempt(r.URL.Path) {
+func NewBodyLimits(exemptPaths []string) *BodyLimits {
+	exempt := make(map[string]bool, len(exemptPaths))
+	for _, path := range exemptPaths {
+		exempt[path] = true
+	}
+	return &BodyLimits{exempt: exempt}
+}
+
+// Apply 对未豁免路径施加全局 1MB 请求体上限。
+func (b *BodyLimits) Apply(w http.ResponseWriter, r *http.Request) {
+	if b == nil || !b.exempt[r.URL.Path] {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max request body
 	}
 }

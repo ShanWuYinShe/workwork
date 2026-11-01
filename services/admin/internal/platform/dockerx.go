@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -19,9 +20,22 @@ import (
 // 重启路径共用。（IPv6 轮换的并发互斥见 proxy 包的 ipv6RotateMu。）
 const DockerStopTimeoutSeconds = 10
 
-// FindContainer returns the container ID for a given compose service label.
+// ErrContainerNotFound 让调用方把“服务未运行”与 docker API 故障区分开。
+var ErrContainerNotFound = errors.New("container not found")
+
+// FindContainer returns the ID of a running container for a compose service.
 func FindContainer(ctx context.Context, cli *client.Client, service string) (string, error) {
+	return findContainer(ctx, cli, service, false)
+}
+
+// FindContainerAll 同 FindContainer，但包含已停止容器（start/restart/logs 需要）。
+func FindContainerAll(ctx context.Context, cli *client.Client, service string) (string, error) {
+	return findContainer(ctx, cli, service, true)
+}
+
+func findContainer(ctx context.Context, cli *client.Client, service string, all bool) (string, error) {
 	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		All: all,
 		Filters: ComposeProjectFilters(filters.KeyValuePair{
 			Key: "label", Value: "com.docker.compose.service=" + service,
 		}),
@@ -30,7 +44,7 @@ func FindContainer(ctx context.Context, cli *client.Client, service string) (str
 		return "", err
 	}
 	if len(containers) == 0 {
-		return "", fmt.Errorf("container not found: %s", service)
+		return "", fmt.Errorf("%w: %s", ErrContainerNotFound, service)
 	}
 	return containers[0].ID, nil
 }

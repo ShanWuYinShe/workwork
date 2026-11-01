@@ -11,7 +11,6 @@ import (
 	"sort"
 	"testing"
 
-	"admin/internal/platform"
 	"admin/internal/proxy"
 )
 
@@ -19,13 +18,14 @@ import (
 // xray service 允许为 nil。
 func testRouteDeps(layout runtime.Layout) apiDeps {
 	return apiDeps{
-		users:     identity.NewStore(layout, nil),
-		transfer:  transfer.NewStore(layout),
-		security:  auth.NewSecurity(layout),
-		downloads: downloads.NewManager(layout),
-		traffic:   proxy.NewTrafficTracker(layout),
-		ipv6State: proxy.NewIPv6State(layout),
-		layout:    layout,
+		users:          identity.NewStore(layout, nil),
+		transfer:       transfer.NewStore(layout),
+		security:       auth.NewSecurity(layout),
+		downloads:      downloads.NewManager(layout),
+		traffic:        proxy.NewTrafficTracker(layout),
+		ipv6State:      proxy.NewIPv6State(layout),
+		cascadeUploads: nil,
+		layout:         layout,
 	}
 }
 
@@ -85,10 +85,10 @@ func TestRouteTableContract(t *testing.T) {
 	}
 
 	// body-limit 豁免以路由表为准，platform 的集合必须与之一致。
-	registerBodyLimitExemptions(routes)
+
 	wantExempt := append([]string(nil), exempt...)
 	sort.Strings(wantExempt)
-	if got := platform.BodyLimitExemptions(); !reflect.DeepEqual(got, wantExempt) {
+	if got := bodyLimitExemptions(routes); !reflect.DeepEqual(got, wantExempt) {
 		t.Errorf("body-limit exemption set drifted:\n got:  %v\n want: %v", got, wantExempt)
 	}
 	if !reflect.DeepEqual(wantExempt, []string{"/api/admin/transfer/upload"}) {

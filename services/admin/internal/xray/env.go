@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+// ClientConfigFromEnv 构造客户端配置的公共字段。三个页面（Dashboard /
+// Users / Clients）都从这里取，新增 XHTTP_* 字段不会漏改某一页。
+func ClientConfigFromEnv(proxyAuth string) ClientConfig {
+	return ClientConfig{
+		XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
+		XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
+		XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
+		XHTTPProxyAuth: proxyAuth,
+	}
+}
+
 // ValidateProxyConfigEnv 校验生成客户端配置所需的环境变量；启动期 fail-fast。
 func ValidateProxyConfigEnv() error {
 	if strings.TrimSpace(platform.GetEnv("XHTTP_DOMAIN")) == "" {

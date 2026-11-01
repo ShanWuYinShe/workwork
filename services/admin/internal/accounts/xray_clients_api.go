@@ -177,12 +177,7 @@ func ApiXrayClientConfig(users *identity.Store, svc *xray.Service) http.HandlerF
 
 		// 只读端点：用 ProxyAuthForUserRead 拿已有密码，绝不懒创建。
 		proxyAuth := users.ProxyAuthForUserRead(client.Owner)
-		genJSON := xray.GenerateClientConfig([]xray.Client{*client}, xray.ClientConfig{
-			XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
-			XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
-			XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
-			XHTTPProxyAuth: proxyAuth,
-		})
+		genJSON := xray.GenerateClientConfig([]xray.Client{*client}, xray.ClientConfigFromEnv(proxyAuth))
 		platform.WriteJSON(w, map[string]any{
 			"config": genJSON, "uuid": uuid, "owner": client.Owner,
 		})

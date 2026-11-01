@@ -39,12 +39,7 @@ func ApiDashboard(users *identity.Store, svc *xray.Service, cli *client.Client) 
 				// 客户端首次添加 Xray 客户端时再懒创建,与那两个读端点一致。
 				proxyAuth = users.ProxyAuthForUserRead(actor.Username)
 			}
-			genJSON := xray.GenerateClientConfig(myClients, xray.ClientConfig{
-				XHTTPDomain:    platform.GetEnv("XHTTP_DOMAIN"),
-				XHTTPAddress:   platform.GetEnv("XHTTP_ADDRESS"),
-				XHTTPALPN:      platform.GetEnv("XHTTP_ALPN"),
-				XHTTPProxyAuth: proxyAuth,
-			})
+			genJSON := xray.GenerateClientConfig(myClients, xray.ClientConfigFromEnv(proxyAuth))
 			platform.WriteJSON(w, map[string]any{
 				"role":          actor.Role,
 				"username":      actor.Username,

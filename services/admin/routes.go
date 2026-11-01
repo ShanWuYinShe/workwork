@@ -56,7 +56,9 @@ type apiDeps struct {
 	downloads *downloads.Manager
 	traffic   *proxy.TrafficTracker
 	ipv6State *proxy.IPv6State
-	layout    runtime.Layout
+	// cascadeUploads 让 accounts 删除用户时清理 transfer 文件，避免反向依赖。
+	cascadeUploads func(string) (int, error)
+	layout         runtime.Layout
 }
 
 // apiRoutes 构造全部管理 API 路由。cli 允许为 nil：契约测试只读元数据，
@@ -71,7 +73,7 @@ func apiRoutes(d apiDeps) []apiRoute {
 		{Method: http.MethodGet, Pattern: "/api/admin/users", Handler: accounts.ApiUsers(users, xraySvc), Role: roleViewer},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/password", Handler: accounts.ApiChangePassword(users), Role: roleViewer, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/add", Handler: accounts.ApiAddAdmin(users), Role: roleAdmin, Audit: true},
-		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(users, xraySvc), Role: roleAdmin, Audit: true},
+		{Method: http.MethodPost, Pattern: "/api/admin/users/admin/delete", Handler: accounts.ApiDeleteAdmin(users, xraySvc, d.cascadeUploads), Role: roleAdmin, Audit: true},
 		{Method: http.MethodPost, Pattern: "/api/admin/users/roles/set", Handler: accounts.ApiSetRole(users), Role: roleAdmin, Audit: true},
 
 		// ── Xray 客户端 ──
@@ -146,6 +148,9 @@ func healthHandler(layout runtime.Layout) http.HandlerFunc {
 func registerRoutes(mux *http.ServeMux, routes []apiRoute, mw *auth.Middleware) {
 	for _, rt := range routes {
 		h := rt.Handler
+		if rt.Audit {
+			h = auth.AuditMiddleware(rt.Pattern, h)
+		}
 		if rt.Role != rolePublic {
 			h = mw.RequireRole(rt.Role)(h)
 		}
@@ -153,12 +158,14 @@ func registerRoutes(mux *http.ServeMux, routes []apiRoute, mw *auth.Middleware) 
 	}
 }
 
-// registerBodyLimitExemptions 把路由表里的大上传声明同步到 platform。
-// 唯一事实源是 apiRoute.BodyLimitExempt，不再有 init() 的散落清单。
-func registerBodyLimitExemptions(routes []apiRoute) {
+// bodyLimitExemptions 从路由表派生大上传豁免路径；唯一事实源是
+// apiRoute.BodyLimitExempt，组合根据此构造不可变的 platform.BodyLimits。
+func bodyLimitExemptions(routes []apiRoute) []string {
+	var out []string
 	for _, rt := range routes {
 		if rt.BodyLimitExempt {
-			platform.ExemptBodyLimit(rt.Pattern)
+			out = append(out, rt.Pattern)
 		}
 	}
+	return out
 }
