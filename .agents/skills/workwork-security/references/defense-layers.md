@@ -41,7 +41,7 @@
 - 引用具体容器的路径（`/containers/{id}/…`、`/exec/{id}/…`）额外过 compose 项目归属校验（`com.docker.compose.project` ∈ `ALLOWED_COMPOSE_PROJECTS`；exec 先 inspect 取 `ContainerID`）。inspect 失败 / 容器不存在 / label 缺失一律**拒绝**（fail-closed）。
 - **无容器句柄的读端点**（`/containers/json`、`/events`）要求调用方自带允许项目的 label 过滤：`filters` 含 `com.docker.compose.project=<ALLOWED_COMPOSE_PROJECTS>`（docker SDK 的 map 形态与手工拼的数组形态都认）；缺失、JSON 不可解析或项目不在名单一律 403（fail-closed）。
 - `/info`、`/version`、`/_ping` 仍直接放行（宿主级信息、不含容器元数据）。
-- admin 的 8 个 docker 读调用点（7×`ContainerList` + 1×`Events`）全部经 `platform.ComposeProjectFilters(...)` 注入该过滤，正常路径零行为变化。
+- admin 的 docker 读调用点必须注入项目过滤：`ContainerList` 用 `platform.ComposeProjectFilters(...)`，`Events` 的 filters 带 `com.docker.compose.project=<ComposeProjectName()>`（取数：`grep -rn -e ContainerList -e 'cli.Events' services/admin --include='*.go'`）。
 - `ALLOWED_COMPOSE_PROJECTS` 由 compose 从 `COMPOSE_PROJECT_NAME` 接线；两者不一致会让本栈自己的容器被整体拒绝、面板操作静默失效。
 - 本地端到端复跑（真实 daemon）：
   ```bash

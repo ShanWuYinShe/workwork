@@ -5,7 +5,7 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 
 # workwork 构建与部署
 
-> **仓库边界**：media/music 已拆分为独立站仓库 `media_center` / `music_player`，与本项目零互通。本仓库**无任何子模块**（`.gitmodules` 不存在、`git submodule status` 为空、`scripts/` 与 `Makefile` 中无 submodule 逻辑、`services/` 下只有 admin/docker_proxy/nginx/xray）——不要按子模块理解仓库结构。
+> **仓库边界**：media/music 是独立站仓库（`media_center` / `music_player`），与本项目零互通。本仓库**无任何子模块**（判据：`.gitmodules` 不存在、`git submodule status` 为空、`scripts/` 与 `Makefile` 中无 submodule 逻辑、`services/` 下只有 admin/docker_proxy/nginx/xray）。
 
 ## 构建 & 部署
 
@@ -29,9 +29,9 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 - 版本指纹核对期望值的来源同样在 `scripts/deploy-changed.sh`，改版本烙印逻辑时两边要一起看。
 - **发布 tag 必须显式拉到服务器**：`deploy-changed.sh` 在 pull 后执行
   `git fetch --tags origin`；服务器缺 tag 时 `git describe` 会回退成
-  `v1.2.0-11-g<sha>`，健康端点指纹与发布 tag 对不上（v2.0.0
-  部署实测）。最近 tag 变化（v2.0.0 → v2.0.1）会把四个服务都加入重建
-  集合，保证镜像 OCI revision 与版本端点一致；手工部署先 `git fetch --tags`。
+  `v1.2.0-11-g<sha>`，健康端点指纹与发布 tag 对不上。手工部署先 `git fetch --tags`。
+  tag/版本变化会把全部服务加入重建集合，保证镜像 OCI revision 与版本端点一致；
+  判据：健康端点的 `version` 与服务器 `git describe` 一致。
 
 
 ### 权限注意（首次部署或权限异常时）

@@ -5,7 +5,7 @@
 ## 方案与客户端拆分
 
 - `opt.yinghuoren.com` = DNS only 的 A 记录，直接指向实测最优的 CF anycast 边缘 IP；源站回源仍走 `yinghuoren.com` 的 mTLS。
-- 背景：客户端 → CF 边缘（免费版对武汉电信调度差，RTT 240-280ms，晚高峰 TLS 0.5-6s 且常超时）→ mTLS 回源。晚高峰排障结论：服务器与源站全程健康，瓶颈全在「客户端→CF 边缘」段。
+- 链路瓶颈在「客户端→CF 边缘」段：免费版对武汉电信调度差（RTT 240-280ms，晚高峰 TLS 0.5-6s 且常超时）；服务器与源站侧健康。
 - 客户端配置只改 `address` 为 opt 域名，`serverName`/`Host`/SNI 仍是 `yinghuoren.com`（SNI 用 opt 域名会证书不匹配）。
 - 面板生成配置已内建拆分：服务端 `.env` 设 `XHTTP_ADDRESS=opt.yinghuoren.com`（`XHTTP_DOMAIN` 保持 yinghuoren.com 作 SNI），改后重启 admin 容器生效；手工改本机 `config.jsonc` 仅作临时验证。
 
@@ -36,7 +36,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 
 手搓并发测速必须 sleep 控频：4 并发 × 6 IP × 2 轮（~48 请求、无间隔）即触发 Go 层 20req/10s 自动 ban 30min + ipBlocker 403。
 
-## 测量陷阱（全部踩过）
+## 测量陷阱
 
 1. **端点选错会让排名完全反过来**：用 `speed.cloudflare.com/__down` 测出的候选，改用自有 /speedtest 后吞吐与 TTFB 大幅恶化——CF 公开端点的数据在 CF 网内产生，不经过「回源→nginx→admin」。
 2. **不要用 xray 隧道 + 自有端点**：服务端 freedom 出站再访问 `yinghuoren.com` 会绕第二圈 CF（实测 30s 只下 286KB）。优选测量一律用上面的 curl `--resolve` 直连。
@@ -47,7 +47,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 
 ## 扫描规模：必须分两阶段
 
-**一次性全量扫描会把本机 IP 打进自家防护**（24 并发 × 836 IP × 2 次打 /speedtest → 触发 ipBlocker 403 + admin 内存限流 30min ban，全部样本报废）：
+**一次性全量扫描会把本机 IP 打进自家防护**：超出 Go 层 `20 req/10s` 阈值即触发 ipBlocker 403 + admin 内存限流 30min ban，全部样本报废。扫描必须分两阶段：
 
 1. 阶段一粗筛用 `/cdn-cgi/trace`（CF 边缘直答**不回源**，随便扫）：
    ```bash
@@ -74,7 +74,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 
 ## CF API token 与 DoH
 
-- CF API token（`~/work/dogod/cf_token_and_cert/cf_account_token`）的 IP 白名单**只放服务器出口 IP**（有意设计）：本机直连调用被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。**
+- CF API token（归档位置见用户级 `local-environment` 的 Cloudflare 管理 token 条目）的 IP 白名单**只放服务器出口 IP**（有意设计）：本机直连调用被拒（错误码 9109，v4/v6 相同）。正确且唯一用法是本机持 token + 经本机 xray http 入站代理（`http_proxy=http://127.0.0.1:10809`），出口即服务器。**不要把家宽 IP 加白（那是拆掉这道防线），也不要把 token 复制到服务器（凭据红线）。**
 - DoH 候选可达性实测必须用 **RFC8484 wire format**：`?dns=<base64url 查询>` + `accept: application/dns-message`。JSON API（`?name=`）对 Google/Quad9 会 400，造成「不可用」误判——wire format 下 1.1.1.1/1.0.0.1/8.8.8.8/9.9.9.9 与 v6 解析器全部 200，且 8.8.8.8 证书含 IP SAN 可作 DOHL 目标。
   ```bash
   python3 -c "import base64,struct;h=struct.pack('>HHHHHH',0x1234,0x0100,1,0,0,0);n=b''.join(bytes([len(p)])+p.encode() for p in 'example.com'.split('.'))+b'\\x00';print(base64.urlsafe_b64encode(h+n+struct.pack('>HH',1,1)).decode().rstrip('='))"
@@ -84,7 +84,7 @@ curl --noproxy '*' --resolve yinghuoren.com:443:<候选IP> \
 ## 出站策略陷阱：prioritizeIPv6
 
 - freedom `prioritizeIPv6: true` 会拖死无 AAAA 的目标：`github.com` 无 IPv6，开启后经代理访问 20s 超时（服务器 v4 直连 0.1s 正常），youtube/cloudflare 等有 AAAA 的正常——表现为「特定网站经代理打不开、其他正常」，极易误判为链路问题。
-- `xray.json.tmpl` 必须保持 `prioritizeIPv6=false`（commit 9e85d93）。排障手法：源站 `curl -4/-6` 分栈对比 + 经隧道与直连源站同目标对比，即可区分「链路问题 / 出站策略问题」。
+- `xray.json.tmpl` 必须保持 `prioritizeIPv6=false`。排障手法：源站 `curl -4/-6` 分栈对比 + 经隧道与直连源站同目标对比，即可区分「链路问题 / 出站策略问题」。
 - 注意 `xray.json.tmpl` 渲染后必须是合法 JSON——JSON 结构内不能加 `//` 注释（`nginx.conf.tmpl` 才行），`TestXrayTemplateRendersValidJSON` 会拦。
 
 ## h3 / QUIC

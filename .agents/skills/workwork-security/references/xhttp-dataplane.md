@@ -1,6 +1,6 @@
 # XHTTP 数据面：分片上限与 413 静默停滞（细节）
 
-> 本文是 skill `workwork-security` 的细节补充；契约表、故障机制与线上排查命令在 SKILL.md。
+> 本文是 skill `workwork-security` 的细节补充；契约表与线上排查命令在 SKILL.md，本文补充字段来源、完整机制与本地复现。
 
 ## 字段来源
 
@@ -11,7 +11,7 @@
 - 上行 POST body 超过服务端 `scMaxEachPostBytes` 时，服务端回 **413 且不读请求体**（`splithttp/hub.go`）。
 - 客户端 `PostPacket` 见非 200 → `uploadPipeReader.Interrupt()`，上行静默停摆。
 - 应用侧看到的是**响应体停滞**（请求体写满后 0 字节响应直到超时）。
-- 服务端那句 `Too large upload. scMaxEachPostBytes is set to ...` 是 **Info 级**，生产 `loglevel=warning` 下完全不可见；xhttp 自愈原本只统计 400，故服务端零线索。413 计数告警已加入 `internal/proxy/xhttp_health.go`，**只通知不重启**——413 是配置不匹配，重启不改变配置、只会让全体代理周期性抖动。
+- 服务端那句 `Too large upload. scMaxEachPostBytes is set to ...` 是 **Info 级**，生产 `loglevel=warning` 下完全不可见。xhttp 自愈链路对 413 计数并告警（`internal/proxy/xhttp_health.go`，**只通知不重启**——413 是配置不匹配，重启不改变配置、只会让全体代理周期性抖动）。
 
 ## 本地复现（容器跑服务端 + 宿主机跑客户端；明文 TCP xhttp 即可，无需证书）
 
