@@ -12,6 +12,7 @@ node_modules
 .workwork
 .workbuddy
 .worktrees
+.agents/worktrees
 .v2c
 # admin 镜像的 build context 是项目根，用不到这两个子模块源码
 #（media_app/music_app 由各自子仓库构建），排除可显著减小 context 传输体积。

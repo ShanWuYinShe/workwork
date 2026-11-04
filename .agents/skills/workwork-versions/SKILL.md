@@ -18,7 +18,7 @@ description: 跨仓基础镜像版本统一：改 versions.env、跑 scripts/syn
   - `hotspot`：`deploy/versions.env`、`backend-go/Dockerfile*`、`frontend/Dockerfile`、两份 compose、`.github/workflows/*.yml`、`.env.example`
 - **`.env.example` 纪律**：版本对照值保持注释态（`# GO_VERSION=值`）——若为活动行，`cp .env.example .env` 后 compose 读 `.env` 的优先级高于 `${VAR:-默认值}`，会让本地构建偏离统一默认值（GO_VERSION 漂移即由此产生）。脚本会按注释态原位改写，不会把它取消注释。
 - **站点专属键**：如 `PYTHON_VERSION` 只在 `media_center` 内部生效，不参与跨仓主本同步。
-- **运行前提**：站点仓须与本仓并列检出（本地 `~/work` 与服务器 `~` 布局一致）；缺失的站点目录自动跳过并告警，不判失败；可用 `SITES` 环境变量覆盖定位（见脚本头部注释）。在 worktree 内跑同步时，需用 `SITES` 显式指向各站点仓的 worktree 路径（默认的并列目录探测会落在 `.worktrees/` 下而不是站点仓根）。
+- **运行前提**：站点仓须与本仓并列检出（本地 `~/work` 与服务器 `~` 布局一致）；缺失的站点目录自动跳过并告警，不判失败；可用 `SITES` 环境变量覆盖定位（见脚本头部注释）。在 worktree 内跑同步时，需用 `SITES` 显式指向各站点仓的 worktree 路径（默认的并列目录探测会落在 `.agents/worktrees/` 下而不是站点仓根）。
 
 ## 常用命令
 
