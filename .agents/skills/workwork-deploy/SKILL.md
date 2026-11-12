@@ -13,7 +13,7 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
 
 根目录 `Makefile` 把本节命令与部署映射封装为规则，AI 与人工优先用 make，避免每次凭记忆拼写：
 
-- `make check` — 本地门禁：gofmt / go vet / go test -race / shellcheck / compose config / versions.env 一致性 / 环境变量 schema 正负例测试 / 前端 format+lint+check+bun test+build（admin 改动的最低验证项）
+- `make check` — 门禁全量校验（由 CI 的 `Admin (Go + UI)` job 执行）：gofmt / go vet / go test -race / shellcheck / compose config / versions.env 一致性 / 环境变量 schema 正负例测试 / 前端 format+lint+check+bun test+build。本地只跑秒级检查、不在本地必跑，口径见项目 AGENTS.md「CI 门禁与本地验证分工」。
 - `make build <svc...>` / `make up <svc...>` / `make restart <svc...>` / `make logs <svc...>` — compose 薄封装
 - `make ps` — 查看服务状态
 - `make deploy-changed` — 只在服务器执行的一键部署（逻辑在 `scripts/deploy-changed.sh`）：工作区校验 → `git pull --ff-only` → 按变更推导受影响服务 → 最小 build/up → 部署后自校验（等 healthy + 核对版本指纹，**不通过即自动回滚并外发通知**）；除模板路径变更外，还会比较 `.wework/generated/` 渲染产物哈希，渲染代码/相关 env 导致内容变化时同样校验并重启 xray/nginx；支持 `scripts/deploy-changed.sh <old-commit>` 复跑模式
