@@ -1,6 +1,6 @@
 # workwork-docker-proxy:docker API 精确白名单反代(见 main.go 头注释)。
 # 无第三方依赖;上游 unix socket,仅容器内网监听。
-ARG GO_VERSION=1.26.10
+ARG GO_VERSION=1.26.11
 ARG ALPINE_VERSION=3.24.1
 
 FROM golang:${GO_VERSION}-alpine AS build
