@@ -234,7 +234,7 @@ make build admin nginx      # 构建镜像
 make up admin               # 重建容器（--no-deps）
 make restart admin          # 重启容器
 make logs nginx             # 跟踪日志
-make check                  # 本地门禁：Go/脚本/编排/版本/env schema/前端全量校验
+make check                  # 门禁全量校验：CI 的 Admin (Go + UI) job 执行；本地仅排障按需
 
 # 等价的原始命令
 docker compose build admin
@@ -258,26 +258,24 @@ bash scripts/sync-versions.sh sync   # 把主本值刷写到各仓全部点位
 # 然后各仓按 worktree 流程提交推送，服务器 pull 后 make build && make up
 ```
 
-## 部署流程（先本地验证，再发布）
+## 部署流程（CI 门禁 → 合并 main → 服务器部署）
 
 ```bash
-# 0. 本地验证（硬性前置，未通过禁止 push 与上线；完整门禁见 AGENTS.md「发布门禁」）
-make check                  # 本地门禁：Go/脚本/编排/版本/env schema/前端全量校验
-make build <受影响服务...>   # 受影响服务本地构建通过（版本号自动烙入）
-# 本地能独立启动的服务：make up <svc...> 后等 healthy 并核对版本指纹（见「版本排查」）
-# nginx / xray 全链路本地不具备启动条件（需 cert/ 与外部 ipvlan 网络），以构建通过为准
+# 0. 门禁：开发分支推送 → gh pr create → gh pr checks --watch 全绿
+#    （admin / security-scan / govulncheck / gitleaks / image-build 五个 job；
+#     完整口径见 AGENTS.md「发布门禁」「CI 门禁与本地验证分工」）
+#    本地不再要求 make check / make build / make up 做发布前验证；本地 Docker 仅用于交互式调试
+gh pr checks <PR> --watch
+gh pr merge <PR> --rebase --delete-branch     # CI 全绿后 rebase 合并；禁止直推 main
 
-# 1. 本地开发（worktree 分支）合并进 main 并推送
-git push origin main
-
-# 2. 服务器一键部署（推荐）：pull + 按变更最小 build/up，
+# 1. 服务器一键部署（推荐）：pull + 按变更最小 build/up，
 #    部署后自带健康自校验（等 healthy + 版本指纹核对，不通过即 fail 并给出回滚命令）。
 #    配置消费者（xray/nginx）除模板变更外，还会比较渲染产物哈希：渲染代码或
 #    相关 env 导致 generated/ 内容变化时同样会校验并重启，不依赖模板路径。
 ssh workwork-server "cd workwork && make deploy-changed"
 # 复跑/指定基线: scripts/deploy-changed.sh <old-commit>
 
-# 3. 按变更选择最小部署命令（或直接用 make），例如：
+# 2. 服务器上按变更选择最小部署命令（或直接用 make），例如：
 make build admin && make up admin          # services/admin/**（含 ui 与配置模板）
 make build nginx && make up nginx          # services/nginx/**
 make build xray && make up xray                             # services/xray/**

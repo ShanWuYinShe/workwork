@@ -10,19 +10,37 @@ AI Agent 工作目录：所有 AI agent 工作期间产生的中间文件写入�
 
 所有服务功能必须隔离在 Docker 容器内。 禁止修改宿主机环境设置（iptables、sysctl、网络配置），创建 Docker 网络除外。IPv4 路由走 Docker bridge NAT；IPv6 路由走 ipvlan L3。admin 服务经自建 docker API 白名单代理（compose `docker-proxy` 服务，method+path 级白名单见 `services/docker_proxy/policy.go`）和 `containerExec()` 操作其他容器——新增 docker API 调用时必须同步白名单与集成测试。
 
-## 发布门禁（硬性）：先本地验证，再发布
+## 发布门禁（硬性）：CI 全绿再发布
 
-禁止把未经本地验证的改动推向线上：在 `git push origin main` 与服务器 `make deploy-changed` 之前，必须先完成本节本地验证。
+发布前验证以 GitHub Actions 为准：PR 上 `admin` / `security-scan` / `govulncheck` / `gitleaks` / `image-build` 五个 job 全部通过即视为门禁通过。PR 未全绿不得合并；main 上的 CI 未绿不得部署。
 
-1. `make check` —— 本地门禁：gofmt / go vet / go test / 前端构建（admin 改动的最低验证项）。
-2. `make build <受影响服务...>` —— 受影响服务的镜像必须在本地构建通过（等价 `docker compose build`；经 Makefile 自动烙入本次 `git describe` 版本，不是 "dev"）。
-3. 冒烟：本地能独立启动的服务，`make up <svc...>` 后等 healthy，并按 README「版本排查」核对健康端点版本指纹。
-4. 以下服务本地不具备启动条件（本地仓库默认没有 `.env` / `cert/` / `.wework/`，也没有外部 `ipvlan_docker` 网络），做到第 2 步即视为本地验证通过，上线可靠性由服务器 `deploy-changed.sh` 的部署后自校验（等 healthy + 版本指纹核对，不通过即 fail）兜底：
-   - `nginx`（需 `cert/` 证书与 admin 渲染到 `.wework/generated/` 的运行时配置）；
-   - `xray`（需外部 `ipvlan_docker` IPv6 网络）。
-   不要为了验证而在本地伪造线上证书或密钥。
+- 不再要求本地构建镜像或起服务做发布前验证：`make build <受影响服务...>` / `make up <svc...>` 是本地排障与交互式调试手段，不是发布前置条件。
+- 镜像可构建性由 CI 的 `image-build` job（`docker compose build`）在 PR 上验证；本仓没有 Release workflow，镜像在服务器部署时构建，CI 不推送镜像仓库。
+- 本地 Docker 仅用于交互式调试；本地不具备 nginx/xray 启动条件（缺 `.env` / `cert/` / `.wework/` 与外部 `ipvlan_docker` 网络）时不在本地验证，也不要为了验证伪造线上证书或密钥。
+- 服务器部署仍按 `workwork-deploy` skill：合并后在服务器执行 `make deploy-changed`（pull → 按变更最小 build/up → 部署后自校验：等 healthy + 核对版本指纹，不通过即失败）。发布 tag 按 `git-workflow` skill 的 tag 纪律打并推送。
 
-例外：纯文档/注释改动（`*.md`、代码注释）可跳过第 2、3 步，但仍执行第 1 步中有意义的部分。
+## CI 门禁与本地验证分工
+
+重活（全量测试、构建、打包、镜像构建）一律交给 GitHub Actions，本地只跑秒级检查。
+完整流程见全局 skill `github-ci-flow`：开发分支推送 → `gh pr create` → `gh pr checks --watch` 全绿 →
+`gh pr merge --rebase --delete-branch` → 本地 `git pull --ff-only` 并清理 worktree。
+
+- 本地（提交前，秒级）：
+  - `gofmt -l services/`（应无输出）；
+  - 改脚本时 `bash -n <脚本>`（涉及 `scripts/`、`services/nginx`、`services/xray`、`setup-networks.sh`）；
+  - 改编排/版本/环境变量点位时 `docker compose config -q`；
+  - `git diff --check`（改动无行尾空白、无冲突标记）。
+  `make check` 全量是分钟级重活（Go vet / test -race、shellcheck、版本一致性、env schema 正负例、前端 format/lint/check/test/build），本地不跑，由 CI 的 `Admin (Go + UI)` job 执行。
+- CI 覆盖（`.github/workflows/ci.yml`，`push` / `pull_request` 目标均为 `main`，无 paths 过滤）：
+  - `Admin (Go + UI)`：`make check` 全量 + `setup-networks.sh` 地址推导 dry-run + 部署路径映射覆盖（compose 服务 ↔ `services/` 目录 ↔ `deploy-changed.sh`）；
+  - `Security scan (gosec, report-only)`：gosec 报告模式，不阻塞合并，发现只进 CI 日志供巡检；
+  - `Vulnerability scan (govulncheck)`：`docker_proxy` 阻断；`admin` 命中须落在 `ci.yml` 的 `GOVULN_ALLOWED` allowlist 内，出现清单外新漏洞或工具自身运行失败即失败；
+  - `Secret scan (gitleaks)`：全量 git 历史扫描，误报按 `.gitleaks.toml` / `.gitleaksignore` 豁免；
+  - `Image build smoke`：`docker compose build` 构建四个服务镜像，把 Dockerfile/编排构建损坏提前到合并前。
+  纯文档 PR 同样跑全套 job；PR 连续推送会取消旧 run（concurrency），main push 不取消。
+- CI 覆盖不到、只能在服务器验证的：部署后自校验（`deploy-changed.sh` 等 healthy + 版本指纹核对，失败自动回滚）、线上真实网络行为（IPv6 ipvlan 路由、TLS 证书链、fail2ban 实际封禁）——按 `workwork-deploy` / `workwork-security` skill 在服务器执行。
+- 发版/发布门禁：见「发布门禁（硬性）」——发布前以 PR 的 CI 全绿为准，本地不再 build/up。
+
 
 ## 架构速览
 
