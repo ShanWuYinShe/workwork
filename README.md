@@ -252,7 +252,7 @@ versions.env、Dockerfile ARG 默认值、CI 的 go-version/bun-version、compos
 发现漂移即报错（已挂 `make check`）。
 
 ```bash
-# 升级某个基础镜像版本（例：Go 1.26.9 → 1.26.10）：
+# 升级某个基础镜像版本（例：Go 1.26.10 → 1.26.11）：
 vim versions.env                     # 只改主本一处
 bash scripts/sync-versions.sh sync   # 把主本值刷写到各仓全部点位
 # 然后各仓按 worktree 流程提交推送，服务器 pull 后 make build && make up
