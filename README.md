@@ -171,92 +171,9 @@ workwork/
 ## 版本排查
 
 所有线上组件的版本号在构建期烙进产物：admin 经健康端点暴露 version；四个镜像都带
-OCI `revision` 标签（xray/nginx 此前因 ARG 未在最终 stage 重新声明而为空，已修复）。
-
-```bash
-# 服务端健康端点(自带版本号)
-curl -s -u <面板用户>:<密码> https://yinghuoren.com/api/admin/health    # admin 版本(经 nginx,/api/admin/ 有 basic auth)
-docker compose exec nginx curl -s http://admin:8318/api/admin/health   # admin 版本
-
-# 镜像构建源(OCI revision 标签，四个镜像都可查)
-docker image inspect workwork-admin workwork-xray workwork-nginx workwork-docker-proxy \
-  --format '{{.RepoTags}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
-
-# admin / docker-proxy 启动日志打印版本；xray/nginx 以镜像标签为准
-docker compose logs admin docker-proxy | head
-# media/music 各自独立站的版本排查见其仓库 deploy/README.md
-```
-
-## 备份与恢复
-
-运行时状态（登录凭据、配置、临时文件、fail2ban 状态）都在单机 `.wework/` 与
-`services/nginx/fail2ban-data/`；media/music 已拆分到独立仓库，其数据随各自仓库备份。
-必须定期备份且异机存放：
-
-```bash
-make backup                    # 打包 .wework/ + cert/ + .env + fail2ban-data
-BACKUP_RSYNC_TARGET=user@nas:/backups/workwork make backup   # 打包后异机 rsync（推荐，cron 配置见 docs/operations.md）
-```
-
-恢复步骤与每季度恢复演练清单见 [docs/operations.md](./docs/operations.md)，证书轮换
-与 git 历史敏感信息处理也在该手册。
-
-## 安全机制
-
-### 多层防护
-
-1. **Cloudflare Authenticated Origin Pulls (mTLS)**
-   - 只允许 Cloudflare 服务器连接
-   - CA 证书在镜像内 `/etc/nginx/cloudflare-origin-pull.pem`（构建期从 CF 官方下载）；
-     不是仓库 `cert/` 下的文件（`cert/` 只放你自己的源站证书/私钥）
-
-2. **Nginx Basic Auth**
-   - `/admin/` 和 `/api/admin/` 需要 HTTP 基本认证
-   - htpasswd 使用 bcrypt 哈希
-
-3. **Go Rate Limiter**
-   - 20 请求/10秒 per IP
-   - 超限自动 ban 30 分钟
-
-4. **fail2ban**
-   - 监控 nginx auth log 中的 401
-   - 调用 admin API 封禁真实客户端 IP
-
-5. **RBAC 角色控制**
-   - `admin`: 全部管理功能
-   - `viewer`: 管理自己名下的 Xray 客户端（可多个）、下载客户端配置、改自己的密码
-
-## 常用命令
-
-```bash
-# 推荐：根目录 Makefile（compose 薄封装）
-make build admin nginx      # 构建镜像
-make up admin               # 重建容器（--no-deps）
-make restart admin          # 重启容器
-make logs nginx             # 跟踪日志
-make check                  # 门禁全量校验：CI 的 Admin (Go + UI) job 执行；本地仅排障按需
-
-# 等价的原始命令
-docker compose build admin
-docker compose up -d --no-deps admin
-docker compose restart xray
-docker compose logs -f xray
-```
-
 ## 基础镜像版本统一（跨仓）
 
-`versions.env` 是本仓基础镜像版本的唯一主本，同时统一并列站点仓
-（`media_center` / `music_player` / `ops-portal` / `hotspot`）的版本：脚本扫描各仓的
-versions.env、Dockerfile ARG 默认值、CI 的 go-version/bun-version、compose 兜底值、
-`.env.example`/`.env.prod.example` 的版本对照值（活动行与 `# KEY=值` 注释行），
-发现漂移即报错（已挂 `make check`）。
-
-```bash
-# 升级某个基础镜像版本（例：Go 1.26.10 → 1.26.11）：
-vim versions.env                     # 只改主本一处
-bash scripts/sync-versions.sh sync   # 把主本值刷写到各仓全部点位
-# 然后各仓按 worktree 流程提交推送，服务器 pull 后 make build && make up
-```
+`versions.env` 是本仓基础镜像版本的唯一主本，同时统一并列站点仓（`media_center` / `music_player` / `ops-portal` / `hotspot`）的版本；治理规则、各仓点位清单与同步命令见 skill `.agents/skills/workwork-versions/SKILL.md`（已挂 `make check`，漂移即报错）。
 
 ## 部署流程（CI 门禁 → 合并 main → 服务器部署）
 
