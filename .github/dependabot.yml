@@ -35,3 +35,11 @@ updates:
     directory: /services/xray
     schedule:
       interval: weekly
+  # UI 依赖(svelte/vite/eslint 等,bun.lock)此前无自动更新生态。Dependabot
+  # 官方支持表列 Bun 生态(manifest 标注 bun.lockb);本仓为文本 bun.lock,
+  # 兼容性未证实——先挂配置观察:识别到即自动开更新 PR,识别不到仅在
+  # Dependabot 日志记录跳过,无副作用。
+  - package-ecosystem: bun
+    directory: /services/admin/ui
+    schedule:
+      interval: weekly
