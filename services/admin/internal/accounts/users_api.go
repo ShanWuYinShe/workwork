@@ -248,7 +248,9 @@ func ApiDeleteAdmin(users *identity.Store, svc *xray.Service, cascade func(uploa
 			case errors.Is(err, identity.ErrProtectedAccount):
 				platform.WriteError(w, "不能删除内置管理员账号", 403)
 			default:
-				log.Printf("ERROR: delete user %s: %v", body.Username, err)
+				// 本分支是 DeleteUser 校验失败（如 ErrInvalidUsername）的出口，
+				// username 未经过任何 charset 校验，必须 %q 防日志注入。
+				log.Printf("ERROR: delete user %q: %v", body.Username, err)
 				platform.WriteError(w, "用户已删除，但清理登录/代理凭证失败，请重试删除以完成清理", http.StatusInternalServerError)
 			}
 			return
