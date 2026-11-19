@@ -33,11 +33,20 @@
   const loadTask = createAsyncTask(
     async () => {
       const d = await getTransferFiles();
-      files = d.files || [];
-      totalSize = d.total_size || 0;
-      maxTotal = d.max_total || maxTotal;
+      return {
+        files: d.files || [],
+        totalSize: d.total_size || 0,
+        maxTotal: d.max_total || maxTotal,
+      };
     },
-    { onError: (e) => toast(e.message, 'error') },
+    {
+      apply: (d) => {
+        files = d.files;
+        totalSize = d.totalSize;
+        maxTotal = d.maxTotal;
+      },
+      onError: (e) => toast(e.message, 'error'),
+    },
   );
   let loading = $derived(loadTask.loading);
 

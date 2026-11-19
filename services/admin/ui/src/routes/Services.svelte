@@ -15,15 +15,25 @@
   const loadTask = createAsyncTask(
     async () => {
       const d = await getServices();
-      services = d.services || [];
+      return d.services || [];
     },
     {
+      apply: (list) => {
+        services = list;
+      },
       onError: (e, { silent }) => {
         if (!silent) toast(e.message, 'error');
       },
     },
   );
   let loading = $derived(loadTask.loading);
+  // 加载失败必须显式可见:首屏失败 + silent 轮询失败都不 toast,
+  // 空表会让 admin 误判服务全下线(对照 Users 页同款横幅)。
+  let loadFailed = $derived(loadTask.error !== null);
+
+  function retryLoad() {
+    loadTask.run();
+  }
 
   onMount(() => {
     loadTask.run();
@@ -77,6 +87,15 @@
       >
     </div>
   </div>
+
+  {#if loadFailed}
+    <div class="card">
+      <div class="empty-state">
+        {t('loadFailed')}
+        <button class="btn btn-primary btn-sm" onclick={retryLoad}>{t('retry')}</button>
+      </div>
+    </div>
+  {/if}
 
   {#if loading}
     <div class="card"><div class="loading-skeleton" style="height:200px;"></div></div>

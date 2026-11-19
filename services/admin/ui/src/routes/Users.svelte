@@ -31,10 +31,15 @@
   const loadTask = createAsyncTask(
     async () => {
       const d = await getUsers();
-      adminUsers = d.adminUsers || [];
-      pwUser = currentUsername;
+      return { adminUsers: d.adminUsers || [], defaultPwUser: currentUsername };
     },
-    { onError: (e) => toast(e.message, 'error') },
+    {
+      apply: (d) => {
+        adminUsers = d.adminUsers;
+        pwUser = d.defaultPwUser;
+      },
+      onError: (e) => toast(e.message, 'error'),
+    },
   );
   let loading = $derived(loadTask.loading);
   // 加载失败必须显式可见:静默吞掉会让 admin 看到只剩改密码的

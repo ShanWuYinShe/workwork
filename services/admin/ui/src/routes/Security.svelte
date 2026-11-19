@@ -30,10 +30,15 @@
   const loadTask = createAsyncTask(
     async () => {
       const [d, rl] = await Promise.all([getBlockedIPs(), getRateLimitStatus()]);
-      entries = d.entries || [];
-      rlEntries = rl.blocked || [];
+      return { entries: d.entries || [], blocked: rl.blocked || [] };
     },
-    { onError: (e) => toast(e.message, 'error') },
+    {
+      apply: (d) => {
+        entries = d.entries;
+        rlEntries = d.blocked;
+      },
+      onError: (e) => toast(e.message, 'error'),
+    },
   );
   let loading = $derived(loadTask.loading);
 
