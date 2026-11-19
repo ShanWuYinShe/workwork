@@ -173,6 +173,14 @@ export const zh = {
   forever: '永久',
   permanent: '永久',
   noIpsBlocked: '当前无封禁 IP。',
+  // Rate-limit bans (Security page)
+  rateLimitTitle: '限流封禁 IP',
+  rateLimitDesc: '请求频率超限后被自动封禁的 IP，解封立即恢复访问。',
+  rateLimitRequests: '请求数',
+  rateLimitUntil: '解封时间',
+  noRateLimited: '当前无限流封禁 IP。',
+  confirmRateLimitUnblock: '解封限流 IP {ip}？',
+  rateLimitUnblocked: 'IP {ip} 已解除限流。',
   // Downloads
   storedDownloads: '已存储下载',
   availableVersions: '可用版本',

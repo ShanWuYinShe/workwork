@@ -175,6 +175,14 @@ export const en = {
   forever: 'Forever',
   permanent: 'Permanent',
   noIpsBlocked: 'No IPs currently blocked.',
+  // Rate-limit bans (Security page)
+  rateLimitTitle: 'Rate-Limited IPs',
+  rateLimitDesc: 'IPs auto-banned for exceeding the request rate limit.',
+  rateLimitRequests: 'Requests',
+  rateLimitUntil: 'Unblocks At',
+  noRateLimited: 'No IPs currently rate-limited.',
+  confirmRateLimitUnblock: 'Unblock rate-limited IP {ip}?',
+  rateLimitUnblocked: 'Rate limit lifted for {ip}.',
   // Downloads
   storedDownloads: 'Stored Downloads',
   availableVersions: 'Available Versions',
