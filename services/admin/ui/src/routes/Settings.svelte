@@ -25,9 +25,14 @@
     async () => {
       syncMsg = '';
       const ns = await getNetworkStatus();
-      net = { ...net, ...ns };
+      return ns;
     },
-    { onError: (e) => toast(e.message, 'error') },
+    {
+      apply: (ns) => {
+        net = { ...net, ...ns };
+      },
+      onError: (e) => toast(e.message, 'error'),
+    },
   );
   let loading = $derived(loadTask.loading);
 

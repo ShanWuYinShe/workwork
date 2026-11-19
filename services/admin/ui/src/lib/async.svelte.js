@@ -8,9 +8,9 @@
  *
  * @template T
  * @param {() => Promise<T>} fetcher
- * @param {{ onError?: (error: Error, meta: { silent: boolean }) => void }} [opts]
+ * @param {{ onError?: (error: Error, meta: { silent: boolean }) => void, apply?: (result: T) => void }} [opts]
  */
-export function createAsyncTask(fetcher, { onError } = {}) {
+export function createAsyncTask(fetcher, { onError, apply } = {}) {
   // 初始为 true：页面首帧就显示骨架，而不是等 onMount 启动后闪一下空态。
   let loading = $state(true);
   let refreshing = $state(false);
@@ -32,6 +32,9 @@ export function createAsyncTask(fetcher, { onError } = {}) {
     error = null;
     try {
       const result = await fetcher();
+      // 数据写入必须经 apply 在序号守卫内执行:fetcher 里直接写 $state 会在
+      // await 返回时无条件落盘,迟到的旧响应照样覆盖新响应,守卫承诺落空。
+      if (id === seq) apply?.(result);
       return id === seq ? result : undefined;
     } catch (e) {
       if (id !== seq) return undefined;
