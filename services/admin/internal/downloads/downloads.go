@@ -259,6 +259,10 @@ type downloadService struct {
 	manifestPath string
 	mu           sync.Mutex
 
+	// fileMu 按文件名串行化「rename→manifest 登记/失败回滚/删除」段（见
+	// lockFilename）。惰性初始化；锁序恒为 fileMu → mu，绝不反向。
+	fileMu map[string]*sync.Mutex
+
 	cache struct {
 		mu        sync.Mutex
 		fetchMu   sync.Mutex // singleflight：合并缓存过期时的并发回源，防打爆 GitHub 匿名限额
@@ -291,6 +295,28 @@ func (s *downloadService) loadManifestLocked() (storedManifest, error) {
 
 func (s *downloadService) saveManifestLocked(m storedManifest) error {
 	return platform.SaveJSONFile(s.manifestPath, m)
+}
+
+// lockFilename 返回 filename 专属互斥锁的解锁函数。同一文件名的
+// rename→登记/删除段必须互斥：并发下载同一 version+plat 时产物内容一致
+// （版本进文件名、sha256 校验锁定），rename 覆盖无害，但失败回滚的
+// os.Remove 不分辨归属，会删掉对方刚落盘/刚登记的产物，留下指向不存在
+// 文件的 manifest 条目（列表可见、serve 404）。deleteStored 同锁互斥，
+// 避免「删除中」与「重下载登记」交错出同样的半状态。锁序恒为
+// fileMu → s.mu（先拿本锁再进 s.mu 段），全部调用方一致，无死锁。
+func (s *downloadService) lockFilename(name string) func() {
+	s.mu.Lock()
+	if s.fileMu == nil {
+		s.fileMu = make(map[string]*sync.Mutex)
+	}
+	l := s.fileMu[name]
+	if l == nil {
+		l = &sync.Mutex{}
+		s.fileMu[name] = l
+	}
+	s.mu.Unlock()
+	l.Lock()
+	return l.Unlock
 }
 
 func (s *downloadService) listStored() ([]storedDownload, error) {
@@ -494,6 +520,10 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 		return 0, "", fmt.Errorf("%s: %w", filename, err)
 	}
 
+	// rename→登记/回滚段按文件名串行（含下方两个失败回滚点）。
+	unlockFile := s.lockFilename(filename)
+	defer unlockFile()
+
 	finalPath := filepath.Join(s.dir, filename)
 	if err := os.Rename(tmpPath, finalPath); err != nil {
 		return 0, "", err
@@ -503,11 +533,13 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 	m, err := s.loadManifestLocked()
 	if err != nil {
 		s.mu.Unlock()
-		// 文件已 rename 到位但 manifest 不可读：删除刚下载的文件，避免
-		// 无条目的孤儿；原 manifest 现场保留。
-		if rmErr := os.Remove(finalPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			log.Printf("ERROR: remove downloaded file after manifest load failure, manual removal needed: %s: %v", finalPath, rmErr)
-		}
+		// manifest 存在但读失败（瞬时 I/O / 损坏隔离）：保留产物而不是删除。
+		// 文件名含版本且 sha256 校验锁定，产物内容与本文件名任何已登记条目
+		// 必然一致，保留不会破坏既有条目；删除反而可能把已登记条目的产物
+		// 一并删掉（读不到 manifest 就无从判断条目是否存在），留下「有条目
+		// 无文件」的 404。宁可在无条目时留下孤儿文件（重试同名下载会 rename
+		// 复用；DELETE 对缺文件条目幂等可清），也不破坏 manifest 完整性。
+		log.Printf("ERROR: keep downloaded file after manifest load failure (remove manually if orphaned): %s: %v", finalPath, err)
 		return 0, "", fmt.Errorf("load downloads manifest: %w", err)
 	}
 	// 防止并发下载同一 version+plat 导致 manifest 重复条目（文件因 rename 已覆盖一致）。
@@ -545,6 +577,10 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 }
 
 // cleanupOld 保留最近 maxKeep 条，淘汰更早的条目及其文件。
+// 文件删除不经 fileMu（在 s.mu 内做；此处若拿 fileMu 会形成 s.mu→fileMu
+// 反序锁）。与同文件名并发重下载理论可交错出「有条目无文件」，但触发需
+// 恰在淘汰最旧条目时重下载同一最旧版本，且 DELETE 对缺文件条目幂等可清，
+// 可接受。
 func (s *downloadService) cleanupOld() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -574,6 +610,12 @@ func (s *downloadService) cleanupOld() {
 // deleteStored 删除文件并从 manifest 移除。返回 persist 错误（供上层
 // platform.WriteInternalError）与文件删除错误。
 func (s *downloadService) deleteStored(filename string) error {
+	// 与 downloadArchive 的 rename→登记段互斥：删除与同一文件的重下载要么
+	// 整体在前（登记后连同条目一起删，一致），要么整体在后（删除后再
+	// rename+登记，一致），不会交错出「有条目无文件」。
+	unlockFile := s.lockFilename(filename)
+	defer unlockFile()
+
 	if err := os.Remove(filepath.Join(s.dir, filename)); err != nil {
 		if !os.IsNotExist(err) {
 			return err
