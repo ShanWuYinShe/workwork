@@ -65,7 +65,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | 端点 | 角色 | 说明 |
 |------|------|------|
 | `GET /dashboard` | viewer+ | admin 返回 docker 概览+服务列表（含 `health` 字段）；viewer 返回个人数据 |
-| `GET /services`、`GET /services/` | admin | 服务列表（name/state/health/image/ports） |
+| `GET /services` | admin | 服务列表（name/state/health/image/ports） |
 | `POST /services/{name}/{action}` | admin | start/stop/restart（ip 补挂自动进行）。docker daemon 读路径 10s deadline |
 | `GET /services/{name}/logs?tail=` | admin | 尾部日志（≤10000 行） |
 | `GET /services/{name}/logs/stream?tail=` | admin | SSE 实时日志流 |
@@ -108,7 +108,7 @@ admin 面板的 HTTP API 契约（唯一事实来源是 `services/admin/main.go`
 | `POST /claude-code/download`、`POST /xray/download` | admin | 服务端下载（NDJSON 进度流；500MB/5min 上限，sha256 入 manifest） |
 | `GET /claude-code/stored`、`GET /xray/stored` | viewer+ | 已缓存版本 |
 | `GET /claude-code/downloads/{filename}`、`GET /xray/downloads/{filename}` | viewer+ | 下载缓存文件 |
-| `DELETE /claude-code/downloads?filename=`、`DELETE /xray/downloads?filename=` | admin | 删除缓存文件（query 传参，不带 body）；另有带尾斜杠的别名路由同 handler |
+| `DELETE /claude-code/downloads?filename=`、`DELETE /xray/downloads?filename=` | admin | 删除缓存文件（query 传参，不带 body） |
 
 ### 文件中转（transfer）
 

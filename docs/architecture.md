@@ -56,6 +56,10 @@ vod_extractor 随媒体中心拆分到 `media_center` 仓库；本仓不再部�
 | Xray 管理 | `GET/POST/DELETE /api/admin/xray/*` | admin |
 | Transfer | `POST/GET/DELETE /api/admin/transfer/*` | viewer+ |
 | Transfer 公开下载 | `GET /api/transfer/{code}` | 无需认证 |
+| 测速 | `GET /speedtest/{size}` | 无需认证 |
+| 健康探针 | `GET /api/admin/health` | admin 层公开；经 nginx 的 /api/admin/* 仍走 Basic Auth，机器探针用 /healthz |
+| 面板配置 | `GET /api/admin/config` | viewer+ |
+| 流量统计 | `GET /api/admin/traffic` | admin |
 
 *Downloads 页面对所有用户可见，但 admin-only 的操作（download/delete）只对 admin 展示。
 

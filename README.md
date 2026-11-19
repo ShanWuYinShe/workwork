@@ -171,6 +171,8 @@ workwork/
 ## 版本排查
 
 所有线上组件的版本号在构建期烙进产物：admin 经健康端点暴露 version；四个镜像都带
+`org.opencontainers.image.version/revision` LABEL（xray 的 version 为 `XRAY_VERSION`，其余为 `GIT_VERSION`），可 `docker inspect` 核对。
+
 ## 基础镜像版本统一（跨仓）
 
 `versions.env` 是本仓基础镜像版本的唯一主本，同时统一并列站点仓（`media_center` / `music_player` / `ops-portal` / `hotspot`）的版本；治理规则、各仓点位清单与同步命令见 skill `.agents/skills/workwork-versions/SKILL.md`（已挂 `make check`，漂移即报错）。
