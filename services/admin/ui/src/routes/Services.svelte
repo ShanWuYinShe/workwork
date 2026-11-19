@@ -66,6 +66,9 @@
     actingService = name;
     try {
       const d = await serviceAction(name, action);
+      // 使在途轮询的 apply 失效:迟到的旧快照会覆盖刚返回的操作后状态,
+      // 界面回跳(如刚重启的服务又显示 stopped)直到下一次轮询才自愈。
+      loadTask.cancel();
       services = d.services || services;
       toast(t('serviceActionDone', { name: displayName, action: t(action) }), 'success', 2000);
     } catch (e) {
