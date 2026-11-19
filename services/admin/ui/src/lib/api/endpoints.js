@@ -115,6 +115,16 @@ export async function unblockIP(ip) {
   return req('/security/unblock', { method: 'POST', body: JSON.stringify({ ip }) });
 }
 
+/** 限流封禁列表（Go 层请求频率超限后自动封禁的 IP，响应 {blocked:[{ip,blocked_at,until,count}]}）。 */
+export async function getRateLimitStatus() {
+  return req('/security/rate-limit');
+}
+
+/** 解除限流封禁：清空该 IP 的请求记录与 IPv6 网段预算，同时移除持久封禁表中的同名条目。 */
+export async function unblockRateLimit(ip) {
+  return req('/security/rate-limit/unblock', { method: 'POST', body: JSON.stringify({ ip }) });
+}
+
 // ── Claude Code 版本下载 ──
 
 export async function refreshClaudeVersions() {

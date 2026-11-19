@@ -1,12 +1,19 @@
 <script>
   import { onMount } from 'svelte';
-  import { getBlockedIPs, blockIP, unblockIP } from '../lib/api/index.js';
+  import {
+    getBlockedIPs,
+    blockIP,
+    unblockIP,
+    getRateLimitStatus,
+    unblockRateLimit,
+  } from '../lib/api/index.js';
   import { t } from '../lib/i18n.svelte.js';
   import { showConfirm } from '../lib/confirm.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { formatDateTime } from '../lib/format.js';
   import { createAsyncTask } from '../lib/async.svelte.js';
   let entries = $state([]);
+  let rlEntries = $state([]);
   let newIP = $state(''),
     newReason = $state(''),
     newDuration = $state('86400');
@@ -22,8 +29,9 @@
 
   const loadTask = createAsyncTask(
     async () => {
-      const d = await getBlockedIPs();
+      const [d, rl] = await Promise.all([getBlockedIPs(), getRateLimitStatus()]);
       entries = d.entries || [];
+      rlEntries = rl.blocked || [];
     },
     { onError: (e) => toast(e.message, 'error') },
   );
@@ -85,6 +93,19 @@
       } else {
         toast(e.message, 'error');
       }
+    }
+  }
+
+  // 后端解封是幂等的（条目不存在也返回 ok），无需按错误码分支。
+  // 解封同时会清理持久封禁表中的同名条目，因此刷新要连两张表一起拉。
+  async function doRateLimitUnblock(ip) {
+    if (!(await showConfirm(t('confirmRateLimitUnblock', { ip })))) return;
+    try {
+      await unblockRateLimit(ip);
+      toast(t('rateLimitUnblocked', { ip }), 'success');
+      await loadTask.run();
+    } catch (e) {
+      toast(e.message, 'error');
     }
   }
 </script>
@@ -186,6 +207,47 @@
       </div>
     {:else}
       <div class="empty-state">{t('noIpsBlocked')}</div>
+    {/if}
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        {t('rateLimitTitle')}
+        {#if rlEntries.length}<span class="card-title-count">{rlEntries.length}</span>{/if}
+      </div>
+      <div class="card-subtitle">{t('rateLimitDesc')}</div>
+    </div>
+    {#if loading}
+      <div class="loading-skeleton" style="height:100px;"></div>
+    {:else if rlEntries.length}
+      <div class="table-wrap">
+        <table>
+          <thead
+            ><tr
+              ><th>{t('ipAddress')}</th><th>{t('rateLimitRequests')}</th><th>{t('blockedAt')}</th
+              ><th>{t('rateLimitUntil')}</th><th>{t('actions')}</th></tr
+            ></thead
+          >
+          <tbody>
+            {#each rlEntries as e (e.ip)}
+              <tr>
+                <td class="td-mono">{e.ip}</td>
+                <td class="td-muted">{e.count}</td>
+                <td class="td-muted">{e.blocked_at ? formatDateTime(e.blocked_at) : '—'}</td>
+                <td class="td-muted">{e.until ? formatDateTime(e.until) : '—'}</td>
+                <td>
+                  <button class="btn btn-ghost btn-sm" onclick={() => doRateLimitUnblock(e.ip)}
+                    >{t('unblock')}</button
+                  >
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {:else}
+      <div class="empty-state">{t('noRateLimited')}</div>
     {/if}
   </div>
 </div>
