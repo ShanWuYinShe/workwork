@@ -4,6 +4,7 @@
   import { copyToClipboard } from '../lib/clipboard.js';
   import { t } from '../lib/i18n.svelte.js';
   import { serviceDisplayName } from '../lib/services.js';
+  import { filterLogLines } from '../lib/logfilter.js';
   import { toast } from '../lib/toast.svelte.js';
 
   let services = $state([]);
@@ -168,9 +169,7 @@
     }
   });
 
-  let filtered = $derived(
-    search ? logLines.filter((l) => l.text.toLowerCase().includes(search.toLowerCase())) : logLines,
-  );
+  let filtered = $derived(filterLogLines(logLines, search));
 </script>
 
 <div class="page">
