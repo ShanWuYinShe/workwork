@@ -119,7 +119,7 @@ services:
       args:
         <<: *build-args
         # 版本主本在 versions.env；sync-versions.sh 会校验此处兜底与主本一致。
-        XRAY_VERSION: ${XRAY_VERSION:-26.6.27}
+        XRAY_VERSION: ${XRAY_VERSION:-26.11.9}
     environment:
       - TZ=Asia/Shanghai
     # 停止时给在途上行分片一点收尾时间。

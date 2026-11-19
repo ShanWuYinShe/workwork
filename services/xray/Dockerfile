@@ -1,10 +1,12 @@
 ARG ALPINE_VERSION=3.24.1
 # 镜像源可覆盖(默认 aliyun,国内网络现实;换环境 build-arg 覆盖)。
 ARG APK_MIRROR=mirrors.aliyun.com
-# 锁定 26.6.27：服务端仅承载 XHTTP（Reality 已移除，此前 26.7.x 的 REALITY
-# 握手不兼容问题不复存在），版本升级另行评估，不随无关变更顺带升。
-ARG XRAY_VERSION=26.6.27
-ARG XRAY_LINUX_64_SHA256=b3e5902d06d6282fe53cfa2fc426058b9aeaa429b2c812e20887cd47f26d08bf
+# 26.11.9（2026-11-09）经评估升级：区间含两个紧急安全修复——MPTCP 默认关闭
+# （Linux 内核 IPv4 MPTCP 远程 root，Go 1.24+ 默认开启 MPTCP）与内置 RootCAs
+# 移除已被破解的三张中间证书；无配置破坏性变更，服务端仅承载 XHTTP。
+# 版本升级仍另行评估，不随无关变更顺带升。
+ARG XRAY_VERSION=26.11.9
+ARG XRAY_LINUX_64_SHA256=b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82
 ARG GIT_VERSION=dev
 
 FROM alpine:${ALPINE_VERSION} AS downloader
