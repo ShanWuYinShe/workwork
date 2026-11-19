@@ -103,7 +103,8 @@ func ApiTransferPublicDownload(s *Store) http.HandlerFunc {
 				platform.WriteError(w, "文件不存在或已过期", 404)
 				return
 			}
-			log.Printf("transfer download: open %s: %v", code, err)
+			// code 来自公开 URL 路径(PathValue 会解码 %0A 为换行),%q 防日志注入。
+			log.Printf("transfer download: open %q: %v", code, err)
 			platform.WriteInternalError(w, err)
 			return
 		}
@@ -112,7 +113,7 @@ func ApiTransferPublicDownload(s *Store) http.HandlerFunc {
 			f.Close()
 			s.mu.Unlock()
 			refundTransferDownload(s, code)
-			log.Printf("transfer download: stat %s: %v", code, err)
+			log.Printf("transfer download: stat %q: %v", code, err)
 			platform.WriteInternalError(w, err)
 			return
 		}

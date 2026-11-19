@@ -77,7 +77,8 @@ func ApiServiceAction(cli *client.Client) http.HandlerFunc {
 			return
 		}
 		actor, _ := requestctx.ActorFrom(r.Context())
-		log.Printf("[security] service action service=%s action=%s by=%s", name, action, actor.Username)
+		// name/action 来自 URL PathValue(会解码 %0A 为换行),%q 防审计日志注入。
+		log.Printf("[security] service action service=%q action=%q by=%s", name, action, actor.Username)
 		svcs := listServicesJSON(r.Context(), cli)
 		platform.WriteJSON(w, map[string]any{"services": svcs})
 	}

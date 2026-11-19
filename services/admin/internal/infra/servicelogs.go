@@ -41,7 +41,7 @@ func ApiServiceLogs(cli *client.Client) http.HandlerFunc {
 		// 客户端拿到 200 + 部分日志却无从判断是否被截断。错误进日志,响应仍
 		// 返回已读到的部分(排障用)。
 		if _, err := stdcopy.StdCopy(&buf, &buf, logs); err != nil {
-			log.Printf("read logs %s: %v", name, err)
+			log.Printf("read logs %q: %v", name, err)
 		}
 		s := string(buf.buf)
 		platform.WriteJSON(w, map[string]any{"logs": s})
@@ -69,7 +69,7 @@ func resolveServiceLogTarget(w http.ResponseWriter, r *http.Request, cli *client
 			return "", "", "", false
 		}
 		// daemon 故障与"服务不存在"不可区分会让排障误导;真实错误进日志。
-		log.Printf("find container for logs (%s): %v", name, err)
+		log.Printf("find container for logs (%q): %v", name, err)
 		platform.WriteInternalError(w, err)
 		return "", "", "", false
 	}
