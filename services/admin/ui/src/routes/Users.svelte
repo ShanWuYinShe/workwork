@@ -93,8 +93,8 @@
       newUser = '';
       newPass = '';
       newRole = 'viewer';
-      const d = await getUsers();
-      adminUsers = d.adminUsers || [];
+      // silent 刷新进 apply 守卫:并发变更的旧响应不会覆盖新列表。
+      await loadTask.run({ silent: true });
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -107,8 +107,7 @@
     try {
       await deleteAdminUser(username);
       toast(t('userDeleted', { user: username }), 'success');
-      const d = await getUsers();
-      adminUsers = d.adminUsers || [];
+      await loadTask.run({ silent: true });
     } catch (e) {
       toast(e.message, 'error');
     }
@@ -136,8 +135,7 @@
     try {
       await setUserRole(username, role);
       toast(t('roleSetTo', { user: username, role: roleLabel }), 'success');
-      const d = await getUsers();
-      adminUsers = d.adminUsers || [];
+      await loadTask.run({ silent: true });
     } catch (e) {
       toast(e.message, 'error');
     }

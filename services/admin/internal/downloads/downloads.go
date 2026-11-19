@@ -516,6 +516,11 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 	// 摘要校验必须在 rename 与 manifest 落盘之前:不通过时只删掉临时文件,不会
 	// 留下一条指向坏产物的下载记录。下载目录会被 /api/admin/*/downloads 分发给
 	// 所有代理客户端,未通过校验的字节一旦落库就等于出库。
+	if expectedSHA256 == "" {
+		// 跳过校验不留痕=完整性防线静默归零(xray 面无 SHASUMS 二级兜底)。
+		// 留 WARNING 进日志供巡检:上游 digest 字段缺失/格式变化时能看到。
+		log.Printf("WARNING: no upstream digest for %s; integrity check skipped", filename)
+	}
 	if err := verifyDownloadedSHA256(expectedSHA256, checksum); err != nil {
 		return 0, "", fmt.Errorf("%s: %w", filename, err)
 	}
@@ -578,9 +583,18 @@ func (s *downloadService) downloadArchive(parentCtx context.Context, filename, v
 
 // cleanupOld 保留最近 maxKeep 条，淘汰更早的条目及其文件。
 // 文件删除不经 fileMu（在 s.mu 内做；此处若拿 fileMu 会形成 s.mu→fileMu
-// 反序锁）。与同文件名并发重下载理论可交错出「有条目无文件」，但触发需
-// 恰在淘汰最旧条目时重下载同一最旧版本，且 DELETE 对缺文件条目幂等可清，
-// 可接受。
+// 反序锁）。与同文件名并发重下载存在一条确定性交错（对抗审查复核确认）：
+//
+//	① 下载协程持 fileMu(F) 完成 rename、未进 s.mu 时被抢占；
+//	② cleanupOld 拿到 s.mu 读 manifest——F（旧条目,最旧）仍在 → drop 集
+//	   含 F → os.Remove 删掉的正是刚 rename 落位的新文件；
+//	③ 下载协程进 s.mu，dup 检查发现 F 已不在 → 追加新条目。
+//
+// 终态「manifest 有 F、文件不存在」，serve 404，DELETE 幂等可清。触发需
+// manifest 超 maxKeep 且重下载的恰是即将淘汰的最旧同名版本 + 抢占恰落在
+// rename 与 s.mu 之间的窗口，概率极低，声明接受。如需收口：s.mu 内只收集
+// drop 名单后释放锁，逐名拿 fileMu(name) 重查条目未被并发重登记后删文件，
+// 再回 s.mu 落 manifest。
 func (s *downloadService) cleanupOld() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
