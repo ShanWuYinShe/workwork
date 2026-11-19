@@ -1,4 +1,4 @@
-ARG ALPINE_VERSION=3.24.1
+ARG ALPINE_VERSION=3.24.4
 # 镜像源可覆盖(默认 aliyun,国内网络现实;换环境 build-arg 覆盖)。
 ARG APK_MIRROR=mirrors.aliyun.com
 # 26.11.9（2026-11-09）经评估升级：区间含两个紧急安全修复——MPTCP 默认关闭

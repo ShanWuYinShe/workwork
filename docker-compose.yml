@@ -9,7 +9,7 @@ x-container-defaults: &container-defaults
     - "no-new-privileges:true"
 
 x-build-args: &build-args
-  ALPINE_VERSION: ${ALPINE_VERSION:-3.24.1}
+  ALPINE_VERSION: ${ALPINE_VERSION:-3.24.4}
   APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
   # OCI revision 标签来源，deploy-changed.sh 会 export（未导出时为 dev）
   GIT_VERSION: ${GIT_VERSION:-dev}
@@ -38,7 +38,7 @@ services:
       dockerfile: Dockerfile
       args:
         <<: *build-args
-        NGINX_VERSION: ${NGINX_VERSION:-1.30.4}
+        NGINX_VERSION: ${NGINX_VERSION:-1.30.6}
         # 注意：nginx 官方镜像自带 Alpine 版本，*build-args 里的
         # ALPINE_VERSION 对本服务不生效；保留共享锚点是为了统一 GIT_VERSION。
     environment:
