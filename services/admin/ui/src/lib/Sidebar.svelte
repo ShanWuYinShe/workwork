@@ -48,9 +48,12 @@
       await fetch(authProbeURL(), {
         headers: { Authorization: 'Basic ' + btoa(`logout:${Date.now()}`) },
         cache: 'no-store',
+        // 探测是尽力而为:后端假死/连接半开时不让登出按钮卡死,5s 超时
+        // 走 catch 继续导航(语义与 transport.js 的超时兜底一致)。
+        signal: AbortSignal.timeout(5000),
       });
     } catch {
-      // 覆盖请求失败也继续导航
+      // 覆盖请求失败(含超时)也继续导航
     }
     window.location.href = adminHref('/');
   }

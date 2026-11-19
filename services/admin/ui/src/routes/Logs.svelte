@@ -169,7 +169,7 @@
   });
 
   let filtered = $derived(
-    search ? logLines.filter((l) => l.toLowerCase().includes(search.toLowerCase())) : logLines,
+    search ? logLines.filter((l) => l.text.toLowerCase().includes(search.toLowerCase())) : logLines,
   );
 </script>
 

@@ -107,6 +107,9 @@
       selectedUUID = uuid;
     } catch (e) {
       if (seq !== configSeq) return;
+      // 失败即清空旧配置:徽章已指向新选中的 uuid,留着上一个客户端的
+      // 配置文本会诱导用户复制发错人。
+      generatedJSON = '';
       toast(e.message, 'error');
     } finally {
       if (seq === configSeq) configLoading = false;
