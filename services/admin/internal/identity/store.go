@@ -298,6 +298,14 @@ func (s *Store) EnsureProxyPassword(username string) (string, error) {
 		return "", ErrUserNotFound
 	}
 	if info.ProxyPassword != "" {
+		// 懒创建半失败（users.json 已保存、.htpasswd-proxy 重建失败）会让后
+		// 续调用永远命中这里：nginx 侧缺行、/proxy/query 恒 401，只有重启
+		// （RebuildProxyHtpasswd）才自愈。返回前校验凭证文件确实含该用户条
+		// 目，缺失就补做一次幂等全量重建；重建失败则报错，而不是交出一个
+		// 登不上的密码。
+		if err := s.ensureProxyHtpasswdEntryLocked(doc, username); err != nil {
+			return "", err
+		}
 		return info.ProxyPassword, nil
 	}
 	b := make([]byte, 12)
@@ -316,6 +324,23 @@ func (s *Store) EnsureProxyPassword(username string) (string, error) {
 		return "", err
 	}
 	return info.ProxyPassword, nil
+}
+
+// ensureProxyHtpasswdEntryLocked 校验 .htpasswd-proxy 含 username 条目，
+// 缺失（含文件不存在）时从 users.json 全量重建。重建幂等，同时把历史
+// 半失败或凭证文件被误删的存量用户一并补齐。
+func (s *Store) ensureProxyHtpasswdEntryLocked(doc UsersDoc, username string) error {
+	htUsers, err := readHtpasswdUsers(s.layout.ProxyHtpasswdPath())
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, u := range htUsers {
+		if u == username {
+			return nil
+		}
+	}
+	log.Printf("ERROR: proxy htpasswd %s has no entry for %q; rebuilding from users.json", s.layout.ProxyHtpasswdPath(), username)
+	return s.rebuildProxyHtpasswdLocked(doc)
 }
 
 // ProxyAuthForUserRead 只读取已存在的 proxy 密码，绝不创建（读端点无写副作用）。

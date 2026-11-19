@@ -137,6 +137,36 @@ func TestEnsureProxyPasswordRefusesMissingAndReserved(t *testing.T) {
 	}
 }
 
+// 复现懒创建半失败：users.json 已有 ProxyPassword 但 .htpasswd-proxy 缺行
+// （此前短路分支直接返回密码，缺行永不自愈，/proxy/query 恒 401 直到重启）。
+func TestEnsureProxyPasswordRebuildsMissingProxyEntry(t *testing.T) {
+	store, layout := newStore(t, `{"users":{"alice":{"role":"viewer","proxy_password":"seeded-pass"}}}`, Policy{})
+	pass, err := store.EnsureProxyPassword("alice")
+	if err != nil {
+		t.Fatalf("ensure proxy: %v", err)
+	}
+	if pass != "seeded-pass" {
+		t.Fatalf("short circuit should keep stored password: %q", pass)
+	}
+	entries, err := readHtpasswdUsers(layout.ProxyHtpasswdPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range entries {
+		if u == "alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("proxy htpasswd entry not rebuilt: %v", entries)
+	}
+	// 条目已在后再次调用：走校验通过的短路分支，密码保持稳定。
+	if again, err := store.EnsureProxyPassword("alice"); err != nil || again != "seeded-pass" {
+		t.Fatalf("second ensure: pass=%q err=%v", again, err)
+	}
+}
+
 func TestLastAdminPolicy(t *testing.T) {
 	store, _ := newStore(t, `{"users":{
 		"a":{"role":"admin"},
