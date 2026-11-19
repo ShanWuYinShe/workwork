@@ -1,5 +1,5 @@
 ARG APK_MIRROR=mirrors.aliyun.com
-ARG NGINX_VERSION=1.30.4
+ARG NGINX_VERSION=1.30.6
 # GIT_VERSION(workwork git describe)标识本镜像携带的配置模板/脚本版本。
 ARG GIT_VERSION=dev
 
