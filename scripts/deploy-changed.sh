@@ -117,6 +117,20 @@ else
   # 自己——转入复跑模式($1 已设,跳过 pull,无递归风险)。
   exec bash "$0" "$old"
 fi
+
+# make 启动时(旧代码)经裸 export 把当时的 versions.env 值导进了本进程环境;
+# pull 后 compose 兜底已是新值,但环境变量优先于 :- 兜底——不清掉的话构建
+# 继续用旧版本(实测:Xray 换版后 Dockerfile 内 sha256 闸门直接拒绝旧 zip,
+# 部署失败)。构建期版本以 pull 后代码为准:按新 versions.env 的键清空环境,
+# 与「版本号唯一事实来源」约定一致(compose 兜底一致性由 sync-versions.sh
+# check 门禁保证),不引入第二条取值路径。
+if [ -f versions.env ]; then
+  while IFS='=' read -r key _; do
+    case "$key" in ''|\#*) continue ;; esac
+    unset "$key"
+  done < versions.env
+fi
+
 new=$(git rev-parse HEAD)
 
 if [ "$old" = "$new" ]; then
