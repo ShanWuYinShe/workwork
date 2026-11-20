@@ -32,6 +32,16 @@ description: workwork 构建与部署细节：Makefile 入口与路径映射、�
   `v1.2.0-11-g<sha>`，健康端点指纹与发布 tag 对不上。手工部署先 `git fetch --tags`。
   tag/版本变化会把全部服务加入重建集合，保证镜像 OCI revision 与版本端点一致；
   判据：健康端点的 `version` 与服务器 `git describe` 一致。
+- **版本环境变量以 pull 后代码为准**：Makefile 用裸 `export` 导出所有变量（含
+  `-include versions.env` 读入的版本值），`make deploy-changed` 启动时服务器还是
+  旧代码，旧版本值会进部署进程环境；compose 变量解析中环境变量优先于 `:-` 兜底，
+  不清理会以旧版本构建（Xray 换版时 Dockerfile 内 sha256 闸门直接拒绝旧 zip）。
+  `deploy-changed.sh` 已在 pull 后按新 `versions.env` 键 unset 处理；**手工
+  `make build` 时**若 shell 环境带着版本变量需先 `unset GO_VERSION ALPINE_VERSION
+  BUN_VERSION NGINX_VERSION XRAY_VERSION`。核验：`docker compose config | grep XRAY_VERSION`。
+- **重打发布 tag 后，服务器本地旧 tag 会让部署失败**：`git fetch --tags` 不带
+  `--force`，本地 tag 与远端冲突时报 `would clobber existing tag` 直接退出。
+  重打 tag 后在服务器手工同步一次：`git tag -d <tag> && git fetch --tags origin`。
 
 
 ### 权限注意（首次部署或权限异常时）
