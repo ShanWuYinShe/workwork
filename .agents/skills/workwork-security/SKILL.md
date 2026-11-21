@@ -64,9 +64,9 @@ docker compose logs --since 30m nginx 2>&1 | grep 'POST /proxy/query' | awk '{pr
 
 ## Cloudflare 优选入口 opt.yinghuoren.com
 
-- **现役**：`opt.yinghuoren.com` = DNS only 的 A 记录，指向 **162.159.154.177 + 162.159.158.122**（TTL 300，分属两个 /16 保持路由分集）。它是客户端到 CF 边缘的最优 anycast 入口，源站回源仍走域名的 mTLS。
+- **现役**：`opt.yinghuoren.com` = DNS only 的 A 记录（TTL 300，两条、分属两个 /16 保持路由分集），由 `scripts/cf-opt-update.py` 每小时自动探测更新；具体地址以 CF 记录为准（`dig +short opt.yinghuoren.com A`）。它是客户端到 CF 边缘的最优 anycast 入口，源站回源仍走域名的 mTLS。
 - 客户端 Xray 配置只改 `address` 为 `opt.yinghuoren.com`，`serverName`/`Host`/SNI 仍必须是 `yinghuoren.com`（SNI 用 opt 域名会证书不匹配）。面板生成的配置已内建这个拆分：服务端 `.env` 设 `XHTTP_ADDRESS=opt.yinghuoren.com`（`XHTTP_DOMAIN` 保持 yinghuoren.com 作 SNI），改后重启 admin 容器生效；手工改本机 `config.jsonc` 只作临时验证手段。
-- 换 IP 判定**只能用自有 `/speedtest/{size}` 端点直连测**，且必须 `--noproxy '*'`；同窗口用 cfst 单连接 + 4 连接聚合双法交叉复核（单连接排名跨窗口必翻车）：
+- 换 IP 判定**只能用自有 `/speedtest/{size}` 端点直连测**，且必须 `--noproxy '*'`；同窗口用 cfst 单连接 + 4 连接聚合双法交叉复核（单连接排名跨窗口必翻车）。定时任务已按同样口径封装（两阶段粗筛 + 4 连接聚合，自动 PATCH），手工复核时仍可用：
   ```bash
   ./cfst -url "https://yinghuoren.com/speedtest/33554432" -dn 10 -t 4 -p 15 -o result.csv
   ```

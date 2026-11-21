@@ -11,9 +11,18 @@
 
 ## 现役 IP 与换 IP 纪律
 
-- 现役：**162.159.154.177 + 162.159.158.122**（TTL 300、DNS only、分属两个 /16 保持路由分集）。
+- 现役 IP 以 Cloudflare 记录为准（`dig +short opt.yinghuoren.com A`）：两条 A 记录、TTL 300、DNS only、分属两个 /16 保持路由分集；由 `scripts/cf-opt-update.py` 每小时自动探测更新（见下节「自动任务」），文档不写死具体地址。
 - 换 IP 用 CF API PATCH（TTL 300）；本机 xray 有 DNS 缓存，数分钟内仍走旧 IP 属正常，TTL 过期自愈。
 - CF 边缘 anycast 质量会漂移：优选 IP 变差时重新探测（`curl --noproxy '*' --resolve yinghuoren.com:443:IP https://yinghuoren.com/nginx-health` 测 connect/tls/total，超时 4s）并更新 DNS 记录。
+
+## 自动任务：每小时优选探测
+
+- 脚本：`.agents/skills/workwork-security/scripts/cf-opt-update.py`（仅标准库，无第三方依赖）。
+- 调度：DSH 定时任务 `schedule-e756a8e8-137a-4b12-a7e6-4b5c4797ac55`，每小时 :15 触发，投递到新会话执行脚本并汇报；查看/暂停用 `schedule_list` / `schedule_edit`。
+- 流程：CF 官方 IPv4 段（`/client/v4/ips`，缓存 7 天）每 /24 随机采样 → `/cdn-cgi/trace` 24 并发粗筛 → top 8 用 `/speedtest/{0,4MiB}` 串行测 TTFB 与单连接吞吐 → top 3 + 现役两条做 4 连接 × 2 轮聚合复核 → 决策 → 需要时 PATCH A 记录。
+- 判定阈值（避免每小时抖动）：候选聚合吞吐 ≥ 现役最佳 × 1.35 才进入候选；≥ 1.45 时两条记录都换（取聚合前二且 /16 不同），否则只换较差的记录；55 分钟内变更过则门槛提高到 1.6；候选 TTFB 劣于现役最佳 2.5 倍则否决；现役全部不可达时强制替换。
+- 运行日志：`~/.agents/.state/cf-opt/runs/<日期>.log`（每次一行 JSON：候选/现役聚合吞吐与 TTFB、决策、变更）；状态文件 `~/.agents/.state/cf-opt/state.json` 记录上次变更时间。
+- 依赖：CF API token 经本机 xray HTTP 代理（`127.0.0.1:10809`）调用（token 白名单只放服务器出口）；测速一律直连、绝不走代理。单次运行约 3-6 分钟。
 
 ## 测速方法（唯一可信路径）
 
